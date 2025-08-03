@@ -3,14 +3,16 @@
 import React, { useState, useMemo } from 'react';
 import Navigation from '../../components/Navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Button } from '../../components/ui/Button';
+// Remove these unused imports:
+// import { Button } from '../../components/ui/Button';
 import { useMySchoolStore } from '../../store';
 import {
     CalendarIcon,
     UserGroupIcon,
     UsersIcon,
     CheckIcon,
-    XMarkIcon,
+    // Remove this unused import:
+    // XMarkIcon,
     ClockIcon,
 } from '@heroicons/react/24/outline';
 import { format, isSameDay, parseISO } from 'date-fns';
@@ -281,7 +283,7 @@ export default function AttendancePage() {
                                             <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                                             <h3 className="text-lg font-medium text-gray-900 mb-2">No sessions for this date</h3>
                                             <p className="text-gray-500 mb-4">
-                                                This group doesn't have any sessions scheduled for {format(selectedDate, 'MMMM d, yyyy')}.
+                                                This group doesn&apos;t have any sessions scheduled for {format(selectedDate, 'MMMM d, yyyy')}.
                                             </p>
                                         </div>
                                     ) : (

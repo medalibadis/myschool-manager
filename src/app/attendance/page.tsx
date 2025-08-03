@@ -39,10 +39,24 @@ const attendanceOptions: AttendanceOption[] = [
 ];
 
 export default function AttendancePage() {
-    const { groups, teachers, updateAttendance } = useMySchoolStore();
+    const { 
+        groups, 
+        teachers, 
+        updateAttendance, 
+        fetchGroups, 
+        fetchTeachers, 
+        loading, 
+        error 
+    } = useMySchoolStore();
     const [selectedGroupId, setSelectedGroupId] = useState<string>('');
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [attendanceMap, setAttendanceMap] = useState<{ [sessionId: string]: { [studentId: string]: AttendanceStatus } }>({});
+
+    // Fetch data on component mount
+    React.useEffect(() => {
+        fetchGroups();
+        fetchTeachers();
+    }, [fetchGroups, fetchTeachers]);
 
     // Get groups that have sessions on the selected date
     const groupsWithSessionsOnDate = useMemo(() => {
@@ -75,7 +89,7 @@ export default function AttendancePage() {
     };
 
     // Update attendance status
-    const handleAttendanceUpdate = (sessionId: string, studentId: string, status: AttendanceStatus) => {
+    const handleAttendanceUpdate = async (sessionId: string, studentId: string, status: AttendanceStatus) => {
         setAttendanceMap(prev => ({
             ...prev,
             [sessionId]: {
@@ -86,7 +100,12 @@ export default function AttendancePage() {
 
         // Update the store with boolean attendance (for backward compatibility)
         const isAttended = status === 'P';
-        updateAttendance(sessionId, studentId, isAttended);
+        try {
+            await updateAttendance(sessionId, studentId, isAttended);
+        } catch (error) {
+            console.error('Error updating attendance:', error);
+            alert('Failed to update attendance. Please try again.');
+        }
     };
 
     // Get attendance statistics for a group
@@ -133,6 +152,18 @@ export default function AttendancePage() {
             <Navigation />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {error && (
+                    <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                        Loading...
+                    </div>
+                )}
+
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-gray-900">Attendance Management</h1>
                     <p className="mt-2 text-gray-600">

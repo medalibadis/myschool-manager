@@ -1,33 +1,37 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { Group, Teacher, Student, Session, Payment } from '../types';
-import { addDays, getDay } from 'date-fns';
+import { teacherService, groupService, studentService, sessionService, paymentService } from '../lib/supabase-service';
 
 interface MySchoolStore {
     // State
     groups: Group[];
     teachers: Teacher[];
     payments: Payment[];
+    loading: boolean;
+    error: string | null;
 
     // Actions
-    addTeacher: (teacher: Omit<Teacher, 'id'>) => void;
-    updateTeacher: (id: string, teacher: Partial<Teacher>) => void;
-    deleteTeacher: (id: string) => void;
+    fetchTeachers: () => Promise<void>;
+    addTeacher: (teacher: Omit<Teacher, 'id'>) => Promise<void>;
+    updateTeacher: (id: string, teacher: Partial<Teacher>) => Promise<void>;
+    deleteTeacher: (id: string) => Promise<void>;
 
-    addGroup: (group: Omit<Group, 'id' | 'sessions' | 'createdAt'>) => void;
-    updateGroup: (id: string, group: Partial<Group>) => void;
-    deleteGroup: (id: string) => void;
+    fetchGroups: () => Promise<void>;
+    addGroup: (group: Omit<Group, 'id' | 'sessions' | 'createdAt'>) => Promise<void>;
+    updateGroup: (id: string, group: Partial<Group>) => Promise<void>;
+    deleteGroup: (id: string) => Promise<void>;
 
-    addStudentToGroup: (groupId: string, student: Omit<Student, 'id'>) => void;
-    updateStudent: (groupId: string, studentId: string, student: Partial<Student>) => void;
-    removeStudentFromGroup: (groupId: string, studentId: string) => void;
+    addStudentToGroup: (groupId: string, student: Omit<Student, 'id'>) => Promise<void>;
+    updateStudent: (groupId: string, studentId: string, student: Partial<Student>) => Promise<void>;
+    removeStudentFromGroup: (groupId: string, studentId: string) => Promise<void>;
 
-    generateSessions: (groupId: string) => void;
-    updateAttendance: (sessionId: string, studentId: string, attended: boolean) => void;
+    generateSessions: (groupId: string) => Promise<void>;
+    updateAttendance: (sessionId: string, studentId: string, attended: boolean) => Promise<void>;
 
-    addPayment: (payment: Omit<Payment, 'id'>) => void;
-    updatePayment: (id: string, payment: Partial<Payment>) => void;
-    deletePayment: (id: string) => void;
+    fetchPayments: () => Promise<void>;
+    addPayment: (payment: Omit<Payment, 'id'>) => Promise<void>;
+    updatePayment: (id: string, payment: Partial<Payment>) => Promise<void>;
+    deletePayment: (id: string) => Promise<void>;
 
     // Computed
     getGroupById: (id: string) => Group | undefined;
@@ -44,181 +48,270 @@ interface MySchoolStore {
     };
 }
 
-export const useMySchoolStore = create<MySchoolStore>()(
-    persist(
-        (set, get) => ({
-            // Initial state
-            groups: [],
-            teachers: [],
-            payments: [],
+export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
+    // Initial state
+    groups: [],
+    teachers: [],
+    payments: [],
+    loading: false,
+    error: null,
 
             // Teacher actions
-            addTeacher: (teacher) => {
-                const newTeacher: Teacher = {
-                    ...teacher,
-                    id: crypto.randomUUID(),
-                };
-                set((state) => ({
-                    teachers: [...state.teachers, newTeacher],
-                }));
+            fetchTeachers: async () => {
+                set({ loading: true, error: null });
+                try {
+                    const teachers = await teacherService.getAll();
+                    set({ teachers, loading: false });
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            updateTeacher: (id, teacher) => {
-                set((state) => ({
-                    teachers: state.teachers.map((t) =>
-                        t.id === id ? { ...t, ...teacher } : t
-                    ),
-                }));
+            addTeacher: async (teacher) => {
+                set({ loading: true, error: null });
+                try {
+                    const newTeacher = await teacherService.create(teacher);
+                    set((state) => ({
+                        teachers: [newTeacher, ...state.teachers],
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            deleteTeacher: (id) => {
-                set((state) => ({
-                    teachers: state.teachers.filter((t) => t.id !== id),
-                }));
+            updateTeacher: async (id, teacher) => {
+                set({ loading: true, error: null });
+                try {
+                    const updatedTeacher = await teacherService.update(id, teacher);
+                    set((state) => ({
+                        teachers: state.teachers.map((t) =>
+                            t.id === id ? updatedTeacher : t
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
+            },
+
+            deleteTeacher: async (id) => {
+                set({ loading: true, error: null });
+                try {
+                    await teacherService.delete(id);
+                    set((state) => ({
+                        teachers: state.teachers.filter((t) => t.id !== id),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
             // Group actions
-            addGroup: (group) => {
-                const newGroup: Group = {
-                    ...group,
-                    id: crypto.randomUUID(),
-                    sessions: [],
-                    createdAt: new Date(),
-                };
-                set((state) => ({
-                    groups: [...state.groups, newGroup],
-                }));
+            fetchGroups: async () => {
+                set({ loading: true, error: null });
+                try {
+                    const groups = await groupService.getAll();
+                    set({ groups, loading: false });
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            updateGroup: (id, group) => {
-                set((state) => ({
-                    groups: state.groups.map((g) =>
-                        g.id === id ? { ...g, ...group } : g
-                    ),
-                }));
+            addGroup: async (group) => {
+                set({ loading: true, error: null });
+                try {
+                    const newGroup = await groupService.create(group);
+                    set((state) => ({
+                        groups: [newGroup, ...state.groups],
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            deleteGroup: (id) => {
-                set((state) => ({
-                    groups: state.groups.filter((g) => g.id !== id),
-                }));
+            updateGroup: async (id, group) => {
+                set({ loading: true, error: null });
+                try {
+                    const updatedGroup = await groupService.update(id, group);
+                    set((state) => ({
+                        groups: state.groups.map((g) =>
+                            g.id === id ? updatedGroup : g
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
+            },
+
+            deleteGroup: async (id) => {
+                set({ loading: true, error: null });
+                try {
+                    await groupService.delete(id);
+                    set((state) => ({
+                        groups: state.groups.filter((g) => g.id !== id),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
             // Student actions
-            addStudentToGroup: (groupId, student) => {
-                const newStudent: Student = {
-                    ...student,
-                    id: crypto.randomUUID(),
-                };
-                set((state) => ({
-                    groups: state.groups.map((g) =>
-                        g.id === groupId
-                            ? { ...g, students: [...g.students, newStudent] }
-                            : g
-                    ),
-                }));
+            addStudentToGroup: async (groupId, student) => {
+                set({ loading: true, error: null });
+                try {
+                    const newStudent = await studentService.create(groupId, student);
+                    set((state) => ({
+                        groups: state.groups.map((g) =>
+                            g.id === groupId
+                                ? { ...g, students: [...g.students, newStudent] }
+                                : g
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            updateStudent: (groupId, studentId, student) => {
-                set((state) => ({
-                    groups: state.groups.map((g) =>
-                        g.id === groupId
-                            ? {
-                                ...g,
-                                students: g.students.map((s) =>
-                                    s.id === studentId ? { ...s, ...student } : s
-                                ),
-                            }
-                            : g
-                    ),
-                }));
+            updateStudent: async (groupId, studentId, student) => {
+                set({ loading: true, error: null });
+                try {
+                    const updatedStudent = await studentService.update(groupId, studentId, student);
+                    set((state) => ({
+                        groups: state.groups.map((g) =>
+                            g.id === groupId
+                                ? {
+                                    ...g,
+                                    students: g.students.map((s) =>
+                                        s.id === studentId ? updatedStudent : s
+                                    ),
+                                }
+                                : g
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            removeStudentFromGroup: (groupId, studentId) => {
-                set((state) => ({
-                    groups: state.groups.map((g) =>
-                        g.id === groupId
-                            ? {
-                                ...g,
-                                students: g.students.filter((s) => s.id !== studentId),
-                            }
-                            : g
-                    ),
-                }));
+            removeStudentFromGroup: async (groupId, studentId) => {
+                set({ loading: true, error: null });
+                try {
+                    await studentService.delete(groupId, studentId);
+                    set((state) => ({
+                        groups: state.groups.map((g) =>
+                            g.id === groupId
+                                ? {
+                                    ...g,
+                                    students: g.students.filter((s) => s.id !== studentId),
+                                }
+                                : g
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
             // Session actions
-            generateSessions: (groupId) => {
-                const group = get().getGroupById(groupId);
-                if (!group) return;
-
-                const sessions: Session[] = [];
-                let currentDate = new Date(group.startDate);
-                let sessionCount = 0;
-
-                while (sessionCount < group.totalSessions) {
-                    const dayOfWeek = getDay(currentDate);
-                    if (group.recurringDays.includes(dayOfWeek)) {
-                        sessions.push({
-                            id: crypto.randomUUID(),
-                            date: new Date(currentDate),
-                            groupId,
-                            attendance: {},
-                        });
-                        sessionCount++;
-                    }
-                    currentDate = addDays(currentDate, 1);
+            generateSessions: async (groupId) => {
+                set({ loading: true, error: null });
+                try {
+                    const sessions = await sessionService.generateSessions(groupId);
+                    set((state) => ({
+                        groups: state.groups.map((g) =>
+                            g.id === groupId ? { ...g, sessions } : g
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
                 }
-
-                set((state) => ({
-                    groups: state.groups.map((g) =>
-                        g.id === groupId ? { ...g, sessions } : g
-                    ),
-                }));
             },
 
-            updateAttendance: (sessionId, studentId, attended) => {
-                set((state) => ({
-                    groups: state.groups.map((g) => ({
-                        ...g,
-                        sessions: g.sessions.map((s) =>
-                            s.id === sessionId
-                                ? {
-                                    ...s,
-                                    attendance: {
-                                        ...s.attendance,
-                                        [studentId]: attended,
-                                    },
-                                }
-                                : s
-                        ),
-                    })),
-                }));
+            updateAttendance: async (sessionId, studentId, attended) => {
+                set({ loading: true, error: null });
+                try {
+                    await sessionService.updateAttendance(sessionId, studentId, attended);
+                    set((state) => ({
+                        groups: state.groups.map((g) => ({
+                            ...g,
+                            sessions: g.sessions.map((s) =>
+                                s.id === sessionId
+                                    ? {
+                                        ...s,
+                                        attendance: {
+                                            ...s.attendance,
+                                            [studentId]: attended,
+                                        },
+                                    }
+                                    : s
+                            ),
+                        })),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
             // Payment actions
-            addPayment: (payment) => {
-                const newPayment: Payment = {
-                    ...payment,
-                    id: crypto.randomUUID(),
-                };
-                set((state) => ({
-                    payments: [...state.payments, newPayment],
-                }));
+            fetchPayments: async () => {
+                set({ loading: true, error: null });
+                try {
+                    const payments = await paymentService.getAll();
+                    set({ payments, loading: false });
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            updatePayment: (id, payment) => {
-                set((state) => ({
-                    payments: state.payments.map((p) =>
-                        p.id === id ? { ...p, ...payment } : p
-                    ),
-                }));
+            addPayment: async (payment) => {
+                set({ loading: true, error: null });
+                try {
+                    const newPayment = await paymentService.create(payment);
+                    set((state) => ({
+                        payments: [newPayment, ...state.payments],
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
-            deletePayment: (id) => {
-                set((state) => ({
-                    payments: state.payments.filter((p) => p.id !== id),
-                }));
+            updatePayment: async (id, payment) => {
+                set({ loading: true, error: null });
+                try {
+                    const updatedPayment = await paymentService.update(id, payment);
+                    set((state) => ({
+                        payments: state.payments.map((p) =>
+                            p.id === id ? updatedPayment : p
+                        ),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
+            },
+
+            deletePayment: async (id) => {
+                set({ loading: true, error: null });
+                try {
+                    await paymentService.delete(id);
+                    set((state) => ({
+                        payments: state.payments.filter((p) => p.id !== id),
+                        loading: false,
+                    }));
+                } catch (error) {
+                    set({ error: (error as Error).message, loading: false });
+                }
             },
 
             // Computed getters
@@ -276,9 +369,5 @@ export const useMySchoolStore = create<MySchoolStore>()(
                     remainingBalance,
                 };
             },
-        }),
-        {
-            name: 'myschool-store',
-        }
-    )
-); 
+    })
+);

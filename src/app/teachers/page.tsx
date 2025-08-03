@@ -18,7 +18,16 @@ import {
 } from '@heroicons/react/24/outline';
 
 export default function TeachersPage() {
-    const { teachers, addTeacher, updateTeacher, deleteTeacher, groups } = useMySchoolStore();
+    const { 
+        teachers, 
+        addTeacher, 
+        updateTeacher, 
+        deleteTeacher, 
+        groups, 
+        fetchTeachers, 
+        loading, 
+        error 
+    } = useMySchoolStore();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
@@ -28,41 +37,56 @@ export default function TeachersPage() {
         phone: '',
     });
 
-    const handleCreateTeacher = () => {
+    // Fetch teachers on component mount
+    React.useEffect(() => {
+        fetchTeachers();
+    }, [fetchTeachers]);
+
+    const handleCreateTeacher = async () => {
         if (!formData.name || !formData.email) {
             alert('Please fill in all required fields');
             return;
         }
 
-        addTeacher(formData);
+        try {
+            await addTeacher(formData);
 
-        // Reset form
-        setFormData({
-            name: '',
-            email: '',
-            phone: '',
-        });
+            // Reset form
+            setFormData({
+                name: '',
+                email: '',
+                phone: '',
+            });
 
-        setIsCreateModalOpen(false);
+            setIsCreateModalOpen(false);
+        } catch (error) {
+            console.error('Error creating teacher:', error);
+            alert('Failed to create teacher. Please try again.');
+        }
     };
 
-    const handleEditTeacher = () => {
+    const handleEditTeacher = async () => {
         if (!editingTeacher || !formData.name || !formData.email) {
             alert('Please fill in all required fields');
             return;
         }
 
-        updateTeacher(editingTeacher.id, formData);
+        try {
+            await updateTeacher(editingTeacher.id, formData);
 
-        // Reset form
-        setFormData({
-            name: '',
-            email: '',
-            phone: '',
-        });
+            // Reset form
+            setFormData({
+                name: '',
+                email: '',
+                phone: '',
+            });
 
-        setEditingTeacher(null);
-        setIsEditModalOpen(false);
+            setEditingTeacher(null);
+            setIsEditModalOpen(false);
+        } catch (error) {
+            console.error('Error updating teacher:', error);
+            alert('Failed to update teacher. Please try again.');
+        }
     };
 
     const handleEditClick = (teacher: Teacher) => {
@@ -75,7 +99,7 @@ export default function TeachersPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDeleteTeacher = (teacherId: string) => {
+    const handleDeleteTeacher = async (teacherId: string) => {
         const teacherGroups = groups.filter(group => group.teacherId === teacherId);
         if (teacherGroups.length > 0) {
             alert('Cannot delete teacher who is assigned to groups. Please reassign or delete the groups first.');
@@ -83,7 +107,12 @@ export default function TeachersPage() {
         }
 
         if (confirm('Are you sure you want to delete this teacher?')) {
-            deleteTeacher(teacherId);
+            try {
+                await deleteTeacher(teacherId);
+            } catch (error) {
+                console.error('Error deleting teacher:', error);
+                alert('Failed to delete teacher. Please try again.');
+            }
         }
     };
 
@@ -104,6 +133,17 @@ export default function TeachersPage() {
             <Navigation />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {error && (
+                    <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                        Loading...
+                    </div>
+                )}
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">Teachers</h1>

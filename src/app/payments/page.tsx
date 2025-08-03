@@ -17,7 +17,17 @@ import {
 import { format } from 'date-fns';
 
 export default function PaymentsPage() {
-    const { groups, payments, addPayment, deletePayment, getStudentStats } = useMySchoolStore();
+    const { 
+        groups, 
+        payments, 
+        addPayment, 
+        deletePayment, 
+        getStudentStats, 
+        fetchGroups, 
+        fetchPayments, 
+        loading, 
+        error 
+    } = useMySchoolStore();
     const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
     const [selectedStudent, setSelectedStudent] = useState<{ groupId: string; studentId: string } | null>(null);
     const [paymentData, setPaymentData] = useState({
@@ -26,33 +36,49 @@ export default function PaymentsPage() {
         notes: '',
     });
 
-    const handleAddPayment = () => {
+    // Fetch data on component mount
+    React.useEffect(() => {
+        fetchGroups();
+        fetchPayments();
+    }, [fetchGroups, fetchPayments]);
+
+    const handleAddPayment = async () => {
         if (!selectedStudent || !paymentData.amount) {
             alert('Please fill in all required fields');
             return;
         }
 
-        addPayment({
-            studentId: selectedStudent.studentId,
-            groupId: selectedStudent.groupId,
-            amount: parseFloat(paymentData.amount),
-            date: new Date(paymentData.date),
-            notes: paymentData.notes,
-        });
+        try {
+            await addPayment({
+                studentId: selectedStudent.studentId,
+                groupId: selectedStudent.groupId,
+                amount: parseFloat(paymentData.amount),
+                date: new Date(paymentData.date),
+                notes: paymentData.notes,
+            });
 
-        // Reset form
-        setPaymentData({
-            amount: '',
-            date: new Date().toISOString().split('T')[0],
-            notes: '',
-        });
-        setSelectedStudent(null);
-        setIsAddPaymentModalOpen(false);
+            // Reset form
+            setPaymentData({
+                amount: '',
+                date: new Date().toISOString().split('T')[0],
+                notes: '',
+            });
+            setSelectedStudent(null);
+            setIsAddPaymentModalOpen(false);
+        } catch (error) {
+            console.error('Error adding payment:', error);
+            alert('Failed to add payment. Please try again.');
+        }
     };
 
-    const handleDeletePayment = (paymentId: string) => {
+    const handleDeletePayment = async (paymentId: string) => {
         if (confirm('Are you sure you want to delete this payment?')) {
-            deletePayment(paymentId);
+            try {
+                await deletePayment(paymentId);
+            } catch (error) {
+                console.error('Error deleting payment:', error);
+                alert('Failed to delete payment. Please try again.');
+            }
         }
     };
 
@@ -68,6 +94,18 @@ export default function PaymentsPage() {
             <Navigation />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {error && (
+                    <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                        Loading...
+                    </div>
+                )}
+
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">Payments</h1>

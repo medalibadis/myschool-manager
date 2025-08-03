@@ -34,11 +34,21 @@ export default function GroupDetailPage() {
         removeStudentFromGroup,
         updateStudent,
         generateSessions,
-        updateAttendance
+        updateAttendance,
+        fetchGroups,
+        fetchTeachers,
+        loading,
+        error
     } = useMySchoolStore();
 
     const group = getGroupById(groupId);
     const teacher = group ? getTeacherById(group.teacherId) : null;
+
+    // Fetch data on component mount
+    React.useEffect(() => {
+        fetchGroups();
+        fetchTeachers();
+    }, [fetchGroups, fetchTeachers]);
 
     const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
@@ -47,6 +57,8 @@ export default function GroupDetailPage() {
         name: '',
         email: '',
         phone: '',
+        address: '',
+        birthDate: '',
     });
 
     if (!group) {
@@ -71,50 +83,68 @@ export default function GroupDetailPage() {
         );
     }
 
-    const handleAddStudent = () => {
+    const handleAddStudent = async () => {
         if (!studentData.name || !studentData.phone) {
             alert('Please fill in all required fields (Name and Phone)');
             return;
         }
 
-        addStudentToGroup(groupId, {
-            name: studentData.name,
-            email: studentData.email || '',
-            phone: studentData.phone,
-            totalPaid: 0,
-        });
+        try {
+            await addStudentToGroup(groupId, {
+                name: studentData.name,
+                email: studentData.email || '',
+                phone: studentData.phone,
+                address: studentData.address || undefined,
+                birthDate: studentData.birthDate ? new Date(studentData.birthDate) : undefined,
+                totalPaid: 0,
+            });
 
-        // Reset form
-        setStudentData({
-            name: '',
-            email: '',
-            phone: '',
-        });
+            // Reset form
+            setStudentData({
+                name: '',
+                email: '',
+                phone: '',
+                address: '',
+                birthDate: '',
+            });
 
-        setIsAddStudentModalOpen(false);
+            setIsAddStudentModalOpen(false);
+        } catch (error) {
+            console.error('Error adding student:', error);
+            alert('Failed to add student. Please try again.');
+        }
     };
 
-    const handleEditStudent = () => {
+    const handleEditStudent = async () => {
         if (!editingStudent || !studentData.name || !studentData.phone) {
             alert('Please fill in all required fields (Name and Phone)');
             return;
         }
 
-        updateStudent(groupId, editingStudent.id, {
-            name: studentData.name,
-            email: studentData.email,
-            phone: studentData.phone,
-        });
+        try {
+            await updateStudent(groupId, editingStudent.id, {
+                name: studentData.name,
+                email: studentData.email,
+                phone: studentData.phone,
+                address: studentData.address || undefined,
+                birthDate: studentData.birthDate ? new Date(studentData.birthDate) : undefined,
+            });
 
-        // Reset form
-        setStudentData({
-            name: '',
-            email: '',
-            phone: '',
-        });
+            // Reset form
+            setStudentData({
+                name: '',
+                email: '',
+                phone: '',
+                address: '',
+                birthDate: '',
+            });
 
-        setEditingStudent(null);
-        setIsEditStudentModalOpen(false);
+            setEditingStudent(null);
+            setIsEditStudentModalOpen(false);
+        } catch (error) {
+            console.error('Error updating student:', error);
+            alert('Failed to update student. Please try again.');
+        }
     };
 
     const handleEditStudentClick = (student: Student) => {
@@ -123,22 +153,39 @@ export default function GroupDetailPage() {
             name: student.name,
             email: student.email,
             phone: student.phone || '',
+            address: student.address || '',
+            birthDate: student.birthDate ? student.birthDate.toISOString().split('T')[0] : '',
         });
         setIsEditStudentModalOpen(true);
     };
 
-    const handleDeleteStudent = (studentId: string) => {
+    const handleDeleteStudent = async (studentId: string) => {
         if (confirm('Are you sure you want to remove this student from the group?')) {
-            removeStudentFromGroup(groupId, studentId);
+            try {
+                await removeStudentFromGroup(groupId, studentId);
+            } catch (error) {
+                console.error('Error removing student:', error);
+                alert('Failed to remove student. Please try again.');
+            }
         }
     };
 
-    const handleGenerateSessions = () => {
-        generateSessions(groupId);
+    const handleGenerateSessions = async () => {
+        try {
+            await generateSessions(groupId);
+        } catch (error) {
+            console.error('Error generating sessions:', error);
+            alert('Failed to generate sessions. Please try again.');
+        }
     };
 
-    const handleAttendanceToggle = (sessionId: string, studentId: string, attended: boolean) => {
-        updateAttendance(sessionId, studentId, attended);
+    const handleAttendanceToggle = async (sessionId: string, studentId: string, attended: boolean) => {
+        try {
+            await updateAttendance(sessionId, studentId, attended);
+        } catch (error) {
+            console.error('Error updating attendance:', error);
+            alert('Failed to update attendance. Please try again.');
+        }
     };
 
     const weekDays = [
@@ -150,6 +197,18 @@ export default function GroupDetailPage() {
             <Navigation />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {error && (
+                    <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                        Loading...
+                    </div>
+                )}
+
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
@@ -252,6 +311,21 @@ export default function GroupDetailPage() {
                                                                 <PhoneIcon className="h-4 w-4 mr-1" />
                                                                 {student.phone}
                                                             </span>
+                                                            {student.address && (
+                                                                <span className="flex items-center">
+                                                                    <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                    </svg>
+                                                                    {student.address}
+                                                                </span>
+                                                            )}
+                                                            {student.birthDate && (
+                                                                <span className="flex items-center">
+                                                                    <CalendarIcon className="h-4 w-4 mr-1" />
+                                                                    {format(new Date(student.birthDate), 'MMM dd, yyyy')}
+                                                                </span>
+                                                            )}
                                                             {student.pricePerSession && (
                                                                 <span className="flex items-center">
                                                                     <CurrencyDollarIcon className="h-4 w-4 mr-1" />
@@ -384,6 +458,28 @@ export default function GroupDetailPage() {
                         />
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Address (Optional)
+                        </label>
+                        <Input
+                            value={studentData.address}
+                            onChange={(e) => setStudentData(prev => ({ ...prev, address: e.target.value }))}
+                            placeholder="Enter address"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Birth Date (Optional)
+                        </label>
+                        <Input
+                            type="date"
+                            value={studentData.birthDate}
+                            onChange={(e) => setStudentData(prev => ({ ...prev, birthDate: e.target.value }))}
+                        />
+                    </div>
+
                     <div className="flex justify-end space-x-3 pt-4">
                         <Button
                             variant="outline"
@@ -440,6 +536,28 @@ export default function GroupDetailPage() {
                             value={studentData.phone}
                             onChange={(e) => setStudentData(prev => ({ ...prev, phone: e.target.value }))}
                             placeholder="Enter phone number"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Address (Optional)
+                        </label>
+                        <Input
+                            value={studentData.address}
+                            onChange={(e) => setStudentData(prev => ({ ...prev, address: e.target.value }))}
+                            placeholder="Enter address"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Birth Date (Optional)
+                        </label>
+                        <Input
+                            type="date"
+                            value={studentData.birthDate}
+                            onChange={(e) => setStudentData(prev => ({ ...prev, birthDate: e.target.value }))}
                         />
                     </div>
 

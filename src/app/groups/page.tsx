@@ -19,7 +19,17 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 
 export default function GroupsPage() {
-    const { groups, teachers, addGroup, deleteGroup, generateSessions } = useMySchoolStore();
+    const { 
+        groups, 
+        teachers, 
+        addGroup, 
+        deleteGroup, 
+        generateSessions, 
+        fetchGroups, 
+        fetchTeachers, 
+        loading, 
+        error 
+    } = useMySchoolStore();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [formData, setFormData] = useState({
         teacherId: '',
@@ -28,6 +38,12 @@ export default function GroupsPage() {
         recurringDays: [] as number[],
         price: 0,
     });
+
+    // Fetch data on component mount
+    React.useEffect(() => {
+        fetchGroups();
+        fetchTeachers();
+    }, [fetchGroups, fetchTeachers]);
 
     const weekDays = [
         { value: 0, label: 'Sunday' },
@@ -49,36 +65,37 @@ export default function GroupsPage() {
         return String(maxId + 1).padStart(6, '0');
     };
 
-    const handleCreateGroup = () => {
+    const handleCreateGroup = async () => {
         if (!formData.teacherId || !formData.startDate || formData.recurringDays.length === 0) {
             alert('Please fill in all required fields');
             return;
         }
 
-        const uniqueId = generateUniqueId();
-        const newGroup = {
-            id: uniqueId, // <-- add this line
-            name: `Group ${uniqueId}`,
-            teacherId: formData.teacherId,
-            students: [],
-            startDate: new Date(formData.startDate),
-            recurringDays: formData.recurringDays,
-            totalSessions: formData.totalSessions,
-            price: formData.price,
-        };
+        try {
+            const newGroup = {
+                name: `Group ${Date.now()}`, // Generate a unique name
+                teacherId: formData.teacherId,
+                startDate: new Date(formData.startDate),
+                recurringDays: formData.recurringDays,
+                totalSessions: formData.totalSessions,
+            };
 
-        addGroup(newGroup);
+            await addGroup(newGroup);
 
-        // Reset form
-        setFormData({
-            teacherId: '',
-            startDate: '',
-            totalSessions: 16,
-            recurringDays: [],
-            price: 0,
-        });
+            // Reset form
+            setFormData({
+                teacherId: '',
+                startDate: '',
+                totalSessions: 16,
+                recurringDays: [],
+                price: 0,
+            });
 
-        setIsCreateModalOpen(false);
+            setIsCreateModalOpen(false);
+        } catch (error) {
+            console.error('Error creating group:', error);
+            alert('Failed to create group. Please try again.');
+        }
     };
 
     const handleDayToggle = (dayValue: number) => {
@@ -90,8 +107,13 @@ export default function GroupsPage() {
         }));
     };
 
-    const handleGenerateSessions = (groupId: string) => {
-        generateSessions(groupId);
+    const handleGenerateSessions = async (groupId: string) => {
+        try {
+            await generateSessions(groupId);
+        } catch (error) {
+            console.error('Error generating sessions:', error);
+            alert('Failed to generate sessions. Please try again.');
+        }
     };
 
     return (
@@ -99,6 +121,18 @@ export default function GroupsPage() {
             <Navigation />
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {error && (
+                    <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                        Loading...
+                    </div>
+                )}
+
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">Groups</h1>

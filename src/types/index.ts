@@ -10,6 +10,8 @@ export interface Student {
     name: string;
     email: string;
     phone?: string;
+    address?: string;
+    birthDate?: Date;
     pricePerSession?: number;
     totalPaid: number;
 }

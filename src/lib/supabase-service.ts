@@ -229,11 +229,14 @@ export const groupService = {
 // Student operations
 export const studentService = {
   async create(groupId: number, student: Omit<Student, 'id'>): Promise<Student> {
+    // Handle empty email values - convert empty strings to null
+    const emailValue = student.email && student.email.trim() !== '' ? student.email : null;
+    
     const { data, error } = await supabase
       .from('students')
       .insert({
         name: student.name,
-        email: student.email,
+        email: emailValue,
         phone: student.phone,
         address: student.address,
         birth_date: student.birthDate?.toISOString().split('T')[0],
@@ -263,11 +266,14 @@ export const studentService = {
   },
 
   async update(groupId: number, studentId: string, student: Partial<Student>): Promise<Student> {
+    // Handle empty email values - convert empty strings to null
+    const emailValue = student.email && student.email.trim() !== '' ? student.email : null;
+    
     const { data, error } = await supabase
       .from('students')
       .update({
         name: student.name,
-        email: student.email,
+        email: emailValue,
         phone: student.phone,
         address: student.address,
         birth_date: student.birthDate?.toISOString().split('T')[0],
@@ -500,11 +506,14 @@ export const waitingListService = {
   },
 
   async create(student: Omit<WaitingListStudent, 'id' | 'createdAt'>): Promise<WaitingListStudent> {
+    // Handle empty email values - convert empty strings to null
+    const emailValue = student.email && student.email.trim() !== '' ? student.email : null;
+    
     const { data, error } = await supabase
       .from('waiting_list')
       .insert({
         name: student.name,
-        email: student.email,
+        email: emailValue,
         phone: student.phone,
         address: student.address,
         birth_date: student.birthDate,
@@ -537,11 +546,14 @@ export const waitingListService = {
   },
 
   async update(id: string, student: Partial<WaitingListStudent>): Promise<WaitingListStudent> {
+    // Handle empty email values - convert empty strings to null
+    const emailValue = student.email && student.email.trim() !== '' ? student.email : null;
+    
     const { data, error } = await supabase
       .from('waiting_list')
       .update({
         name: student.name,
-        email: student.email,
+        email: emailValue,
         phone: student.phone,
         address: student.address,
         birth_date: student.birthDate,

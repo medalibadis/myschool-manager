@@ -1,27 +1,27 @@
-# Supabase Integration Setup Guide
-
-This guide will help you set up Supabase with your MySchool Manager project.
+# Supabase Setup Guide
 
 ## Prerequisites
-
 - A Supabase account (sign up at https://supabase.com)
-- Node.js and npm installed on your system
+- Node.js and npm installed
+- Next.js project set up
 
 ## Step 1: Create a Supabase Project
 
 1. Go to https://supabase.com and sign in
 2. Click "New Project"
 3. Choose your organization
-4. Enter a project name (e.g., "myschool-manager")
-5. Enter a database password
-6. Choose a region close to your users
-7. Click "Create new project"
+4. Enter project details:
+   - Name: `myschool_manager` (or your preferred name)
+   - Database Password: Create a strong password
+   - Region: Choose the closest region to your users
+5. Click "Create new project"
 
-## Step 2: Get Your Supabase Credentials
+## Step 2: Get Your Project Credentials
 
 1. In your Supabase dashboard, go to Settings > API
-2. Copy your Project URL
-3. Copy your anon/public key
+2. Copy the following values:
+   - Project URL (starts with `https://`)
+   - Anon public key (starts with `eyJ`)
 
 ## Step 3: Set Up Environment Variables
 
@@ -33,135 +33,140 @@ NEXT_PUBLIC_SUPABASE_URL=your_project_url_here
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 ```
 
-Replace `your_project_url_here` and `your_anon_key_here` with your actual Supabase credentials.
+Replace `your_project_url_here` and `your_anon_key_here` with the values from Step 2.
 
-## Step 4: Set Up the Database Schema
+## Step 4: Set Up Database Schema
 
 1. In your Supabase dashboard, go to SQL Editor
-2. Copy the contents of `supabase-schema.sql`
-3. Paste it into the SQL Editor
-4. Click "Run" to execute the schema
+2. Copy and paste the contents of `supabase-schema.sql`
+3. Click "Run" to execute the schema
 
-This will create all the necessary tables:
-- `teachers` - Store teacher information
-- `groups` - Store group information
-- `students` - Store student information
-- `sessions` - Store session information
-- `attendance` - Store attendance records
-- `payments` - Store payment records
+This will create:
+- `teachers` table (UUID IDs)
+- `groups` table (Sequential IDs starting from 1)
+- `students` table (UUID IDs)
+- `sessions` table (UUID IDs)
+- `attendance` table (UUID IDs)
+- `payments` table (UUID IDs)
+- All necessary indexes and relationships
+- Row Level Security (RLS) policies
 
-## Step 5: Install Dependencies
+### Group ID System
 
-Run the following command to install Supabase dependencies:
+The groups table now uses **sequential integer IDs** starting from 1:
+- First group created: ID = 1 (displayed as #000001)
+- Second group created: ID = 2 (displayed as #000002)
+- And so on...
 
-```bash
-npm install
-```
+This provides a clean, predictable numbering system for your groups.
 
-## Step 6: Test the Integration
+## Step 5: Verify Setup
 
-1. Start your development server:
-```bash
-npm run dev
-```
+1. Run the development server:
+   ```bash
+   npm run dev
+   ```
 
-2. Navigate to your teachers page
-3. Try creating, editing, and deleting teachers
-4. Check the Supabase dashboard to see the data being stored
+2. Open your browser and navigate to `http://localhost:3000`
 
-## Step 7: Deploy to Vercel
+3. Check the browser console for any connection errors
 
-1. Push your changes to GitHub
-2. In your Vercel dashboard, add the environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Deploy your application
+## Step 6: Test Database Connection
 
-## Environment Variables for Vercel
+You can test the database connection by:
 
-Make sure to add these environment variables in your Vercel project settings:
+1. Going to the Teachers page and trying to create a teacher
+2. Going to the Groups page and trying to create a group
+3. Checking the browser's Network tab for any failed requests
 
-- `NEXT_PUBLIC_SUPABASE_URL` = Your Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = Your Supabase anon key
+## Migration from UUID to Sequential IDs
 
-## Database Schema Overview
+If you have an existing database with UUID group IDs and want to migrate to sequential IDs:
 
-### Teachers Table
-- `id` - Unique identifier
-- `name` - Teacher's name
-- `email` - Teacher's email (unique)
-- `phone` - Teacher's phone number (optional)
-- `created_at` - Timestamp
-
-### Groups Table
-- `id` - Unique identifier
-- `name` - Group name
-- `teacher_id` - Reference to teacher
-- `start_date` - When the group starts
-- `recurring_days` - Array of days (0=Sunday, 1=Monday, etc.)
-- `total_sessions` - Number of sessions
-- `created_at` - Timestamp
-
-### Students Table
-- `id` - Unique identifier
-- `name` - Student's name
-- `email` - Student's email
-- `phone` - Student's phone (optional)
-- `price_per_session` - Cost per session
-- `total_paid` - Total amount paid
-- `group_id` - Reference to group
-- `created_at` - Timestamp
-
-### Sessions Table
-- `id` - Unique identifier
-- `date` - Session date
-- `group_id` - Reference to group
-- `created_at` - Timestamp
-
-### Attendance Table
-- `id` - Unique identifier
-- `session_id` - Reference to session
-- `student_id` - Reference to student
-- `attended` - Whether student attended
-- `created_at` - Timestamp
-
-### Payments Table
-- `id` - Unique identifier
-- `student_id` - Reference to student
-- `group_id` - Reference to group
-- `amount` - Payment amount
-- `date` - Payment date
-- `notes` - Payment notes (optional)
-- `created_at` - Timestamp
-
-## Security Notes
-
-- The current setup allows public access to all tables
-- For production, consider implementing authentication
-- You can modify the RLS (Row Level Security) policies in Supabase
-- Consider adding user authentication with Supabase Auth
+1. **Backup your data** first!
+2. Run the migration script `migrate-to-sequential-ids.sql` in your Supabase SQL Editor
+3. **Warning**: This will delete all existing groups, students, sessions, and payments data
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Environment variables not working**
-   - Make sure you've created `.env.local` file
+1. **"Missing Supabase environment variables"**
+   - Make sure your `.env.local` file exists and has the correct values
    - Restart your development server after adding environment variables
 
-2. **Database connection errors**
-   - Verify your Supabase URL and anon key are correct
-   - Check that your Supabase project is active
+2. **"Failed to fetch teachers/groups"**
+   - Check that your Supabase URL and key are correct
+   - Verify that the database schema has been created
+   - Check the browser console for detailed error messages
 
-3. **Schema errors**
-   - Make sure you've run the SQL schema in Supabase
-   - Check the SQL Editor for any error messages
+3. **"Table does not exist"**
+   - Make sure you've run the `supabase-schema.sql` script in your Supabase SQL Editor
+   - Check that all tables were created successfully
 
-4. **CORS errors**
-   - Add your domain to the allowed origins in Supabase settings
+4. **RLS (Row Level Security) errors**
+   - The schema includes public access policies for development
+   - For production, you should implement proper authentication and RLS policies
 
-### Getting Help
+5. **Group ID type errors**
+   - Make sure you're using the updated schema with sequential IDs
+   - Check that all TypeScript types are updated to use `number` for group IDs
 
-- Check the Supabase documentation: https://supabase.com/docs
-- Check the Next.js documentation: https://nextjs.org/docs
-- Check the Zustand documentation: https://github.com/pmndrs/zustand 
+### Environment Variables
+
+Make sure your `.env.local` file contains:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Database Schema Verification
+
+You can verify your database schema by running this query in the Supabase SQL Editor:
+
+```sql
+SELECT 
+    table_name,
+    column_name,
+    data_type,
+    is_nullable
+FROM information_schema.columns 
+WHERE table_schema = 'public' 
+AND table_name IN ('teachers', 'groups', 'students', 'sessions', 'attendance', 'payments')
+ORDER BY table_name, ordinal_position;
+```
+
+### Verify Group ID System
+
+To check that the sequential ID system is working:
+
+```sql
+-- Check the current sequence value
+SELECT currval('groups_id_seq');
+
+-- Check existing groups
+SELECT id, name, created_at FROM groups ORDER BY id;
+```
+
+## Security Considerations
+
+1. **Environment Variables**: Never commit your `.env.local` file to version control
+2. **RLS Policies**: The current setup allows public access for development. For production, implement proper authentication
+3. **API Keys**: Keep your service role key secure and only use it for server-side operations
+
+## Next Steps
+
+1. Add authentication (Supabase Auth)
+2. Implement proper RLS policies
+3. Add data validation
+4. Set up backups
+5. Configure monitoring and logging
+
+## Support
+
+If you encounter issues:
+1. Check the Supabase documentation: https://supabase.com/docs
+2. Check the browser console for error messages
+3. Verify your database schema matches the expected structure
+4. Test the connection using the validation script in `src/lib/supabase-validation.ts` 

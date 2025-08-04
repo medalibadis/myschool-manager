@@ -1,22 +1,37 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { Button } from './ui/Button';
+import { useAuth } from '../contexts/AuthContext';
 import {
     AcademicCapIcon,
     UserGroupIcon,
     CalendarIcon,
     UsersIcon,
+    ClockIcon,
+    ArrowRightOnRectangleIcon,
+    UserIcon,
 } from '@heroicons/react/24/outline';
 
 const Navigation: React.FC = () => {
     const pathname = usePathname();
+    const router = useRouter();
+    const { user, logout } = useAuth();
 
     const navigation = [
         { name: 'Dashboard', href: '/', icon: AcademicCapIcon },
         { name: 'Groups', href: '/groups', icon: UserGroupIcon },
         { name: 'Teachers', href: '/teachers', icon: UsersIcon },
         { name: 'Attendance', href: '/attendance', icon: CalendarIcon },
+        { name: 'Waiting List', href: '/waiting-list', icon: ClockIcon },
     ];
+
+    const handleLogout = () => {
+        logout();
+        router.push('/login');
+    };
 
     return (
         <nav className="bg-white shadow-sm border-b border-gray-200">
@@ -44,6 +59,25 @@ const Navigation: React.FC = () => {
                                 );
                             })}
                         </div>
+                    </div>
+
+                    {/* User Info and Logout */}
+                    <div className="flex items-center space-x-4">
+                        {user && (
+                            <div className="flex items-center space-x-2 text-sm text-gray-700">
+                                <UserIcon className="h-4 w-4" />
+                                <span>Welcome, {user.name}</span>
+                            </div>
+                        )}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleLogout}
+                            className="flex items-center space-x-2"
+                        >
+                            <ArrowRightOnRectangleIcon className="h-4 w-4" />
+                            <span>Logout</span>
+                        </Button>
                     </div>
                 </div>
             </div>

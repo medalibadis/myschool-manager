@@ -38,7 +38,7 @@ export interface Database {
       };
       groups: {
         Row: {
-          id: string;
+          id: number;
           name: string;
           teacher_id: string;
           start_date: string;
@@ -47,7 +47,7 @@ export interface Database {
           created_at: string;
         };
         Insert: {
-          id?: string;
+          id?: number;
           name: string;
           teacher_id: string;
           start_date: string;
@@ -56,7 +56,7 @@ export interface Database {
           created_at?: string;
         };
         Update: {
-          id?: string;
+          id?: number;
           name?: string;
           teacher_id?: string;
           start_date?: string;
@@ -75,7 +75,7 @@ export interface Database {
           birth_date?: string;
           price_per_session?: number;
           total_paid: number;
-          group_id: string;
+          group_id: number;
           created_at: string;
         };
         Insert: {
@@ -87,7 +87,7 @@ export interface Database {
           birth_date?: string;
           price_per_session?: number;
           total_paid?: number;
-          group_id: string;
+          group_id: number;
           created_at?: string;
         };
         Update: {
@@ -99,7 +99,7 @@ export interface Database {
           birth_date?: string;
           price_per_session?: number;
           total_paid?: number;
-          group_id?: string;
+          group_id?: number;
           created_at?: string;
         };
       };
@@ -107,19 +107,19 @@ export interface Database {
         Row: {
           id: string;
           date: string;
-          group_id: string;
+          group_id: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           date: string;
-          group_id: string;
+          group_id: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           date?: string;
-          group_id?: string;
+          group_id?: number;
           created_at?: string;
         };
       };
@@ -150,7 +150,7 @@ export interface Database {
         Row: {
           id: string;
           student_id: string;
-          group_id: string;
+          group_id: number;
           amount: number;
           date: string;
           notes?: string;
@@ -159,7 +159,7 @@ export interface Database {
         Insert: {
           id?: string;
           student_id: string;
-          group_id: string;
+          group_id: number;
           amount: number;
           date: string;
           notes?: string;
@@ -168,7 +168,7 @@ export interface Database {
         Update: {
           id?: string;
           student_id?: string;
-          group_id?: string;
+          group_id?: number;
           amount?: number;
           date?: string;
           notes?: string;

@@ -8,6 +8,78 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Prevent text selection and cursor on non-editable elements */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+span,
+div,
+td,
+th,
+label {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  cursor: default;
+  pointer-events: auto;
+}
+
+/* Allow text selection only on input fields and textareas */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  cursor: text;
+}
+
+/* Prevent cursor appearance on non-editable elements */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+span,
+div,
+td,
+th,
+label {
+  cursor: default;
+}
+
+/* Additional rules for specific elements that might cause issues */
+.card,
+.card-content,
+.card-header,
+.card-title,
+.card-description {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  cursor: default;
+}
+
+/* Ensure buttons and interactive elements have proper cursor */
+button,
+[role="button"],
+.btn {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -26,6 +98,43 @@ body {
   background: #a8a8a8;
 }
 
+/* Remove increment/decrement buttons from all number inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Ensure no increment/decrement buttons appear in any browser */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-moz-outer-spin-button,
+input[type="number"]::-moz-inner-spin-button {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* Additional CSS to ensure no increment/decrement buttons appear */
+input[type="number"] {
+  -webkit-appearance: textfield;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Target all number inputs specifically */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
 /* Vertical text writing mode for compact table headers */
 .writing-mode-vertical {
   writing-mode: vertical-rl;
@@ -34,4 +143,18 @@ body {
   white-space: nowrap;
   font-size: 0.75rem;
   line-height: 1;
+}
+
+/* Reduced opacity for placeholders */
+::placeholder {
+  color: #9ca3af !important;
+  /* text-gray-400 */
+  opacity: 0.6 !important;
+}
+
+/* Specific styling for textarea placeholders */
+textarea::placeholder {
+  color: #9ca3af !important;
+  /* text-gray-400 */
+  opacity: 0.6 !important;
 }

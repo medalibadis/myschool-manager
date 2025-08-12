@@ -146,7 +146,7 @@ src/
 - Handles multiple recurring days per week
 
 ### Financial Calculations
-- Total due = attended sessions × price per session
+- Total due = attended sessions × course fee
 - Balance = total due - total paid
 - Real-time payment tracking and updates
 

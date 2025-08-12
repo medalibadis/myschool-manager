@@ -9,6 +9,25 @@ DROP TABLE IF EXISTS sessions CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
 DROP TABLE IF EXISTS groups CASCADE;
 DROP TABLE IF EXISTS teachers CASCADE;
+DROP TABLE IF EXISTS waiting_list CASCADE;
+
+-- Drop existing enum types if they exist
+DROP TYPE IF EXISTS language_type CASCADE;
+DROP TYPE IF EXISTS level_type CASCADE;
+DROP TYPE IF EXISTS category_type CASCADE;
+
+-- Create enum types for language, level, and category
+CREATE TYPE language_type AS ENUM (
+    'English', 'French', 'Spanish', 'German', 'Italian', 'Arabic', 'Chinese', 'Japanese', 'Korean', 'Russian', 'Portuguese', 'Dutch', 'Swedish', 'Norwegian', 'Danish', 'Finnish', 'Polish', 'Czech', 'Hungarian', 'Romanian', 'Bulgarian', 'Croatian', 'Serbian', 'Slovenian', 'Slovak', 'Estonian', 'Latvian', 'Lithuanian', 'Greek', 'Turkish', 'Hebrew', 'Hindi', 'Urdu', 'Bengali', 'Tamil', 'Telugu', 'Marathi', 'Gujarati', 'Kannada', 'Malayalam', 'Punjabi', 'Sinhala', 'Thai', 'Vietnamese', 'Indonesian', 'Malay', 'Filipino', 'other'
+);
+
+CREATE TYPE level_type AS ENUM (
+    'Beginner', 'Elementary', 'Pre-Intermediate', 'Intermediate', 'Upper-Intermediate', 'Advanced', 'Proficient', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'A1+', 'A2+', 'B1+', 'B2+', 'C1+', 'other'
+);
+
+CREATE TYPE category_type AS ENUM (
+    'Children', 'Teenagers', 'Adults', 'Seniors', 'Business', 'Academic', 'Conversation', 'Grammar', 'Writing', 'Reading', 'Listening', 'Speaking', 'Exam Preparation', 'TOEFL', 'IELTS', 'TOEIC', 'Cambridge', 'DELF', 'DALF', 'DELE', 'TestDaF', 'Goethe', 'HSK', 'JLPT', 'TOPIK', 'other'
+);
 
 -- Create teachers table
 CREATE TABLE teachers (
@@ -27,10 +46,15 @@ CREATE TABLE groups (
     start_date DATE NOT NULL,
     recurring_days INTEGER[] NOT NULL,
     total_sessions INTEGER NOT NULL,
-    language VARCHAR(100),
-    level VARCHAR(100),
-    category VARCHAR(100),
+    language language_type,
+    level level_type,
+    category category_type,
     price DECIMAL(10,2),
+    start_time TIME,
+    end_time TIME,
+    custom_language VARCHAR(100),
+    custom_level VARCHAR(100),
+    custom_category VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -45,6 +69,8 @@ CREATE TABLE students (
     price_per_session DECIMAL(10,2),
     total_paid DECIMAL(10,2) DEFAULT 0,
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    parent_name VARCHAR(255),
+    second_phone VARCHAR(20),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -56,13 +82,14 @@ CREATE TABLE sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create attendance table (using 'attended' boolean to match application expectations)
+-- Create attendance table (using 'status' string to match application expectations)
 CREATE TABLE attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
-    attended BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    status VARCHAR(20) NOT NULL DEFAULT 'default',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(session_id, student_id)
 );
 
 -- Create payments table
@@ -84,10 +111,15 @@ CREATE TABLE waiting_list (
     phone VARCHAR(50),
     address TEXT,
     birth_date DATE,
-    language VARCHAR(100) NOT NULL,
-    level VARCHAR(100) NOT NULL,
-    category VARCHAR(100) NOT NULL,
+    language language_type NOT NULL,
+    level level_type NOT NULL,
+    category category_type NOT NULL,
     notes TEXT,
+    parent_name VARCHAR(255),
+    second_phone VARCHAR(20),
+    custom_language VARCHAR(100),
+    custom_level VARCHAR(100),
+    custom_category VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

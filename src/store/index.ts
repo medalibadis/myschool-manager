@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { Group, Teacher, Student, Session, Payment, WaitingListStudent } from '../types';
-import { teacherService, groupService, studentService, sessionService, paymentService, waitingListService } from '../lib/supabase-service';
+import { Group, Teacher, Student, Session, Payment, WaitingListStudent, CallLog } from '../types';
+import { teacherService, groupService, studentService, sessionService, paymentService, waitingListService, callLogService } from '../lib/supabase-service';
 
 interface MySchoolStore {
     // State
@@ -8,6 +8,7 @@ interface MySchoolStore {
     teachers: Teacher[];
     payments: Payment[];
     waitingList: WaitingListStudent[];
+    callLogs: (CallLog & { studentName?: string; studentPhone?: string })[];
     loading: boolean;
     error: string | null;
 
@@ -27,12 +28,82 @@ interface MySchoolStore {
     removeStudentFromGroup: (groupId: number, studentId: string) => Promise<void>;
 
     generateSessions: (groupId: number) => Promise<void>;
-    updateAttendance: (sessionId: string, studentId: string, attended: boolean) => Promise<void>;
+    updateAttendance: (sessionId: string, studentId: string, status: string) => Promise<void>;
+    updateAttendanceBulk: (groupId: number, updates: Array<{ sessionId: string; studentId: string; status: string }>) => Promise<void>;
+
+    // Freeze and reschedule functionality
+    freezeGroup: (groupId: number) => Promise<void>;
+    unfreezeGroup: (groupId: number, unfreezeDate: Date) => Promise<void>;
+    rescheduleSession: (sessionId: string, newDate: Date) => Promise<void>;
 
     fetchPayments: () => Promise<void>;
     addPayment: (payment: Omit<Payment, 'id'>) => Promise<void>;
     updatePayment: (id: string, payment: Partial<Payment>) => Promise<void>;
     deletePayment: (id: string) => Promise<void>;
+
+    // New payment system methods
+    getStudentBalance: (studentId: string) => Promise<{
+        totalBalance: number;
+        totalPaid: number;
+        remainingBalance: number;
+        groupBalances: Array<{
+            groupId: number;
+            groupName: string;
+            groupFees: number;
+            amountPaid: number;
+            remainingAmount: number;
+            discount?: number;
+        }>;
+    }>;
+    getRecentPayments: (limit: number) => Promise<Array<Payment & {
+        studentName: string;
+        groupName: string;
+    }>>;
+    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string) => Promise<{ depositId: string; allocations: any[] }>;
+
+    // Refund and Debts functionality
+    getRefundList: () => Promise<Array<{
+        studentId: string;
+        studentName: string;
+        customId?: string;
+        balance: number;
+        groups: Array<{ id: number; name: string; status: string }>;
+    }>>;
+    getDebtsList: () => Promise<Array<{
+        studentId: string;
+        studentName: string;
+        customId?: string;
+        balance: number;
+        groups: Array<{ id: number; name: string; status: string }>;
+    }>>;
+    processRefund: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
+    processDebtPayment: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
+    refreshAllStudentsForDebtsAndRefunds: () => Promise<{
+        refundsCount: number;
+        debtsCount: number;
+        processedStudents: number;
+        errors: string[];
+    }>;
+
+    // New attendance-based payment calculations
+    calculateAttendanceBasedPayments: () => Promise<{
+        refunds: Array<{
+            studentId: string;
+            studentName: string;
+            customId?: string;
+            balance: number;
+            groups: Array<{ id: number; name: string; status: string }>;
+        }>;
+        debts: Array<{
+            studentId: string;
+            studentName: string;
+            customId?: string;
+            balance: number;
+            groups: Array<{ id: number; name: string; status: string }>;
+        }>;
+    }>;
+    processAutomaticRefund: (studentId: string, amount: number, notes?: string) => Promise<void>;
+    processAutomaticDebtPayment: (studentId: string, amount: number, notes?: string) => Promise<void>;
 
     // Waiting List actions
     fetchWaitingList: () => Promise<void>;
@@ -41,6 +112,21 @@ interface MySchoolStore {
     deleteFromWaitingList: (id: string) => Promise<void>;
     getWaitingListByCriteria: (language?: string, level?: string, category?: string) => Promise<WaitingListStudent[]>;
     moveFromWaitingListToGroup: (waitingListId: string, groupId: number) => Promise<void>;
+    getSuggestedGroups: () => Promise<Array<{
+        groupName: string;
+        language: string;
+        level: string;
+        category: string;
+        studentCount: number;
+        students: WaitingListStudent[];
+    }>>;
+
+    // Call Log actions
+    fetchCallLogs: () => Promise<void>;
+    addCallLog: (callLog: Omit<CallLog, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+    updateCallLog: (id: string, callLog: Partial<CallLog>) => Promise<void>;
+    deleteCallLog: (id: string) => Promise<void>;
+    getLastPaymentCallNote: (studentId: string) => Promise<string | null>;
 
     // Computed
     getGroupById: (id: number) => Group | undefined;
@@ -63,6 +149,7 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     teachers: [],
     payments: [],
     waitingList: [],
+    callLogs: [],
     loading: false,
     error: null,
 
@@ -251,27 +338,58 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
         }
     },
 
-    updateAttendance: async (sessionId, studentId, attended) => {
+    updateAttendance: async (sessionId, studentId, status) => {
         set({ loading: true, error: null });
         try {
-            await sessionService.updateAttendance(sessionId, studentId, attended);
-            set((state) => ({
-                groups: state.groups.map((g) => ({
-                    ...g,
-                    sessions: g.sessions.map((s) =>
-                        s.id === sessionId
-                            ? {
-                                ...s,
-                                attendance: {
-                                    ...s.attendance,
-                                    [studentId]: attended,
-                                },
-                            }
-                            : s
-                    ),
-                })),
-                loading: false,
-            }));
+            await sessionService.updateAttendance(sessionId, studentId, status);
+            // Refresh groups data to get updated attendance
+            await get().fetchGroups();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    updateAttendanceBulk: async (groupId, updates) => {
+        set({ loading: true, error: null });
+        try {
+            await sessionService.updateAttendanceBulk(groupId, updates);
+            await get().fetchGroups();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    // Freeze and reschedule functionality
+    freezeGroup: async (groupId) => {
+        set({ loading: true, error: null });
+        try {
+            await groupService.freezeGroup(groupId);
+            await get().fetchGroups(); // Refresh groups to show frozen status
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    unfreezeGroup: async (groupId, unfreezeDate) => {
+        set({ loading: true, error: null });
+        try {
+            await groupService.unfreezeGroup(groupId, unfreezeDate);
+            await get().fetchGroups(); // Refresh groups to show un-frozen status
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    rescheduleSession: async (sessionId, newDate) => {
+        set({ loading: true, error: null });
+        try {
+            await groupService.rescheduleSession(sessionId, newDate);
+            await get().fetchGroups(); // Refresh groups to show updated session date
+            set({ loading: false });
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
         }
@@ -326,6 +444,45 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
             }));
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    // New payment system methods
+    getStudentBalance: async (studentId: string) => {
+        set({ loading: true, error: null });
+        try {
+            const balance = await paymentService.getStudentBalance(studentId);
+            set({ loading: false });
+            return balance;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    getRecentPayments: async (limit: number = 50) => {
+        set({ loading: true, error: null });
+        try {
+            const recentPayments = await paymentService.getRecentPayments(limit);
+            set({ loading: false });
+            return recentPayments;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string) => {
+        set({ loading: true, error: null });
+        try {
+            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila' });
+            // Refresh payments list
+            const payments = await paymentService.getAll();
+            set({ payments, loading: false });
+            return result; // { depositId, allocations }
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
         }
     },
 
@@ -439,6 +596,190 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
         }
     },
 
+    getSuggestedGroups: async () => {
+        set({ loading: true, error: null });
+        try {
+            const suggestedGroups = await waitingListService.getSuggestedGroups();
+            set({ loading: false });
+            return suggestedGroups;
+        } catch (error) {
+            console.error('Error getting suggested groups:', error);
+            set({ error: (error as Error).message, loading: false });
+            return [];
+        }
+    },
+
+    // Call Log actions
+    fetchCallLogs: async () => {
+        set({ loading: true, error: null });
+        try {
+            const callLogs = await callLogService.getAll();
+            set({ callLogs, loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    addCallLog: async (callLog) => {
+        set({ loading: true, error: null });
+        try {
+            console.log('Attempting to create call log with data:', callLog);
+            const newCallLog = await callLogService.create(callLog);
+            set((state) => ({
+                callLogs: [newCallLog, ...state.callLogs],
+                loading: false,
+            }));
+        } catch (error) {
+            console.error('Error in addCallLog store function:', error);
+            console.error('Call log data that failed:', callLog);
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    updateCallLog: async (id, callLog) => {
+        set({ loading: true, error: null });
+        try {
+            const updatedCallLog = await callLogService.update(id, callLog);
+            set((state) => ({
+                callLogs: state.callLogs.map((c) =>
+                    c.id === id ? updatedCallLog : c
+                ),
+                loading: false,
+            }));
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    deleteCallLog: async (id) => {
+        set({ loading: true, error: null });
+        try {
+            await callLogService.delete(id);
+            set((state) => ({
+                callLogs: state.callLogs.filter((c) => c.id !== id),
+                loading: false,
+            }));
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    getLastPaymentCallNote: async (studentId: string) => {
+        set({ loading: true, error: null });
+        try {
+            const lastCallLog = await callLogService.getLastPaymentCallNote(studentId);
+            set({ loading: false });
+            return lastCallLog;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    // Refund and Debts functionality
+    getRefundList: async () => {
+        set({ loading: true, error: null });
+        try {
+            // This will be implemented in the supabase service
+            const refundList = await paymentService.getRefundList();
+            set({ loading: false });
+            return refundList;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    getDebtsList: async () => {
+        set({ loading: true, error: null });
+        try {
+            // This will be implemented in the supabase service
+            const debtsList = await paymentService.getDebtsList();
+            set({ loading: false });
+            return debtsList;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    processRefund: async (studentId: string, amount: number, date: Date, notes?: string) => {
+        set({ loading: true, error: null });
+        try {
+            await paymentService.processRefund(studentId, amount, date, notes);
+            // Refresh payments after refund
+            await get().fetchPayments();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    processDebtPayment: async (studentId: string, amount: number, date: Date, notes?: string) => {
+        set({ loading: true, error: null });
+        try {
+            await paymentService.processDebtPayment(studentId, amount, date, notes);
+            // Refresh payments after debt payment
+            await get().fetchPayments();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    refreshAllStudentsForDebtsAndRefunds: async () => {
+        set({ loading: true, error: null });
+        try {
+            const result = await paymentService.refreshAllStudentsForDebtsAndRefunds();
+            set({ loading: false });
+            return result;
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    // New attendance-based payment calculations
+    calculateAttendanceBasedPayments: async () => {
+        set({ loading: true, error: null });
+        try {
+            const { refunds, debts } = await paymentService.calculateAttendanceBasedPayments();
+            set({ loading: false });
+            return { refunds, debts };
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    processAutomaticRefund: async (studentId: string, amount: number, notes?: string) => {
+        set({ loading: true, error: null });
+        try {
+            await paymentService.processAutomaticRefund(studentId, amount, notes);
+            // Refresh payments after automatic refund
+            await get().fetchPayments();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
+    processAutomaticDebtPayment: async (studentId: string, amount: number, notes?: string) => {
+        set({ loading: true, error: null });
+        try {
+            await paymentService.processAutomaticDebtPayment(studentId, amount, notes);
+            // Refresh payments after automatic debt payment
+            await get().fetchPayments();
+            set({ loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
+        }
+    },
+
     // Computed getters
     getGroupById: (id) => {
         return get().groups.find((g) => g.id === id);
@@ -482,7 +823,7 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
         const attendedSessions = sessions.filter(
             (s) => s.attendance[studentId]
         ).length;
-        const totalDue = attendedSessions * (student.pricePerSession || 0);
+        const totalDue = attendedSessions * (student.courseFee || 0);
         const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
         const remainingBalance = totalDue - totalPaid;
 

@@ -73,9 +73,12 @@ export interface Database {
           phone?: string;
           address?: string;
           birth_date?: string;
-          price_per_session?: number;
-          total_paid: number;
-          group_id: number;
+          second_phone?: string;
+          parent_name?: string;
+          registration_fee_paid: boolean;
+          registration_fee_amount: number;
+          registration_fee_group_id?: number;
+          default_discount?: number;
           created_at: string;
         };
         Insert: {
@@ -85,9 +88,12 @@ export interface Database {
           phone?: string;
           address?: string;
           birth_date?: string;
-          price_per_session?: number;
-          total_paid?: number;
-          group_id: number;
+          second_phone?: string;
+          parent_name?: string;
+          registration_fee_paid?: boolean;
+          registration_fee_amount?: number;
+          registration_fee_group_id?: number;
+          default_discount?: number;
           created_at?: string;
         };
         Update: {
@@ -97,9 +103,12 @@ export interface Database {
           phone?: string;
           address?: string;
           birth_date?: string;
-          price_per_session?: number;
-          total_paid?: number;
-          group_id?: number;
+          second_phone?: string;
+          parent_name?: string;
+          registration_fee_paid?: boolean;
+          registration_fee_amount?: number;
+          registration_fee_group_id?: number;
+          default_discount?: number;
           created_at?: string;
         };
       };
@@ -128,41 +137,52 @@ export interface Database {
           id: string;
           session_id: string;
           student_id: string;
-          attended: boolean;
+          status: string;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
           id?: string;
           session_id: string;
           student_id: string;
-          attended: boolean;
+          status?: string;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           id?: string;
           session_id?: string;
           student_id?: string;
-          attended?: boolean;
+          status?: string;
           created_at?: string;
+          updated_at?: string;
         };
       };
       payments: {
         Row: {
           id: string;
           student_id: string;
-          group_id: number;
+          group_id?: number;
           amount: number;
           date: string;
           notes?: string;
+          admin_name?: string;
+          payment_type?: string;
+          discount?: number;
+          original_amount?: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           student_id: string;
-          group_id: number;
+          group_id?: number;
           amount: number;
           date: string;
           notes?: string;
+          admin_name?: string;
+          payment_type?: string;
+          discount?: number;
+          original_amount?: number;
           created_at?: string;
         };
         Update: {
@@ -172,6 +192,10 @@ export interface Database {
           amount?: number;
           date?: string;
           notes?: string;
+          admin_name?: string;
+          payment_type?: string;
+          discount?: number;
+          original_amount?: number;
           created_at?: string;
         };
       };

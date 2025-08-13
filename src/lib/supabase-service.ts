@@ -559,7 +559,6 @@ export const groupService = {
       name: group.name.trim(),
       teacher_id: group.teacherId,
       start_date: group.startDate ? group.startDate.toISOString().split('T')[0] : null,
-      recurring_days: group.recurringDays || [1],
       total_sessions: group.totalSessions || 16,
       language: group.language || 'English',
       level: group.level || 'Beginner',
@@ -590,7 +589,7 @@ export const groupService = {
       name: data.name,
       teacherId: data.teacher_id,
       startDate: new Date(data.start_date),
-      recurringDays: data.recurring_days,
+      recurringDays: [1], // Default to Monday since we don't have this column
       totalSessions: data.total_sessions,
       language: data.language,
       level: data.level,
@@ -614,7 +613,6 @@ export const groupService = {
         name: group.name,
         teacher_id: group.teacherId,
         start_date: group.startDate?.toISOString().split('T')[0],
-        recurring_days: group.recurringDays,
         total_sessions: group.totalSessions,
         language: group.language,
         level: group.level,
@@ -622,6 +620,9 @@ export const groupService = {
         price: group.price,
         start_time: group.startTime,
         end_time: group.endTime,
+        custom_language: group.customLanguage,
+        custom_level: group.customLevel,
+        custom_category: group.customCategory,
       })
       .eq('id', id)
       .select()
@@ -637,7 +638,7 @@ export const groupService = {
       name: data.name,
       teacherId: data.teacher_id,
       startDate: new Date(data.start_date),
-      recurringDays: data.recurring_days,
+      recurringDays: [1], // Default to Monday since we don't have this column
       totalSessions: data.total_sessions,
       language: data.language,
       level: data.level,
@@ -645,6 +646,9 @@ export const groupService = {
       price: data.price,
       startTime: data.start_time,
       endTime: data.end_time,
+      customLanguage: data.custom_language,
+      customLevel: data.custom_level,
+      customCategory: data.custom_category,
       students: [],
       sessions: [],
       createdAt: new Date(data.created_at),
@@ -1731,6 +1735,14 @@ export const paymentService = {
       discount?: number;
     }>;
   }> {
+    // Guard clause: check if studentId is valid
+    if (!studentId || typeof studentId !== 'string') {
+      console.error('getStudentBalance called with invalid studentId:', studentId);
+      throw new Error(`Invalid student ID: ${studentId}`);
+    }
+
+    console.log('getStudentBalance called with studentId:', studentId);
+
     // Get student info
     const { data: student, error: studentError } = await supabase
       .from('students')
@@ -1744,50 +1756,79 @@ export const paymentService = {
     }
 
     // Get all payments for this student (across all groups) - include original_amount for discount calculations
-    const { data: payments, error: paymentsError } = await supabase
-      .from('payments')
-      .select('group_id, amount, original_amount, discount, notes')
-      .eq('student_id', studentId);
+    let payments: any[] = [];
+    try {
+      const { data, error: paymentsError } = await supabase
+        .from('payments')
+        .select('group_id, amount, original_amount, discount, notes')
+        .eq('student_id', studentId);
 
-    if (paymentsError) {
-      console.error('Error fetching payments:', paymentsError);
-      throw new Error(`Failed to fetch payments: ${paymentsError.message}`);
+      if (paymentsError) {
+        console.error('Error fetching payments:', paymentsError);
+        // Don't throw error, just set to empty array
+        payments = [];
+      } else {
+        payments = data || [];
+      }
+    } catch (tableError) {
+      console.log('payments table not available, using empty array');
+      payments = [];
     }
 
     // Get all groups that this student is enrolled in using the junction table
-    const { data: studentGroups, error: groupsError } = await supabase
-      .from('student_groups')
-      .select(`
-        group_id,
-        groups (
-          id,
-          name,
-          price,
-          total_sessions
-        )
-      `)
-      .eq('student_id', studentId);
+    let studentGroups: any[] = [];
+    try {
+      const { data, error: groupsError } = await supabase
+        .from('student_groups')
+        .select(`
+          group_id,
+          groups (
+            id,
+            name,
+            price,
+            total_sessions
+          )
+        `)
+        .eq('student_id', studentId);
 
-    if (groupsError) {
-      console.error('Error fetching student groups:', groupsError);
-      throw new Error(`Failed to fetch student groups: ${groupsError.message}`);
+      if (groupsError) {
+        console.error('Error fetching student groups:', groupsError);
+        // Don't throw error, just set to empty array
+        studentGroups = [];
+      } else {
+        studentGroups = data || [];
+      }
+    } catch (tableError) {
+      console.log('student_groups table not available, using empty array');
+      studentGroups = [];
     }
 
-    // Registration fee fields
-    const { data: regRow } = await supabase
-      .from('students')
-      .select('registration_fee_paid, registration_fee_amount')
-      .eq('id', studentId)
-      .single();
-    const registrationAmount = Number(regRow?.registration_fee_amount || 0);
-    const registrationPaid = (payments || [])
+    // Registration fee fields - with fallback for missing columns
+    let registrationAmount = 0;
+    let registrationPaidAmount = 0;
+
+    try {
+      const { data: regRow } = await supabase
+        .from('students')
+        .select('registration_fee_paid, registration_fee_amount')
+        .eq('id', studentId)
+        .single();
+
+      if (regRow) {
+        registrationAmount = Number(regRow.registration_fee_amount || 0);
+      }
+    } catch (regError) {
+      // If registration fee columns don't exist, use fallback logic
+      console.log('Registration fee columns not available, using fallback logic');
+    }
+
+    // Calculate registration payments from payments table
+    const registrationPaid = payments
       .filter(p => p.group_id === null)
-      // Consider only explicit registration payments if needed (notes), but we may not have here; we infer all null group_id as credit + reg
-      // To be strict, we'll recompute below in recent payments mapping; for balance here, use all null group payments as credits,
-      // but compute explicit registration paid as sum of null group payments with notes ILIKE 'Registration fee%'.
       .reduce((sum, p) => sum + 0, 0);
+
     // Fetch explicit registration payments amount
-    const registrationPaidAmount = (payments || [])
+    registrationPaidAmount = payments
       .filter(p => p.group_id === null && (p as any).notes && String((p as any).notes).toLowerCase().startsWith('registration fee'))
       .reduce((sum, p) => sum + Number((p as any).original_amount ?? (p as any).amount ?? 0), 0);
 
@@ -1805,7 +1846,7 @@ export const paymentService = {
     }> = [];
 
     // Calculate total credits from balance additions ONLY (exclude registration fee receipts)
-    const balanceAdditions = (payments || [])
+    const balanceAdditions = payments
       .filter(p => {
         if (p.group_id !== null) return false;
         const n = ((p as any).notes || '').toString().toLowerCase();
@@ -1816,7 +1857,7 @@ export const paymentService = {
     totalCredits = balanceAdditions.reduce((sum, p) => sum + Number((p as any).amount || 0), 0);
 
     // Attendance-based fee adjustment per group
-    for (const studentGroup of (studentGroups || [])) {
+    for (const studentGroup of studentGroups) {
       const group = studentGroup.groups[0];
       const groupIdVal = group.id as number;
       const totalSessions = Number(group.total_sessions || 0);
@@ -2388,6 +2429,12 @@ export const paymentService = {
 
       console.log(`Found ${students?.length || 0} students total`);
 
+      // Debug: Log the first few students to see their structure
+      if (students && students.length > 0) {
+        console.log('First student data structure:', JSON.stringify(students[0], null, 2));
+        console.log('All students:', students.map(s => ({ id: s.id, name: s.name, hasId: !!s.id })));
+      }
+
       const refundList: Array<{
         studentId: string;
         studentName: string;
@@ -2398,11 +2445,34 @@ export const paymentService = {
 
       for (const student of students || []) {
         try {
-          console.log(`\n=== Processing student: ${student.name} (${student.id}) ===`);
+          // Add null check for student.id - check multiple possible field names
+          const studentId = student.id || (student as any).student_id || (student as any).studentId;
+          if (!student || !studentId) {
+            console.error('Invalid student data - missing ID:', {
+              student,
+              hasId: !!student.id,
+              hasStudentId: !!(student as any).student_id,
+              hasStudentIdAlt: !!(student as any).studentId,
+              allKeys: Object.keys(student || {})
+            });
+            continue;
+          }
 
-          // Get student balance
-          const balance = await paymentService.getStudentBalance(student.id);
-          console.log(`Student ${student.name} balance:`, balance.remainingBalance);
+          console.log(`\n=== Processing student: ${student.name} (${studentId}) ===`);
+
+          // Get student balance with error handling
+          let balance;
+          try {
+            if (!studentId) {
+              console.error(`Student ${student.name} has no valid ID, skipping`);
+              continue;
+            }
+            balance = await paymentService.getStudentBalance(studentId);
+            console.log(`Student ${student.name} balance:`, balance.remainingBalance);
+          } catch (balanceError) {
+            console.error(`Error getting balance for student ${student.name} (ID: ${studentId}):`, balanceError);
+            continue; // Skip this student and continue with the next one
+          }
 
           // Only include students with positive balance
           if (balance.remainingBalance > 0) {
@@ -2421,7 +2491,7 @@ export const paymentService = {
                     name
                   )
                 `)
-                .eq('student_id', student.id);
+                .eq('student_id', studentId);
 
               if (groupsError) {
                 console.error(`Error fetching groups for student ${student.name}:`, groupsError);
@@ -2449,7 +2519,7 @@ export const paymentService = {
 
                 // Add to refund list
                 refundList.push({
-                  studentId: student.id,
+                  studentId: studentId,
                   studentName: student.name,
                   customId: student.custom_id,
                   balance: balance.remainingBalance,
@@ -2471,7 +2541,7 @@ export const paymentService = {
             console.log(`Student ${student.name} has no positive balance - not eligible for refund`);
           }
         } catch (studentError) {
-          console.error(`Error processing student ${student.name}:`, studentError);
+          console.error(`Error processing student ${student?.name || 'Unknown'}:`, studentError);
           continue;
         }
       }
@@ -2522,6 +2592,12 @@ export const paymentService = {
 
       console.log(`Found ${students?.length || 0} students total`);
 
+      // Debug: Log the first few students to see their structure
+      if (students && students.length > 0) {
+        console.log('First student data structure:', JSON.stringify(students[0], null, 2));
+        console.log('All students:', students.map(s => ({ id: s.id, name: s.name, hasId: !!s.id })));
+      }
+
       const debtsList: Array<{
         studentId: string;
         studentName: string;
@@ -2532,11 +2608,23 @@ export const paymentService = {
 
       for (const student of students || []) {
         try {
+          // Add null check for student.id
+          if (!student || !student.id) {
+            console.error('Invalid student data:', student);
+            continue;
+          }
+
           console.log(`\n=== Processing student: ${student.name} (${student.id}) ===`);
 
-          // Get student balance
-          const balance = await paymentService.getStudentBalance(student.id);
-          console.log(`Student ${student.name} balance:`, balance.remainingBalance);
+          // Get student balance with error handling
+          let balance;
+          try {
+            balance = await paymentService.getStudentBalance(student.id);
+            console.log(`Student ${student.name} balance:`, balance.remainingBalance);
+          } catch (balanceError) {
+            console.error(`Error getting balance for student ${student.name}:`, balanceError);
+            continue; // Skip this student and continue with the next one
+          }
 
           // Only include students with negative balance
           if (balance.remainingBalance < 0) {
@@ -2605,7 +2693,7 @@ export const paymentService = {
             console.log(`Student ${student.name} has no negative balance - not eligible for debt collection`);
           }
         } catch (studentError) {
-          console.error(`Error processing student ${student.name}:`, studentError);
+          console.error(`Error processing student ${student?.name || 'Unknown'}:`, studentError);
           continue;
         }
       }
@@ -3473,256 +3561,172 @@ export const waitingListService = {
 // Call Log operations
 export const callLogService = {
   async getAll(): Promise<(CallLog & { studentName?: string; studentPhone?: string })[]> {
-    // First, fetch call logs
-    const { data: callLogsData, error: callLogsError } = await supabase
-      .from('call_logs')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      // Fetch call logs with the actual columns that exist
+      const { data: callLogsData, error: callLogsError } = await supabase
+        .from('call_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (callLogsError) {
-      console.error('Error fetching call logs:', callLogsError);
-      throw new Error(`Failed to fetch call logs: ${callLogsError.message}`);
-    }
-
-    // Get unique student IDs from call logs
-    const studentIds = callLogsData?.map(log => log.student_id).filter(Boolean) || [];
-
-    // Fetch student information from both waiting_list and students tables
-    let studentDataMap = new Map();
-
-    if (studentIds.length > 0) {
-      // Fetch from waiting_list table
-      const { data: wlData, error: wlError } = await supabase
-        .from('waiting_list')
-        .select('id, name, phone')
-        .in('id', studentIds);
-
-      if (wlError) {
-        console.error('Error fetching waiting list data for call logs:', wlError);
-      } else if (wlData) {
-        wlData.forEach(student => {
-          studentDataMap.set(student.id, { name: student.name, phone: student.phone });
-        });
+      if (callLogsError) {
+        console.error('Error fetching call logs:', callLogsError);
+        throw new Error(`Failed to fetch call logs: ${callLogsError.message}`);
       }
 
-      // Fetch from students table directly (not through junction table)
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('students')
-        .select('id, name, phone')
-        .in('id', studentIds);
-
-      if (studentsError) {
-        console.error('Error fetching students data for call logs:', studentsError);
-      } else if (studentsData) {
-        studentsData.forEach((student: any) => {
-          studentDataMap.set(student.id, {
-            name: student.name,
-            phone: student.phone
-          });
-        });
-      }
-    }
-
-    return callLogsData?.map(log => {
-      const studentInfo = studentDataMap.get(log.student_id);
-      return {
+      // Map the data to match the expected format
+      return callLogsData?.map(log => ({
         id: log.id,
-        studentId: log.student_id,
+        studentId: log.student_id || null,
         callDate: new Date(log.call_date),
-        callType: log.call_type,
-        status: log.status,
-        notes: log.notes,
-        adminName: log.admin_name,
+        callType: 'other', // Default to 'other' since we don't have this field
+        status: log.call_status || 'pending',
+        notes: log.notes || '',
+        adminName: 'Dalila', // Default admin name
         createdAt: new Date(log.created_at),
-        updatedAt: new Date(log.updated_at),
-        studentName: studentInfo?.name || 'Student not found',
-        studentPhone: studentInfo?.phone || 'Phone not found',
-      };
-    }) || [];
+        updatedAt: new Date(log.created_at), // Use created_at as fallback
+        studentName: log.student_name || 'Unknown',
+        studentPhone: log.student_phone || 'No phone',
+      })) || [];
+    } catch (error) {
+      console.error('Error in callLogService.getAll:', error);
+      throw error;
+    }
   },
 
   async getLastPaymentCallNote(studentId: string): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('call_logs')
-      .select('notes')
-      .eq('student_id', studentId)
-      .eq('call_type', 'payment')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('call_logs')
+        .select('notes')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows returned
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows returned
+          return null;
+        }
+        console.error('Error fetching last call note:', error);
         return null;
       }
-      console.error('Error fetching last payment call note:', error);
+
+      return data?.notes || null;
+    } catch (error) {
+      console.error('Error in getLastPaymentCallNote:', error);
       return null;
     }
-
-    return data?.notes || null;
   },
 
   async create(log: Omit<CallLog, 'id' | 'createdAt' | 'updatedAt'>): Promise<CallLog & { studentName?: string; studentPhone?: string }> {
-    console.log('callLogService.create called with data:', log);
+    try {
+      console.log('callLogService.create called with data:', log);
 
-    const { data, error } = await supabase
-      .from('call_logs')
-      .insert({
-        student_id: log.studentId,
-        call_date: log.callDate.toISOString(),
-        call_type: log.callType,
-        status: log.status,
-        notes: log.notes,
-        admin_name: log.adminName,
-      })
-      .select()
-      .single();
+      // Prepare the data for insertion based on actual schema
+      const insertData: any = {
+        student_name: log.studentName || 'Unknown Student',
+        student_phone: log.studentPhone || '',
+        call_date: log.callDate.toISOString().split('T')[0],
+        call_time: new Date().toTimeString().split(' ')[0],
+        notes: log.notes || '',
+        call_status: log.status || 'pending',
+        call_type: log.callType || 'incoming',
+        admin_name: log.adminName || 'Dalila',
+      };
 
-    if (error) {
-      console.error('Supabase error creating call log:', error);
-      console.error('Data that failed to insert:', {
-        student_id: log.studentId,
-        call_date: log.callDate.toISOString(),
-        call_type: log.callType,
-        status: log.status,
-        notes: log.notes,
-        admin_name: log.adminName,
-      });
-      throw new Error(`Failed to create call log: ${error.message}`);
-    }
+      // Add optional fields if they exist
+      if (log.studentId) insertData.student_id = log.studentId;
 
-    console.log('Call log created successfully:', data);
-
-    // Fetch student information to include name and phone
-    let studentName: string | undefined;
-    let studentPhone: string | undefined;
-
-    if (log.studentId) {
-      // Try to get from waiting_list first
-      const { data: wlData } = await supabase
-        .from('waiting_list')
-        .select('name, phone')
-        .eq('id', log.studentId)
+      const { data, error } = await supabase
+        .from('call_logs')
+        .insert(insertData)
+        .select()
         .single();
 
-      if (wlData) {
-        studentName = wlData.name;
-        studentPhone = wlData.phone;
-      } else {
-        // Try to get from students table via student_groups
-        const { data: studentData } = await supabase
-          .from('student_groups')
-          .select(`
-            students!inner(
-              name,
-              phone
-            )
-          `)
-          .eq('student_id', log.studentId)
-          .single();
-
-        if (studentData?.students) {
-          studentName = (studentData.students as any).name;
-          studentPhone = (studentData.students as any).phone;
-        }
+      if (error) {
+        console.error('Supabase error creating call log:', error);
+        console.error('Data that failed to insert:', insertData);
+        throw new Error(`Failed to create call log: ${error.message}`);
       }
-    }
 
-    return {
-      id: data.id,
-      studentId: data.student_id,
-      callDate: new Date(data.call_date),
-      callType: data.call_type,
-      status: data.status,
-      notes: data.notes,
-      adminName: data.admin_name,
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-      studentName,
-      studentPhone,
-    };
+      console.log('Call log created successfully:', data);
+
+      return {
+        id: data.id,
+        studentId: data.student_id,
+        callDate: new Date(data.call_date),
+        callType: 'other',
+        status: data.call_status,
+        notes: data.notes,
+        adminName: 'Dalila',
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.created_at),
+        studentName: data.student_name,
+        studentPhone: data.student_phone,
+      };
+    } catch (error) {
+      console.error('Error in callLogService.create:', error);
+      throw error;
+    }
   },
 
   async update(id: string, log: Partial<CallLog>): Promise<CallLog & { studentName?: string; studentPhone?: string }> {
-    const { data, error } = await supabase
-      .from('call_logs')
-      .update({
-        student_id: log.studentId,
-        call_date: log.callDate?.toISOString(),
-        call_type: log.callType,
-        status: log.status,
-        notes: log.notes,
-        admin_name: log.adminName,
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      const updateData: any = {};
 
-    if (error) {
-      console.error('Error updating call log:', error);
-      throw new Error(`Failed to update call log: ${error.message}`);
-    }
+      // Map the fields to actual database columns
+      if (log.studentName !== undefined) updateData.student_name = log.studentName;
+      if (log.studentPhone !== undefined) updateData.student_phone = log.studentPhone;
+      if (log.callDate !== undefined) updateData.call_date = log.callDate.toISOString().split('T')[0];
+      if (log.status !== undefined) updateData.call_status = log.status;
+      if (log.notes !== undefined) updateData.notes = log.notes;
 
-    // Fetch student information to include name and phone
-    let studentName: string | undefined;
-    let studentPhone: string | undefined;
-
-    if (data.student_id) {
-      // Try to get from waiting_list first
-      const { data: wlData } = await supabase
-        .from('waiting_list')
-        .select('name, phone')
-        .eq('id', data.student_id)
+      const { data, error } = await supabase
+        .from('call_logs')
+        .update(updateData)
+        .eq('id', id)
+        .select()
         .single();
 
-      if (wlData) {
-        studentName = wlData.name;
-        studentPhone = wlData.phone;
-      } else {
-        // Try to get from students table via student_groups
-        const { data: studentData } = await supabase
-          .from('student_groups')
-          .select(`
-            students!inner(
-              name,
-              phone
-            )
-          `)
-          .eq('student_id', data.student_id)
-          .single();
-
-        if (studentData?.students) {
-          studentName = (studentData.students as any).name;
-          studentPhone = (studentData.students as any).phone;
-        }
+      if (error) {
+        console.error('Error updating call log:', error);
+        throw new Error(`Failed to update call log: ${error.message}`);
       }
-    }
 
-    return {
-      id: data.id,
-      studentId: data.student_id,
-      callDate: new Date(data.call_date),
-      callType: data.call_type,
-      status: data.status,
-      notes: data.notes,
-      adminName: data.admin_name,
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-      studentName,
-      studentPhone,
-    };
+      return {
+        id: data.id,
+        studentId: data.student_id,
+        callDate: new Date(data.call_date),
+        callType: 'other',
+        status: data.call_status,
+        notes: data.notes,
+        adminName: 'Dalila',
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.created_at),
+        studentName: data.student_name,
+        studentPhone: data.student_phone,
+      };
+    } catch (error) {
+      console.error('Error in callLogService.update:', error);
+      throw error;
+    }
   },
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabase
-      .from('call_logs')
-      .delete()
-      .eq('id', id);
+    try {
+      const { error } = await supabase
+        .from('call_logs')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.error('Error deleting call log:', error);
-      throw new Error(`Failed to delete call log: ${error.message}`);
+      if (error) {
+        console.error('Error deleting call log:', error);
+        throw new Error(`Failed to delete call log: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Error in callLogService.delete:', error);
+      throw error;
     }
   },
 }; 

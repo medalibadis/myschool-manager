@@ -313,7 +313,8 @@ export default function GroupsPage() {
         return id.toString().padStart(6, '0');
     };
 
-    const formatTeacherId = (id: string) => {
+    const formatTeacherId = (id: string | null) => {
+        if (!id) return 'No Teacher';
         // Convert UUID to a number and format as T01, T02, etc.
         // This is a simple hash-based approach for demo purposes
         const hash = id.split('').reduce((a, b) => {
@@ -453,7 +454,7 @@ export default function GroupsPage() {
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                     <div>
                                                         <div className="font-medium">{teachers.find(t => t.id === group.teacherId)?.name || 'Unknown Teacher'}</div>
-                                                        <div className="text-gray-500">#{formatTeacherId(group.teacherId)}</div>
+                                                        <div className="text-gray-500">{group.teacherId ? `#${formatTeacherId(group.teacherId)}` : 'No Teacher'}</div>
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

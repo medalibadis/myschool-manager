@@ -338,7 +338,8 @@ export default function GroupDetailPage() {
         'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
     ];
 
-    const formatTeacherId = (id: string) => {
+    const formatTeacherId = (id: string | null) => {
+        if (!id) return 'No Teacher';
         // Convert UUID to a number and format as T01, T02, etc.
         // This is a simple hash-based approach for demo purposes
         const hash = id.split('').reduce((a, b) => {
@@ -506,7 +507,7 @@ export default function GroupDetailPage() {
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
                                 <p className="mt-2 text-gray-600">
-                                    Teacher: {teacher?.name} (#{formatTeacherId(group.teacherId)}) • {group.students.length} students • {group.sessions.length} sessions
+                                    Teacher: {teacher?.name} {group.teacherId ? `(#${formatTeacherId(group.teacherId)})` : ''} • {group.students.length} students • {group.sessions.length} sessions
                                 </p>
                             </div>
                             <div className="flex space-x-3">
@@ -569,7 +570,7 @@ export default function GroupDetailPage() {
                                                 </div>
                                                 <div>
                                                     <span className="text-orange-700">Teacher:</span>
-                                                    <span className="text-gray-900 ml-2">{teacher?.name} (#{formatTeacherId(group.teacherId)})</span>
+                                                    <span className="text-gray-900 ml-2">{teacher?.name} {group.teacherId ? `(#${formatTeacherId(group.teacherId)})` : ''}</span>
                                                 </div>
                                             </div>
                                         </div>

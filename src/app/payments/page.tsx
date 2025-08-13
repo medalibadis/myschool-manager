@@ -130,11 +130,36 @@ export default function PaymentsPage() {
 
     // Fetch data on component mount
     useEffect(() => {
-        fetchGroups();
-        fetchPayments();
-        loadRecentPayments();
-        loadRefundList();
-        loadDebtsList();
+        const initializeData = async () => {
+            try {
+                // Load basic data first
+                await fetchGroups();
+                await fetchPayments();
+
+                // Then load dependent data with individual error handling
+                try {
+                    await loadRecentPayments();
+                } catch (error) {
+                    console.error('Error loading recent payments:', error);
+                }
+
+                try {
+                    await loadRefundList();
+                } catch (error) {
+                    console.error('Error loading refund list:', error);
+                }
+
+                try {
+                    await loadDebtsList();
+                } catch (error) {
+                    console.error('Error loading debts list:', error);
+                }
+            } catch (error) {
+                console.error('Error initializing basic payment data:', error);
+            }
+        };
+
+        initializeData();
     }, [fetchGroups, fetchPayments]);
 
     // Recompute unpaid groups for selected student (ordered oldest first)
@@ -193,11 +218,17 @@ export default function PaymentsPage() {
             if (error instanceof Error) {
                 if (error.message.includes('does not exist')) {
                     errorMessage = 'Database schema is missing required tables or columns. Please run the database migrations first.';
+                } else if (error.message.includes('Cannot read properties of undefined')) {
+                    errorMessage = 'Student data is incomplete. Please check the database for missing student information.';
+                } else if (error.message.includes('Invalid student ID')) {
+                    errorMessage = 'Database contains invalid student records. Please check the students table.';
                 } else {
                     errorMessage = error.message;
                 }
             }
             alert(`Error loading refund list: ${errorMessage}`);
+            // Set empty list to prevent further errors
+            setRefundList([]);
         }
     };
 
@@ -214,11 +245,17 @@ export default function PaymentsPage() {
             if (error instanceof Error) {
                 if (error.message.includes('does not exist')) {
                     errorMessage = 'Database schema is missing required tables or columns. Please run the database migrations first.';
+                } else if (error.message.includes('Cannot read properties of undefined')) {
+                    errorMessage = 'Student data is incomplete. Please check the database for missing student information.';
+                } else if (error.message.includes('Invalid student ID')) {
+                    errorMessage = 'Database contains invalid student records. Please check the students table.';
                 } else {
                     errorMessage = error.message;
                 }
             }
             alert(`Error loading debts list: ${errorMessage}`);
+            // Set empty list to prevent further errors
+            setDebtsList([]);
         }
     };
 
@@ -309,6 +346,13 @@ export default function PaymentsPage() {
         // Set a new timeout for debouncing
         (window as any).searchTimeout = setTimeout(async () => {
             try {
+                // Validate that groups data exists
+                if (!groups || !Array.isArray(groups)) {
+                    console.error('Groups data is not available');
+                    setSearchResults([]);
+                    return;
+                }
+
                 // Step 1: Create a map to store unique students by ID
                 const studentMap = new Map<string, StudentWithGroups>();
 
@@ -394,6 +438,12 @@ export default function PaymentsPage() {
                     const updatedStudents = [...studentsArray];
                     for (const student of updatedStudents) {
                         try {
+                            // Add null check for student.id
+                            if (!student || !student.id) {
+                                console.error('Invalid student data in search results:', student);
+                                continue;
+                            }
+
                             const balance = await getStudentBalance(student.id);
                             student.totalBalance = balance.totalBalance;
                             student.totalPaid = balance.totalPaid;
@@ -409,7 +459,7 @@ export default function PaymentsPage() {
                                 return group;
                             });
                         } catch (error) {
-                            console.error(`Error calculating balance for student ${student.id}:`, error);
+                            console.error(`Error calculating balance for student ${student?.id || 'Unknown'}:`, error);
                         }
                     }
 
@@ -425,6 +475,12 @@ export default function PaymentsPage() {
 
     // Handle student selection
     const handleStudentSelect = (student: StudentWithGroups) => {
+        if (!student || !student.id) {
+            console.error('Invalid student data:', student);
+            alert('Invalid student data. Please try again.');
+            return;
+        }
+
         setSelectedStudent(student);
         setIsSearchModalOpen(false);
         setIsAddPaymentModalOpen(true);
@@ -474,7 +530,7 @@ export default function PaymentsPage() {
 
     // Handle payment submission
     const handleAddPayment = async () => {
-        if (!selectedStudent || !paymentData.amount) {
+        if (!selectedStudent || !selectedStudent.id || !paymentData.amount) {
             alert('Please fill in all required fields');
             return;
         }
@@ -637,13 +693,22 @@ export default function PaymentsPage() {
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                         {error && (
                             <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                                {error}
+                                <strong>Error:</strong> {error}
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="ml-2 text-red-800 underline hover:no-underline"
+                                >
+                                    Reload Page
+                                </button>
                             </div>
                         )}
 
                         {loading && (
                             <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
-                                Loading...
+                                <div className="flex items-center">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700 mr-2"></div>
+                                    Loading payment data...
+                                </div>
                             </div>
                         )}
 
@@ -653,20 +718,33 @@ export default function PaymentsPage() {
                                 <p className="mt-2 text-gray-600">
                                     Manage student payments and track financial records
                                 </p>
+                                <div className="text-sm text-gray-500 mt-1">
+                                    Groups loaded: {groups?.length || 0} | Payments loaded: {payments?.length || 0}
+                                </div>
                             </div>
                             <div className="flex items-center gap-3">
                                 <Button variant="outline" onClick={() => setIsHistoryModalOpen(true)}>
                                     History
                                 </Button>
-                                <Button variant="outline" onClick={() => {
-                                    setIsRefundModalOpen(true);
-                                    loadRefundList();
+                                <Button variant="outline" onClick={async () => {
+                                    try {
+                                        await loadRefundList();
+                                        setIsRefundModalOpen(true);
+                                    } catch (error) {
+                                        console.error('Error loading refund list:', error);
+                                        alert('Failed to load refund data. Please try again.');
+                                    }
                                 }}>
                                     Refund
                                 </Button>
-                                <Button variant="outline" onClick={() => {
-                                    setIsDebtsModalOpen(true);
-                                    loadDebtsList();
+                                <Button variant="outline" onClick={async () => {
+                                    try {
+                                        await loadDebtsList();
+                                        setIsDebtsModalOpen(true);
+                                    } catch (error) {
+                                        console.error('Error loading debts list:', error);
+                                        alert('Failed to load debts data. Please try again.');
+                                    }
                                 }}>
                                     Debts
                                 </Button>
@@ -1012,6 +1090,15 @@ export default function PaymentsPage() {
                                 <p className="text-gray-500">
                                     No students match your search criteria.
                                 </p>
+                                <button
+                                    onClick={() => {
+                                        setSearchTerm('');
+                                        setSearchResults([]);
+                                    }}
+                                    className="mt-2 text-orange-600 hover:text-orange-800 underline"
+                                >
+                                    Clear search and try again
+                                </button>
                             </div>
                         )}
 

@@ -248,25 +248,41 @@ export default function WaitingListPage() {
             const groups = await getSuggestedGroups();
             console.log('Fetched suggested groups:', groups);
 
-            // Preserve existing configurations when refreshing
-            setSuggestedGroups(prev => {
-                const newGroups = groups.map(newGroup => {
-                    const existingGroup = prev.find(g => g.groupName === newGroup.groupName);
-                    if (existingGroup) {
-                        return {
-                            ...newGroup,
-                            // Only use properties that exist in the type
-                        };
-                    }
-                    return newGroup;
-                });
+            // Load configurations from database
+            const { data: configurations, error: configError } = await supabase
+                .from('group_configurations')
+                .select('*');
 
-                // Filter out groups with no students
-                const filteredGroups = newGroups.filter(group => group.studentCount > 0);
-                console.log('Filtered suggested groups:', filteredGroups);
+            if (configError) {
+                console.error('Error loading configurations:', configError);
+            }
 
-                return filteredGroups;
+            // Merge configurations with groups
+            const groupsWithConfigs = groups.map(newGroup => {
+                const config = configurations?.find(c => c.group_name === newGroup.groupName);
+                if (config) {
+                    return {
+                        ...newGroup,
+                        teacherId: config.teacher_id,
+                        teacherName: teachers.find(t => t.id === config.teacher_id)?.name || null,
+                        startDate: config.start_date,
+                        startTime: config.start_time,
+                        endTime: config.end_time,
+                        sessionsNumber: config.sessions_number,
+                        recurringDays: config.recurring_days,
+                        coursePrice: config.course_price,
+                        notes: config.notes,
+                        isConfigured: config.is_configured,
+                    };
+                }
+                return newGroup;
             });
+
+            // Filter out groups with no students
+            const filteredGroups = groupsWithConfigs.filter(group => group.studentCount > 0);
+            console.log('Filtered suggested groups with configs:', filteredGroups);
+
+            setSuggestedGroups(filteredGroups);
         } catch (error) {
             console.error('Error fetching suggested groups:', error);
         }
@@ -480,7 +496,20 @@ export default function WaitingListPage() {
 
     // Handle form changes
     const handleFormChange = (field: string, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
+        setFormData(prev => {
+            let processedValue: any = value;
+
+            // Handle special field types
+            if (field === 'registrationFeePaid') {
+                processedValue = value === 'true';
+            } else if (field === 'registrationFeeAmount') {
+                processedValue = parseFloat(value) || 0;
+            } else if (field === 'defaultDiscount') {
+                processedValue = parseFloat(value) || 0;
+            }
+
+            return { ...prev, [field]: processedValue };
+        });
         setHasUnsavedChanges(true);
     };
 
@@ -557,7 +586,8 @@ export default function WaitingListPage() {
             const { data: callLogs, error } = await supabase
                 .from('call_logs')
                 .select('*')
-                .in('student_id', group.students.map((s: any) => s.id))
+                .in('student_name', group.students.map((s: any) => s.name))
+                .eq('call_type', 'registration')
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -566,14 +596,20 @@ export default function WaitingListPage() {
 
             // Initialize student confirmations with latest call log data
             const confirmations = group.students.map((student: WaitingListStudent) => {
-                // Find the latest call log for this student
-                const latestCallLog = callLogs?.find(log => log.student_id === student.id);
+                // Find the latest call log for this student by name and phone
+                const latestCallLog = callLogs?.find(log =>
+                    log.student_name === student.name &&
+                    log.student_phone === student.phone
+                );
+
+                console.log(`Student: ${student.name}, Phone: ${student.phone}`);
+                console.log(`Found call log:`, latestCallLog);
 
                 return {
                     studentId: student.id,
                     name: student.name,
                     phone: student.phone || '',
-                    status: (latestCallLog?.status as 'pending' | 'coming' | 'not_coming') || 'pending',
+                    status: (latestCallLog?.call_status as 'pending' | 'coming' | 'not_coming') || 'pending',
                     notes: latestCallLog?.notes || '',
                 };
             });
@@ -704,14 +740,16 @@ export default function WaitingListPage() {
                     notes: confirmation.notes,
                 });
 
-                // Create call log entry with just the comment
+                // Create call log entry for registration confirmation
                 await supabase.from('call_logs').insert({
-                    student_id: confirmation.studentId,
+                    student_name: confirmation.name,
+                    student_phone: confirmation.phone,
+                    call_date: new Date().toISOString().split('T')[0],
+                    call_time: new Date().toTimeString().split(' ')[0],
+                    notes: `Registration confirmation: ${confirmation.status}. ${confirmation.notes || ''}`.trim(),
                     call_type: 'registration',
-                    status: confirmation.status,
-                    notes: confirmation.notes,
+                    call_status: confirmation.status,
                     admin_name: finalAdminName,
-                    call_date: new Date().toISOString(),
                 });
             }
 
@@ -734,6 +772,31 @@ export default function WaitingListPage() {
         if (!selectedGroup) return;
 
         try {
+            // Save configuration to database
+            const { error: configError } = await supabase
+                .from('group_configurations')
+                .upsert({
+                    group_name: selectedGroup.groupName,
+                    language: groupConfigData.language,
+                    level: groupConfigData.level,
+                    category: groupConfigData.category,
+                    teacher_id: groupConfigData.teacherId || null,
+                    start_date: groupConfigData.startDate || null,
+                    start_time: groupConfigData.startTime || null,
+                    end_time: groupConfigData.endTime || null,
+                    sessions_number: groupConfigData.sessionsNumber,
+                    recurring_days: groupConfigData.recurringDays,
+                    course_price: groupConfigData.coursePrice,
+                    notes: groupConfigData.notes || null,
+                    is_configured: true,
+                }, {
+                    onConflict: 'group_name'
+                });
+
+            if (configError) {
+                throw configError;
+            }
+
             // Update the suggested group with configuration data
             const updatedGroup = {
                 ...selectedGroup,
@@ -798,7 +861,8 @@ export default function WaitingListPage() {
             const { data: callLogs, error } = await supabase
                 .from('call_logs')
                 .select('*')
-                .in('student_id', group.students.map((s: any) => s.id))
+                .in('student_name', group.students.map((s: any) => s.name))
+                .eq('call_type', 'registration')
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -807,19 +871,25 @@ export default function WaitingListPage() {
 
             // Filter students with "coming" status and include their notes
             const confirmedStudents = group.students.filter((student: any) => {
-                const latestCallLog = callLogs?.find(log => log.student_id === student.id);
-                return latestCallLog?.status === 'coming';
+                const latestCallLog = callLogs?.find(log =>
+                    log.student_name === student.name &&
+                    log.student_phone === student.phone
+                );
+                return latestCallLog?.call_status === 'coming';
             });
 
             // Initialize final student selections with status and notes
             const selections = confirmedStudents.map((student: any) => {
-                const latestCallLog = callLogs?.find(log => log.student_id === student.id);
+                const latestCallLog = callLogs?.find(log =>
+                    log.student_name === student.name &&
+                    log.student_phone === student.phone
+                );
                 return {
                     studentId: student.id,
                     name: student.name,
                     phone: student.phone || '',
                     selected: true, // Default to selected
-                    status: latestCallLog?.status || 'pending',
+                    status: latestCallLog?.call_status || 'pending',
                     notes: latestCallLog?.notes || '',
                 };
             });
@@ -934,6 +1004,10 @@ export default function WaitingListPage() {
 
                         // 2) Create student if not found (no group_id here; we link via student_groups)
                         if (!studentId) {
+                            // Check if registration fee is marked as paid
+                            const registrationFeePaid = student.registrationFeePaid || false;
+                            const registrationFeeAmount = student.registrationFeeAmount || 0;
+
                             const { data: createdStudent, error: createStdError } = await supabase
                                 .from('students')
                                 .insert({
@@ -946,6 +1020,9 @@ export default function WaitingListPage() {
                                     second_phone: student.secondPhone || '',
                                     total_paid: 0,
                                     default_discount: 0,
+                                    registration_fee_paid: registrationFeePaid,
+                                    registration_fee_amount: registrationFeeAmount,
+                                    registration_fee_group_id: newGroup.id,
                                 })
                                 .select()
                                 .single();
@@ -957,6 +1034,47 @@ export default function WaitingListPage() {
 
                             studentId = createdStudent.id;
                             console.log('Student created:', createdStudent);
+
+                            // Handle registration fee payment
+                            if (registrationFeePaid && registrationFeeAmount > 0) {
+                                // Add to receipt - create payment record
+                                const { error: paymentError } = await supabase
+                                    .from('payments')
+                                    .insert({
+                                        student_id: studentId,
+                                        group_id: null, // Registration fee is not tied to a specific group
+                                        amount: registrationFeeAmount,
+                                        date: new Date().toISOString().split('T')[0],
+                                        notes: `Registration fee for group: ${newGroup.name}`,
+                                        admin_name: 'System',
+                                        payment_type: 'registration_fee',
+                                    });
+
+                                if (paymentError) {
+                                    console.error('Error creating registration fee payment:', paymentError);
+                                } else {
+                                    console.log('Registration fee payment recorded');
+                                }
+                            } else if (registrationFeeAmount > 0) {
+                                // Add to student's balance as unpaid group fee
+                                const { error: balanceError } = await supabase
+                                    .from('payments')
+                                    .insert({
+                                        student_id: studentId,
+                                        group_id: newGroup.id,
+                                        amount: -registrationFeeAmount, // Negative amount indicates debt
+                                        date: new Date().toISOString().split('T')[0],
+                                        notes: `Registration fee - unpaid for group: ${newGroup.name}`,
+                                        admin_name: 'System',
+                                        payment_type: 'registration_fee',
+                                    });
+
+                                if (balanceError) {
+                                    console.error('Error creating registration fee debt:', balanceError);
+                                } else {
+                                    console.log('Registration fee debt recorded');
+                                }
+                            }
                         }
 
                         // 3) Link student to the new group via junction
@@ -972,7 +1090,28 @@ export default function WaitingListPage() {
                             continue;
                         }
 
-                        // 4) Remove from waiting list
+                        // 4) Add group fee to student's balance as unpaid
+                        if (selectedGroup.coursePrice && selectedGroup.coursePrice > 0) {
+                            const { error: feeError } = await supabase
+                                .from('payments')
+                                .insert({
+                                    student_id: studentId,
+                                    group_id: newGroup.id,
+                                    amount: -selectedGroup.coursePrice, // Negative amount indicates debt
+                                    date: new Date().toISOString().split('T')[0],
+                                    notes: `Group fee - unpaid for group: ${newGroup.name}`,
+                                    admin_name: 'System',
+                                    payment_type: 'group_fee',
+                                });
+
+                            if (feeError) {
+                                console.error('Error creating group fee debt:', feeError);
+                            } else {
+                                console.log('Group fee debt recorded');
+                            }
+                        }
+
+                        // 5) Remove from waiting list
                         const { error: deleteError } = await supabase
                             .from('waiting_list')
                             .delete()

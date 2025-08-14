@@ -285,86 +285,66 @@ export default function AttendancePage() {
 
             let studentId = null;
 
-            // Try to find existing student in waiting_list first
-            const { data: existingStudent } = await supabase
-                .from('waiting_list')
+            // Try to find existing student in students table first
+            const { data: existingStudent, error: studentError } = await supabase
+                .from('students')
                 .select('id')
                 .eq('name', selectedStudent.name)
                 .eq('phone', selectedStudent.phone)
                 .single();
 
+            if (studentError && studentError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+                console.error('Error searching students table:', studentError);
+            }
+
             if (existingStudent) {
                 studentId = existingStudent.id;
+                console.log('Found existing student in students table:', existingStudent.id);
             } else {
-                // Try to create a minimal student record
-                const studentData = {
-                    name: selectedStudent.name || 'Unknown Student',
-                    email: selectedStudent.email || null,
-                    phone: selectedStudent.phone || null,
-                    language: 'other',
-                    level: 'other',
-                    category: 'other',
-                    second_phone: selectedStudent.secondPhone || null,
-                    parent_name: selectedStudent.parentName || null,
-                    address: selectedStudent.address || null,
-                    birth_date: selectedStudent.birthDate || null
-                };
-
-                // Add optional fields only if they exist
-                if (selectedStudent.secondPhone) studentData.second_phone = selectedStudent.secondPhone;
-                if (selectedStudent.parentName) studentData.parent_name = selectedStudent.parentName;
-                if (selectedStudent.address) studentData.address = selectedStudent.address;
-                if (selectedStudent.birthDate) studentData.birth_date = selectedStudent.birthDate;
-
-                const { data: newStudent, error: createError } = await supabase
+                // Try to find in waiting_list as fallback
+                const { data: waitingListStudent, error: waitingListError } = await supabase
                     .from('waiting_list')
-                    .insert(studentData)
                     .select('id')
+                    .eq('name', selectedStudent.name)
+                    .eq('phone', selectedStudent.phone)
                     .single();
 
-                if (createError) {
-                    console.error('Error creating student for call log:', createError);
-                    // If we can't create a student, try to save call log with null student_id
-                    // (assuming the database migration was run to allow null student_id)
-                    studentId = null;
+                if (waitingListError && waitingListError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+                    console.error('Error searching waiting_list table:', waitingListError);
+                }
+
+                if (waitingListStudent) {
+                    studentId = waitingListStudent.id;
+                    console.log('Found existing student in waiting_list table:', waitingListStudent.id);
                 } else {
-                    studentId = newStudent.id;
+                    // If no student found anywhere, we'll create call log without student_id
+                    studentId = null;
+                    console.log('No existing student found, will create call log without student_id');
                 }
             }
 
             // Use only the comment as notes (student info is already linked via student_id)
             const notes = callLogData.comment;
 
-            interface CallLogEntry {
-                call_type: string;
-                status: string;
-                notes: string;
-                admin_name: string;
-                call_date: string;
-                student_id?: string;
-            }
-
-            const callLogEntry: CallLogEntry = {
-                call_type: 'attendance',
-                status: 'coming',
+            // Create call log using the store
+            const callLogPayload = {
+                studentId: studentId, // Can be null if no student found
+                studentName: selectedStudent.name || 'Unknown Student', // Use the name from selectedStudent
+                studentPhone: selectedStudent.phone || '', // Use the phone from selectedStudent
+                callDate: new Date(),
+                callType: 'attendance' as const,
+                status: 'coming' as const,
                 notes: notes,
-                admin_name: callLogData.adminName,
-                call_date: new Date().toISOString(),
+                adminName: callLogData.adminName,
             };
 
-            // Only add student_id if we have one
-            if (studentId) {
-                callLogEntry.student_id = studentId;
-            }
-
-
-
-            const { error } = await supabase.from('call_logs').insert(callLogEntry);
-
-            if (error) {
-                console.error('Error saving call log:', error);
-                alert(`Failed to save call log: ${error.message || 'Unknown error'}`);
-                return;
+            console.log('Creating call log with data:', callLogPayload);
+            try {
+                await useMySchoolStore.getState().addCallLog(callLogPayload);
+                console.log('Call log created successfully');
+            } catch (callLogError) {
+                console.error('Error creating call log:', callLogError);
+                throw new Error(`Failed to create call log: ${callLogError}`);
             }
 
             // Close modal and reset state

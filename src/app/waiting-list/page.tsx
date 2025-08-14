@@ -35,6 +35,7 @@ export default function WaitingListPage() {
         updateWaitingListStudent,
         deleteFromWaitingList,
         getSuggestedGroups,
+        addCallLog,
         loading,
         error
     } = useMySchoolStore();
@@ -741,16 +742,26 @@ export default function WaitingListPage() {
                 });
 
                 // Create call log entry for registration confirmation
-                await supabase.from('call_logs').insert({
-                    student_name: confirmation.name,
-                    student_phone: confirmation.phone,
-                    call_date: new Date().toISOString().split('T')[0],
-                    call_time: new Date().toTimeString().split(' ')[0],
+                // Note: studentId is set to null because these students are in waiting_list, not students table
+                const callLogData = {
+                    studentId: null, // Students in waiting_list don't exist in students table yet
+                    studentName: confirmation.name,
+                    studentPhone: confirmation.phone,
+                    callDate: new Date(),
+                    callType: 'registration' as const,
+                    status: confirmation.status as 'pending' | 'coming' | 'not_coming',
                     notes: `Registration confirmation: ${confirmation.status}. ${confirmation.notes || ''}`.trim(),
-                    call_type: 'registration',
-                    call_status: confirmation.status,
-                    admin_name: finalAdminName,
-                });
+                    adminName: finalAdminName,
+                };
+
+                console.log('Creating registration call log:', callLogData);
+                try {
+                    await addCallLog(callLogData);
+                    console.log('Registration call log created successfully');
+                } catch (callLogError) {
+                    console.error('Error creating registration call log:', callLogError);
+                    throw new Error(`Failed to create registration call log: ${callLogError}`);
+                }
             }
 
             setShowStudentConfirmationModal(false);

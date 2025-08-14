@@ -353,10 +353,16 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     updateAttendanceBulk: async (groupId, updates) => {
         set({ loading: true, error: null });
         try {
+            console.log('=== STORE: Starting bulk attendance update ===');
             await sessionService.updateAttendanceBulk(groupId, updates);
+
+            console.log('=== STORE: Refreshing groups data ===');
             await get().fetchGroups();
+            console.log('=== STORE: Groups data refreshed successfully ===');
+
             set({ loading: false });
         } catch (error) {
+            console.error('=== STORE: Error in bulk attendance update ===', error);
             set({ error: (error as Error).message, loading: false });
         }
     },

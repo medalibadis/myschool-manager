@@ -123,7 +123,7 @@ export default function AdminCredentialsBoard({ admins }: AdminCredentialsBoardP
             {!showPasswords && (
                 <div className="mt-4 p-3 bg-blue-50 rounded-md">
                     <p className="text-sm text-blue-700">
-                        Click "Show Passwords" to view admin credentials. These can be used to login to the system.
+                        Click &quot;Show Passwords&quot; to view admin credentials. These can be used to login to the system.
                     </p>
                 </div>
             )}

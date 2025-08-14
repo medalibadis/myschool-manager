@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useMySchoolStore } from '../../store';
 import AuthGuard from '../../components/AuthGuard';
+import { Student } from '../../types';
 import {
     UsersIcon,
     UserIcon,
@@ -43,7 +44,7 @@ export default function StudentsPage() {
     const [searchTerm, setSearchTerm] = useState('');
 
     // Modal states
-    const [selectedStudent, setSelectedStudent] = useState<any>(null);
+    const [selectedStudent, setSelectedStudent] = useState<(Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }) | null>(null);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showCallLogModal, setShowCallLogModal] = useState(false);
@@ -72,7 +73,7 @@ export default function StudentsPage() {
 
     // Get all students from all groups
     const allStudents = useMemo(() => {
-        const studentsMap = new Map<string, any>();
+        const studentsMap = new Map<string, Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }>();
 
         console.log('Processing groups for students:', groups.length);
 
@@ -91,20 +92,20 @@ export default function StudentsPage() {
                         const existingStudent = studentsMap.get(studentKey);
 
                         // Check if this group is already added to avoid duplicates
-                        const groupExists = existingStudent.groups.some((g: any) => g.id === group.id);
+                        const groupExists = existingStudent?.groups?.some((g: { id: string | number }) => g.id === group.id);
 
-                        if (!groupExists) {
+                        if (!groupExists && existingStudent) {
                             console.log(`Student ${student.name} already exists, adding group ${group.name}`);
                             existingStudent.groups.push({
                                 id: group.id,
                                 name: group.name,
-                                language: group.language,
-                                level: group.level,
-                                category: group.category,
-                                teacherId: group.teacherId,
+                                language: group.language || 'Unknown',
+                                level: group.level || 'Unknown',
+                                category: group.category || 'Unknown',
+                                teacherId: group.teacherId || '',
                                 startTime: group.startTime,
                                 endTime: group.endTime,
-                                status: 'active', // Default status for active students
+                                status: 'active', // Default status for existing students
                             });
                         } else {
                             console.log(`Student ${student.name} already has group ${group.name}, skipping`);
@@ -117,13 +118,13 @@ export default function StudentsPage() {
                             groups: [{
                                 id: group.id,
                                 name: group.name,
-                                language: group.language,
-                                level: group.level,
-                                category: group.category,
-                                teacherId: group.teacherId,
+                                language: group.language || 'Unknown',
+                                level: group.level || 'Unknown',
+                                category: group.category || 'Unknown',
+                                teacherId: group.teacherId || '',
                                 startTime: group.startTime,
                                 endTime: group.endTime,
-                                status: 'active', // Default status for active students
+                                status: 'active', // Default status for new students
                             }]
                         });
                     }
@@ -135,6 +136,9 @@ export default function StudentsPage() {
         console.log('Final deduplicated students:', result.length);
         result.forEach(student => {
             console.log(`Student: ${student.name} - Groups: ${student.groups.length}`);
+            student.groups.forEach((group: { name: string; status: string }) => {
+                console.log(`  Group ${group.name}: status = ${group.status}`);
+            });
         });
 
         return result;
@@ -181,12 +185,12 @@ export default function StudentsPage() {
         return teacher?.name || 'Unknown Teacher';
     };
 
-    const handleViewProfile = (student: any) => {
+    const handleViewProfile = (student: Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }) => {
         setSelectedStudent(student);
         setShowProfileModal(true);
     };
 
-    const handleEditStudent = (student: any) => {
+    const handleEditStudent = (student: Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }) => {
         setEditStudentData({
             name: student.name || '',
             email: student.email || '',
@@ -224,7 +228,7 @@ export default function StudentsPage() {
             if (selectedStudent?.groups) {
                 for (const group of selectedStudent.groups) {
                     await useMySchoolStore.getState().updateStudent(
-                        group.id,
+                        Number(group.id),
                         selectedStudent.id,
                         updatedStudent
                     );
@@ -253,10 +257,10 @@ export default function StudentsPage() {
         }
     };
 
-    const handleCallLog = (student: any) => {
+    const handleCallLog = (student: Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }) => {
         setCallLogData({
             studentName: student.name,
-            studentPhone: student.phone,
+            studentPhone: student.phone || '',
             studentSecondPhone: student.secondPhone || '',
             adminName: 'Dalila', // Default admin name
             comment: '',
@@ -644,7 +648,7 @@ export default function StudentsPage() {
                             <h3 className="text-sm font-medium text-gray-700 mb-3">Groups ({selectedStudent.groups?.length || 0})</h3>
                             <div className="space-y-2 max-h-48 overflow-y-auto">
                                 {selectedStudent.groups && selectedStudent.groups.length > 0 ? (
-                                    selectedStudent.groups.map((group: any) => (
+                                    selectedStudent.groups.map((group: { id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }) => (
                                         <Link
                                             key={group.id}
                                             href={`/groups/${group.id}`}
@@ -659,7 +663,7 @@ export default function StudentsPage() {
                                                             {group.name}
                                                         </div>
                                                         <div className="text-xs text-gray-500">
-                                                            #{formatGroupId(group.id)} • {group.level} • {getTeacherName(group.teacherId)}
+                                                            #{formatGroupId(Number(group.id))} • {group.level} • {getTeacherName(group.teacherId)}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -816,7 +820,7 @@ export default function StudentsPage() {
                             </h3>
                             <div className="space-y-3 max-h-96 overflow-y-auto">
                                 {selectedStudent.groups && selectedStudent.groups.length > 0 ? (
-                                    selectedStudent.groups.map((group: any) => (
+                                    selectedStudent.groups.map((group: { id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }) => (
                                         <div key={group.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                                             <div className="flex items-center space-x-3">
                                                 <span className="text-2xl">{getLanguageFlag(group.language)}</span>
@@ -826,7 +830,7 @@ export default function StudentsPage() {
                                                         {group.name}
                                                     </div>
                                                     <div className="text-xs text-gray-500">
-                                                        #{formatGroupId(group.id)} • {group.level}
+                                                        #{formatGroupId(Number(group.id))} • {group.level}
                                                     </div>
                                                     <div className="text-xs text-gray-500">
                                                         {getTeacherName(group.teacherId)}

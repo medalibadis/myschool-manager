@@ -1002,16 +1002,171 @@ export const studentService = {
 // Session operations
 export const sessionService = {
   async generateSessions(groupId: number): Promise<Session[]> {
+    alert(`generateSessions called with groupId: ${groupId}`);
+    console.log('=== GENERATE SESSIONS FUNCTION CALLED ===');
+    console.log(`Starting generateSessions for group ${groupId} (type: ${typeof groupId})`);
+
+    // Validate input parameter
+    if (typeof groupId !== 'number' || isNaN(groupId) || groupId <= 0) {
+      console.error('Invalid groupId parameter:', {
+        groupId: groupId,
+        type: typeof groupId,
+        isNaN: isNaN(groupId),
+        isPositive: groupId > 0
+      });
+      throw new Error(`Invalid groupId: ${groupId}. Expected a positive number.`);
+    }
+
+    console.log(`GroupId validation passed: ${groupId} (${typeof groupId})`);
+
+    // Test database connection and check if groups table exists
+    try {
+      const { data: testData, error: testError } = await supabase
+        .from('groups')
+        .select('id')
+        .limit(1);
+
+      if (testError) {
+        console.error('Database connection test failed:', testError);
+        throw new Error(`Database connection failed: ${testError.message}`);
+      }
+      console.log('Database connection test successful');
+
+      // Check what groups exist in the database
+      const { data: allGroups, error: allGroupsError } = await supabase
+        .from('groups')
+        .select('id, name')
+        .order('id', { ascending: true });
+
+      if (allGroupsError) {
+        console.error('Error fetching all groups:', allGroupsError);
+        throw new Error(`Failed to fetch groups list: ${allGroupsError.message}`);
+      } else {
+        console.log('Available groups in database:', allGroups?.map(g => ({ id: g.id, name: g.name })) || []);
+
+        // Check if the requested groupId exists
+        const requestedGroupExists = allGroups?.some(g => g.id === groupId);
+        console.log(`Requested groupId ${groupId} exists in database: ${requestedGroupExists}`);
+
+        if (!requestedGroupExists) {
+          console.error(`Group ${groupId} not found in database. Available IDs:`, allGroups?.map(g => g.id) || []);
+          throw new Error(`Group ${groupId} not found in database. Available group IDs: ${allGroups?.map(g => g.id).join(', ') || 'none'}`);
+        }
+      }
+    } catch (testError) {
+      console.error('Database connection test error:', testError);
+      throw new Error(`Database connection test failed: ${testError}`);
+    }
+
     // First, get the group to understand the schedule
+    console.log('=== ABOUT TO FETCH GROUP DATA ===');
+    console.log(`Fetching group data for ID: ${groupId}`);
+
+    // Simple test to see if we can access the groups table
+    console.log('Testing groups table access...');
+
+    // Try to fetch the group with explicit field selection
     const { data: group, error: groupError } = await supabase
       .from('groups')
-      .select('*')
+      .select('id, name, start_date, recurring_days, total_sessions')
       .eq('id', groupId)
       .single();
 
+    console.log('=== GROUP QUERY COMPLETED ===');
+    console.log('Raw group data:', group);
+    console.log('Group error:', groupError);
+    console.log('Group object keys:', group ? Object.keys(group) : 'no group');
+    console.log('Group object length:', group ? Object.keys(group).length : 'no group');
+
+    console.log('Group query result:', {
+      groupId: groupId,
+      hasData: !!group,
+      dataType: typeof group,
+      dataKeys: group ? Object.keys(group) : 'no data',
+      rawData: group,
+      hasError: !!groupError,
+      error: groupError
+    });
+
+    // Log the specific fields we need
+    if (group) {
+      console.log('Required group fields:', {
+        id: group.id,
+        name: group.name,
+        start_date: group.start_date,
+        recurring_days: group.recurring_days,
+        total_sessions: group.total_sessions,
+        start_date_type: typeof group.start_date,
+        recurring_days_type: typeof group.recurring_days,
+        total_sessions_type: typeof group.total_sessions
+      });
+    }
+
     if (groupError) {
-      console.error('Error fetching group for session generation:', groupError);
-      throw new Error(`Failed to fetch group: ${groupError.message}`);
+      console.error('Error fetching group for session generation:', {
+        error: groupError,
+        message: groupError.message,
+        details: groupError.details,
+        hint: groupError.hint,
+        code: groupError.code,
+        groupId: groupId
+      });
+      throw new Error(`Failed to fetch group: ${groupError.message || 'Unknown error'}`);
+    }
+
+    // Validate group data
+    if (!group) {
+      console.error('Group query returned no data for ID:', groupId);
+      throw new Error(`Group with ID ${groupId} not found`);
+    }
+
+    // Check if group is an empty object
+    if (group && typeof group === 'object' && Object.keys(group).length === 0) {
+      console.error('Group query returned empty object for ID:', groupId);
+      throw new Error(`Group with ID ${groupId} returned empty object from database`);
+    }
+
+    // Check each required field individually
+    if (!group.start_date) {
+      console.error(`Group ${groupId} missing start_date:`, group.start_date);
+      throw new Error(`Group ${groupId} is missing start_date`);
+    }
+
+    if (!group.recurring_days) {
+      console.error(`Group ${groupId} missing recurring_days:`, group.recurring_days);
+      throw new Error(`Group ${groupId} is missing recurring_days`);
+    }
+
+    if (!group.total_sessions) {
+      console.error(`Group ${groupId} missing total_sessions:`, group.total_sessions);
+      throw new Error(`Group ${groupId} is missing total_sessions`);
+    }
+
+    console.log('All required fields present:', {
+      start_date: group.start_date,
+      recurring_days: group.recurring_days,
+      total_sessions: group.total_sessions
+    });
+
+    // Validate recurring_days is an array and contains valid day numbers
+    if (!Array.isArray(group.recurring_days) || group.recurring_days.length === 0) {
+      console.error('Invalid recurring_days format:', {
+        groupId: groupId,
+        recurringDays: group.recurring_days,
+        type: typeof group.recurring_days
+      });
+      throw new Error(`Group ${groupId} has invalid recurring_days format. Expected array of day numbers (0-6), got: ${JSON.stringify(group.recurring_days)}`);
+    }
+
+    // Validate that recurring_days contains valid day numbers (0-6)
+    const invalidDays = group.recurring_days.filter((day: any) => typeof day !== 'number' || day < 0 || day > 6);
+    if (invalidDays.length > 0) {
+      console.error('Invalid day numbers in recurring_days:', {
+        groupId: groupId,
+        invalidDays: invalidDays,
+        validDays: group.recurring_days.filter((day: any) => typeof day === 'number' && day >= 0 && day <= 6)
+      });
+      throw new Error(`Group ${groupId} has invalid day numbers in recurring_days: ${JSON.stringify(invalidDays)}. Valid days are 0-6 (Sunday-Saturday)`);
     }
 
     // Check if sessions already exist for this group
@@ -1040,23 +1195,50 @@ export const sessionService = {
     let currentDate = new Date(group.start_date);
     let sessionCount = 0;
 
+    console.log('Starting session generation for group:', {
+      groupId: groupId,
+      groupName: group.name,
+      startDate: group.start_date,
+      recurringDays: group.recurring_days,
+      totalSessions: group.total_sessions,
+      currentDate: currentDate.toISOString()
+    });
+
     // Generate sessions based on recurring days
-    while (sessionCount < group.total_sessions) {
+    let maxIterations = group.total_sessions * 10; // Safety limit to prevent infinite loops
+    let iterationCount = 0;
+
+    while (sessionCount < group.total_sessions && iterationCount < maxIterations) {
+      iterationCount++;
       const dayOfWeek = currentDate.getDay();
+      console.log(`Checking date ${currentDate.toISOString().split('T')[0]} (day ${dayOfWeek}) - recurring days: ${group.recurring_days} (iteration ${iterationCount}/${maxIterations})`);
+
       if (group.recurring_days.includes(dayOfWeek)) {
         const { data: session, error: sessionError } = await supabase
           .from('sessions')
           .insert({
             date: currentDate.toISOString().split('T')[0],
             group_id: groupId,
+            session_number: sessionCount + 1, // Add session number
           })
           .select()
           .single();
 
         if (sessionError) {
-          console.error('Error creating session:', sessionError);
-          throw new Error(`Failed to create session: ${sessionError.message}`);
+          console.error('Error creating session:', {
+            error: sessionError,
+            message: sessionError.message,
+            details: sessionError.details,
+            hint: sessionError.hint,
+            code: sessionError.code,
+            groupId: groupId,
+            date: currentDate.toISOString().split('T')[0],
+            groupData: group
+          });
+          throw new Error(`Failed to create session: ${sessionError.message || 'Unknown error'}`);
         }
+
+        console.log(`Successfully created session ${session.id} for date ${currentDate.toISOString().split('T')[0]}`);
 
         sessions.push({
           id: session.id,
@@ -1069,6 +1251,11 @@ export const sessionService = {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
+    if (sessionCount < group.total_sessions) {
+      console.warn(`Session generation incomplete for group ${groupId}. Created ${sessions.length}/${group.total_sessions} sessions. This might indicate an issue with recurring days configuration.`);
+    } else {
+      console.log(`Session generation complete for group ${groupId}. Created ${sessions.length} sessions.`);
+    }
     return sessions;
   },
 
@@ -1177,7 +1364,15 @@ export const sessionService = {
         if (activeGroups && activeGroups.length > 0) {
           // Student has active groups - use refund to pay oldest unpaid group
           const oldestGroup = activeGroups[0]; // Assuming sorted by creation date
-          console.log(`Student has active groups - using refund to pay group: ${oldestGroup.groups[0].name}`);
+
+          // Add safety check for groups array
+          if (!oldestGroup.groups || !Array.isArray(oldestGroup.groups) || oldestGroup.groups.length === 0) {
+            console.warn(`Oldest group has no valid groups data:`, oldestGroup);
+            return; // Exit the function instead of continue
+          }
+
+          const groupName = oldestGroup.groups[0]?.name || 'Unknown Group';
+          console.log(`Student has active groups - using refund to pay group: ${groupName}`);
 
           // Create payment record for the oldest group
           const { error: paymentError } = await supabase
@@ -1187,7 +1382,7 @@ export const sessionService = {
               group_id: oldestGroup.group_id,
               amount: refundAmount,
               date: new Date().toISOString().split('T')[0],
-              notes: `Session refund applied to group ${oldestGroup.groups[0].name}`,
+              notes: `Session refund applied to group ${groupName}`,
               admin_name: 'System',
               payment_type: 'group_payment',
               discount: 0,
@@ -1197,7 +1392,7 @@ export const sessionService = {
           if (paymentError) {
             console.error('Error creating group payment from refund:', paymentError);
           } else {
-            console.log(`Refund of ${refundAmount} applied to group ${oldestGroup.groups[0].name}`);
+            console.log(`Refund of ${refundAmount} applied to group ${groupName}`);
           }
         } else {
           // Student has no active groups - add to refund list
@@ -1241,6 +1436,9 @@ export const sessionService = {
   // Mark student as stopped in a specific group
   async markStudentAsStoppedInGroup(studentId: string, groupId: number): Promise<void> {
     try {
+      console.log(`=== MARKING STUDENT AS STOPPED ===`);
+      console.log(`Student ID: ${studentId}, Group ID: ${groupId}`);
+
       // Check if student_groups table exists, if not create it
       const { error: checkError } = await supabase
         .from('student_groups')
@@ -1250,25 +1448,33 @@ export const sessionService = {
         .limit(1);
 
       if (checkError && checkError.message.includes('does not exist')) {
-        // Create student_groups table if it doesn't exist
+        console.log('student_groups table does not exist, creating it...');
         await this.createStudentGroupsTable();
+      } else if (checkError) {
+        console.error('Error checking student_groups table:', checkError);
+      } else {
+        console.log('student_groups table exists, proceeding with upsert');
       }
 
       // Upsert student group status
-      const { error: upsertError } = await supabase
+      console.log('Attempting to upsert student status to stopped...');
+      const { data: upsertData, error: upsertError } = await supabase
         .from('student_groups')
         .upsert({
           student_id: studentId,
           group_id: groupId,
-          status: 'stopped',
-          updated_at: new Date().toISOString()
+          status: 'stopped'
+          // Removed updated_at field as it doesn't exist in the table
         }, {
           onConflict: 'student_id,group_id'
-        });
+        })
+        .select();
 
       if (upsertError) {
         console.error('Error marking student as stopped:', upsertError);
         throw new Error(`Failed to mark student as stopped: ${upsertError.message}`);
+      } else {
+        console.log('Successfully marked student as stopped:', upsertData);
       }
     } catch (error) {
       console.error('Error in markStudentAsStoppedInGroup:', error);
@@ -1396,6 +1602,9 @@ export const sessionService = {
   // Mark student as active in a specific group
   async markStudentAsActiveInGroup(studentId: string, groupId: number): Promise<void> {
     try {
+      console.log(`=== MARKING STUDENT AS ACTIVE ===`);
+      console.log(`Student ID: ${studentId}, Group ID: ${groupId}`);
+
       // Check if student_groups table exists, if not create it
       const { error: checkError } = await supabase
         .from('student_groups')
@@ -1405,25 +1614,47 @@ export const sessionService = {
         .limit(1);
 
       if (checkError && checkError.message.includes('does not exist')) {
-        // Create student_groups table if it doesn't exist
+        console.log('student_groups table does not exist, creating it...');
         await this.createStudentGroupsTable();
+      } else if (checkError) {
+        console.error('Error checking student_groups table:', checkError);
+      } else {
+        console.log('student_groups table exists, proceeding with upsert');
+      }
+
+      // Check what columns exist in student_groups table
+      try {
+        const { data: tableInfo, error: tableError } = await supabase
+          .from('student_groups')
+          .select('*')
+          .limit(1);
+
+        if (!tableError && tableInfo && tableInfo.length > 0) {
+          console.log('student_groups table columns:', Object.keys(tableInfo[0]));
+        }
+      } catch (debugError) {
+        console.log('Could not inspect table structure:', debugError);
       }
 
       // Upsert student group status
-      const { error: upsertError } = await supabase
+      console.log('Attempting to upsert student status to active...');
+      const { data: upsertData, error: upsertError } = await supabase
         .from('student_groups')
         .upsert({
           student_id: studentId,
           group_id: groupId,
-          status: 'active',
-          updated_at: new Date().toISOString()
+          status: 'active'
+          // Removed updated_at field as it doesn't exist in the table
         }, {
           onConflict: 'student_id,group_id'
-        });
+        })
+        .select();
 
       if (upsertError) {
         console.error('Error marking student as active:', upsertError);
         throw new Error(`Failed to mark student as active: ${upsertError.message}`);
+      } else {
+        console.log('Successfully marked student as active:', upsertData);
       }
     } catch (error) {
       console.error('Error in markStudentAsActiveInGroup:', error);
@@ -1592,10 +1823,46 @@ export const sessionService = {
 
   async updateAttendanceBulk(groupId: number, updates: Array<{ sessionId: string; studentId: string; status: string }>): Promise<void> {
     try {
+      console.log(`=== BULK ATTENDANCE UPDATE STARTED ===`);
+      console.log(`Group ID: ${groupId}, Updates count: ${updates.length}`);
+
+      // Track which students had status changes that affect their group status
+      const studentsWithStatusChanges = new Set<string>();
+
       // Apply all updates first
       for (const update of updates) {
+        console.log(`Processing update: Student ${update.studentId}, Session ${update.sessionId}, Status: ${update.status}`);
         await this.updateAttendance(update.sessionId, update.studentId, update.status);
+
+        // Track students whose status affects their group status
+        if (['stop', 'present', 'absent', 'justify', 'change', 'new'].includes(update.status)) {
+          studentsWithStatusChanges.add(update.studentId);
+        }
       }
+
+      console.log(`Students with status changes: ${Array.from(studentsWithStatusChanges)}`);
+
+      // Verify that all status changes were applied correctly
+      for (const studentId of studentsWithStatusChanges) {
+        try {
+          const { data: studentGroup, error: checkError } = await supabase
+            .from('student_groups')
+            .select('status, group_id')
+            .eq('student_id', studentId)
+            .eq('group_id', groupId)
+            .single();
+
+          if (!checkError && studentGroup) {
+            console.log(`Student ${studentId} in group ${groupId} has status: ${studentGroup.status}`);
+          } else {
+            console.warn(`Could not verify status for student ${studentId} in group ${groupId}:`, checkError);
+          }
+        } catch (verifyError) {
+          console.error(`Error verifying status for student ${studentId}:`, verifyError);
+        }
+      }
+
+      console.log(`=== BULK ATTENDANCE UPDATE COMPLETED ===`);
     } catch (error) {
       console.error('Error in bulk attendance update:', error);
       throw error;
@@ -1858,7 +2125,18 @@ export const paymentService = {
 
     // Attendance-based fee adjustment per group
     for (const studentGroup of studentGroups) {
+      // Add safety check for groups array
+      if (!studentGroup.groups || !Array.isArray(studentGroup.groups) || studentGroup.groups.length === 0) {
+        console.warn(`Student group has no valid groups data:`, studentGroup);
+        continue;
+      }
+
       const group = studentGroup.groups[0];
+      if (!group || !group.id) {
+        console.warn(`Student group has invalid group data:`, group);
+        continue;
+      }
+
       const groupIdVal = group.id as number;
       const totalSessions = Number(group.total_sessions || 0);
 
@@ -1912,7 +2190,7 @@ export const paymentService = {
 
       groupBalances.push({
         groupId: groupIdVal,
-        groupName: group.name,
+        groupName: group.name || 'Unknown Group',
         groupFees: discountedGroupFees, // Show discounted amount
         amountPaid: actualAmountPaid,
         remainingAmount: groupOwed,
@@ -2523,11 +2801,18 @@ export const paymentService = {
                   studentName: student.name,
                   customId: student.custom_id,
                   balance: balance.remainingBalance,
-                  groups: studentGroups.map((enrollment: any) => ({
-                    id: enrollment.groups[0].id,
-                    name: enrollment.groups[0].name,
-                    status: enrollment.status
-                  }))
+                  groups: studentGroups.map((enrollment: any) => {
+                    // Add safety check for groups array
+                    if (!enrollment.groups || !Array.isArray(enrollment.groups) || enrollment.groups.length === 0) {
+                      console.warn(`Student ${student.name} has enrollment without valid groups:`, enrollment);
+                      return null;
+                    }
+                    return {
+                      id: enrollment.groups[0].id,
+                      name: enrollment.groups[0].name,
+                      status: enrollment.status
+                    };
+                  }).filter(Boolean) // Remove any null entries
                 });
 
                 console.log(`Added ${student.name} to refund list with balance: ${balance.remainingBalance}`);
@@ -2675,11 +2960,18 @@ export const paymentService = {
                   studentName: student.name,
                   customId: student.custom_id,
                   balance: balance.remainingBalance,
-                  groups: studentGroups.map((enrollment: any) => ({
-                    id: enrollment.groups[0].id,
-                    name: enrollment.groups[0].name,
-                    status: enrollment.status
-                  }))
+                  groups: studentGroups.map((enrollment: any) => {
+                    // Add safety check for groups array
+                    if (!enrollment.groups || !Array.isArray(enrollment.groups) || enrollment.groups.length === 0) {
+                      console.warn(`Student ${student.name} has enrollment without valid groups:`, enrollment);
+                      return null;
+                    }
+                    return {
+                      id: enrollment.groups[0].id,
+                      name: enrollment.groups[0].name,
+                      status: enrollment.status
+                    };
+                  }).filter(Boolean) // Remove any null entries
                 });
 
                 console.log(`Added ${student.name} to debt list with balance: ${balance.remainingBalance}`);
@@ -3578,12 +3870,12 @@ export const callLogService = {
         id: log.id,
         studentId: log.student_id || null,
         callDate: new Date(log.call_date),
-        callType: 'other', // Default to 'other' since we don't have this field
+        callType: log.call_type as 'registration' | 'attendance' | 'payment' | 'activity' | 'other' || 'other',
         status: log.call_status || 'pending',
         notes: log.notes || '',
-        adminName: 'Dalila', // Default admin name
+        adminName: log.admin_name || 'Dalila',
         createdAt: new Date(log.created_at),
-        updatedAt: new Date(log.created_at), // Use created_at as fallback
+        updatedAt: new Date(log.updated_at || log.created_at), // Use updated_at if available, fallback to created_at
         studentName: log.student_name || 'Unknown',
         studentPhone: log.student_phone || 'No phone',
       })) || [];
@@ -3631,7 +3923,7 @@ export const callLogService = {
         call_time: new Date().toTimeString().split(' ')[0],
         notes: log.notes || '',
         call_status: log.status || 'pending',
-        call_type: log.callType || 'incoming',
+        call_type: log.callType || 'other',
         admin_name: log.adminName || 'Dalila',
       };
 
@@ -3656,10 +3948,10 @@ export const callLogService = {
         id: data.id,
         studentId: data.student_id,
         callDate: new Date(data.call_date),
-        callType: 'other',
+        callType: data.call_type as 'registration' | 'attendance' | 'payment' | 'activity' | 'other',
         status: data.call_status,
         notes: data.notes,
-        adminName: 'Dalila',
+        adminName: data.admin_name || 'Dalila',
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.created_at),
         studentName: data.student_name,
@@ -3681,6 +3973,7 @@ export const callLogService = {
       if (log.callDate !== undefined) updateData.call_date = log.callDate.toISOString().split('T')[0];
       if (log.status !== undefined) updateData.call_status = log.status;
       if (log.notes !== undefined) updateData.notes = log.notes;
+      if (log.callType !== undefined) updateData.call_type = log.callType;
 
       const { data, error } = await supabase
         .from('call_logs')
@@ -3698,10 +3991,10 @@ export const callLogService = {
         id: data.id,
         studentId: data.student_id,
         callDate: new Date(data.call_date),
-        callType: 'other',
+        callType: data.call_type as 'registration' | 'attendance' | 'payment' | 'activity' | 'other',
         status: data.call_status,
         notes: data.notes,
-        adminName: 'Dalila',
+        adminName: data.admin_name || 'Dalila',
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.created_at),
         studentName: data.student_name,

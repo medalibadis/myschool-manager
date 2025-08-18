@@ -824,41 +824,52 @@ export default function PaymentsPage() {
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            {/* Determine payment type and styling */}
+                                                            {/* Enhanced payment type detection and styling */}
                                                             {(() => {
-                                                                const isRegistrationFee = !payment.groupId && payment.notes && String(payment.notes).toLowerCase().startsWith('registration fee');
+                                                                const isRegistrationFee = !payment.groupId && payment.notes && String(payment.notes).toLowerCase().includes('registration fee');
                                                                 const isRefund = payment.amount < 0;
                                                                 const isGroupFee = payment.groupId && payment.paymentType === 'group_payment';
                                                                 const isBalanceAddition = payment.paymentType === 'balance_addition' && payment.amount > 0;
+                                                                const isDebtPayment = payment.paymentType === 'balance_addition' && payment.amount > 0 && payment.notes && String(payment.notes).toLowerCase().includes('debt');
 
                                                                 let amountColor = 'text-gray-900';
                                                                 let paymentLabel = '';
+                                                                let icon = null;
 
                                                                 if (isRegistrationFee) {
                                                                     amountColor = 'text-green-600';
                                                                     paymentLabel = 'Registration Fee';
+                                                                    icon = '🎓';
                                                                 } else if (isGroupFee) {
                                                                     amountColor = 'text-green-600';
                                                                     paymentLabel = 'Group Fee';
+                                                                    icon = '👥';
                                                                 } else if (isRefund) {
                                                                     amountColor = 'text-red-600';
                                                                     paymentLabel = 'Refund';
+                                                                    icon = '↩️';
+                                                                } else if (isDebtPayment) {
+                                                                    amountColor = 'text-blue-600';
+                                                                    paymentLabel = 'Debt Payment';
+                                                                    icon = '💰';
                                                                 } else if (isBalanceAddition) {
                                                                     amountColor = 'text-blue-600';
                                                                     paymentLabel = 'Balance Addition';
+                                                                    icon = '➕';
                                                                 }
 
                                                                 return (
                                                                     <>
-                                                                        <div className={`text-sm font-medium ${amountColor}`}>
+                                                                        <div className={`text-sm font-medium ${amountColor} flex items-center gap-1`}>
+                                                                            <span>{icon}</span>
                                                                             {isRefund ? '' : '+'}{payment.amount.toFixed(2)}
                                                                         </div>
-                                                                        {payment.discount > 0 && isGroupFee && (
+                                                                        {payment.discount > 0 && (isGroupFee || isRegistrationFee) && (
                                                                             <div className="text-sm text-green-600">
                                                                                 -{((payment.originalAmount || payment.amount) - payment.amount).toFixed(2)} discount
                                                                             </div>
                                                                         )}
-                                                                        <div className={`text-sm ${amountColor}`}>
+                                                                        <div className={`text-sm ${amountColor} font-medium`}>
                                                                             {paymentLabel}
                                                                         </div>
                                                                     </>
@@ -1157,22 +1168,45 @@ export default function PaymentsPage() {
                                 </div>
                             </div>
 
-                            {/* Unpaid Groups list */}
+                            {/* Unpaid Groups list with priority ordering */}
                             <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                <h4 className="font-medium text-gray-900 mb-3">Unpaid Groups (Priority Order)</h4>
                                 {unpaidGroups.length > 0 ? (
-                                    <ul className="space-y-2">
-                                        {unpaidGroups.map(g => (
-                                            <li key={g.id} className="flex items-center justify-between text-sm">
-                                                <div className="text-gray-800">
-                                                    {g.name} <span className="text-gray-500">(#{g.id})</span>
+                                    <ul className="space-y-3">
+                                        {unpaidGroups.map((g, index) => (
+                                            <li key={g.id} className={`p-3 rounded-lg border ${g.id === 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
+                                                }`}>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${g.id === 0 ? 'bg-blue-500 text-white' : 'bg-gray-500 text-white'
+                                                            }`}>
+                                                            {index + 1}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-medium text-gray-900">
+                                                                {g.id === 0 ? 'Registration Fee' : g.name}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                {g.id === 0 ? 'Priority 1 - Always First' : `Priority ${index + 1} - Group #${g.id}`}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="font-bold text-red-600">-{g.remaining.toFixed(2)}</div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {g.id === 0 ? 'Registration Fee' : 'Group Fee'}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="font-semibold text-red-600">-{g.remaining.toFixed(2)}</div>
                                             </li>
                                         ))}
                                     </ul>
                                 ) : (
                                     <p className="text-sm text-gray-600">No unpaid groups.</p>
                                 )}
+                                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+                                    <strong>Payment Priority:</strong> Registration fees are always paid first, then groups are paid from oldest to newest.
+                                </div>
                             </div>
 
                             {/* Deposit Form */}
@@ -1337,17 +1371,17 @@ export default function PaymentsPage() {
                                         <span className="text-gray-600">Payment Type:</span>
                                         <span className="font-medium text-gray-900">
                                             {(() => {
-                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().startsWith('registration fee');
+                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
                                                 const isRefund = selectedReceipt.amount < 0;
                                                 const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
                                                 const isBalanceAddition = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0;
                                                 const isDebtPayment = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0 && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('debt');
 
-                                                if (isRegistrationFee) return 'Registration Fee';
-                                                if (isGroupFee) return 'Group Fee';
-                                                if (isRefund) return 'Refund';
-                                                if (isDebtPayment) return 'GID Debt';
-                                                if (isBalanceAddition) return 'Balance Addition';
+                                                if (isRegistrationFee) return '🎓 Registration Fee';
+                                                if (isGroupFee) return '👥 Group Fee';
+                                                if (isRefund) return '↩️ Refund';
+                                                if (isDebtPayment) return '💰 Debt Payment';
+                                                if (isBalanceAddition) return '➕ Balance Addition';
                                                 return 'Payment';
                                             })()}
                                         </span>
@@ -1363,7 +1397,7 @@ export default function PaymentsPage() {
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">Amount:</span>
                                         <span className={`font-bold text-lg ${(() => {
-                                            const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().startsWith('registration fee');
+                                            const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
                                             const isRefund = selectedReceipt.amount < 0;
                                             const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
                                             const isBalanceAddition = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0;
@@ -1380,7 +1414,7 @@ export default function PaymentsPage() {
                                             {(() => {
                                                 const isRefund = selectedReceipt.amount < 0;
                                                 const isDebtPayment = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0 && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('debt');
-                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().startsWith('registration fee');
+                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
                                                 const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
 
                                                 // POSITIVE amounts (+): Registration fees, group fees, debt payments, balance additions
@@ -1391,7 +1425,7 @@ export default function PaymentsPage() {
                                             })()}{Math.abs(selectedReceipt.amount).toFixed(2)}
                                         </span>
                                     </div>
-                                    {selectedReceipt.discount > 0 && selectedReceipt.paymentType === 'group_payment' && (
+                                    {selectedReceipt.discount > 0 && (selectedReceipt.paymentType === 'group_payment' || (!selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee'))) && (
                                         <div className="flex justify-between">
                                             <span className="text-gray-600">Discount:</span>
                                             <span className="font-medium text-green-600">

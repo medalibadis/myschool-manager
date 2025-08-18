@@ -1988,7 +1988,7 @@ export const paymentService = {
     }
   },
 
-  // New method to get student balance
+  // Enhanced method to get student balance with registration fee priority
   async getStudentBalance(studentId: string): Promise<{
     totalBalance: number;
     totalPaid: number;
@@ -2000,6 +2000,8 @@ export const paymentService = {
       amountPaid: number;
       remainingAmount: number;
       discount?: number;
+      isRegistrationFee?: boolean;
+      startDate?: string;
     }>;
   }> {
     // Guard clause: check if studentId is valid
@@ -2027,7 +2029,7 @@ export const paymentService = {
     try {
       const { data, error: paymentsError } = await supabase
         .from('payments')
-        .select('group_id, amount, original_amount, discount, notes')
+        .select('group_id, amount, original_amount, discount, notes, payment_type')
         .eq('student_id', studentId);
 
       if (paymentsError) {
@@ -2049,11 +2051,13 @@ export const paymentService = {
         .from('student_groups')
         .select(`
           group_id,
+          status,
           groups (
             id,
             name,
             price,
-            total_sessions
+            total_sessions,
+            start_date
           )
         `)
         .eq('student_id', studentId);
@@ -2071,7 +2075,7 @@ export const paymentService = {
     }
 
     // Registration fee fields - with fallback for missing columns
-    let registrationAmount = 0;
+    let registrationAmount = 500; // Default registration fee
     let registrationPaidAmount = 0;
 
     try {
@@ -2082,7 +2086,7 @@ export const paymentService = {
         .single();
 
       if (regRow) {
-        registrationAmount = Number(regRow.registration_fee_amount || 0);
+        registrationAmount = Number(regRow.registration_fee_amount || 500);
       }
     } catch (regError) {
       // If registration fee columns don't exist, use fallback logic
@@ -2110,6 +2114,8 @@ export const paymentService = {
       amountPaid: number;
       remainingAmount: number;
       discount?: number;
+      isRegistrationFee?: boolean;
+      startDate?: string;
     }> = [];
 
     // Calculate total credits from balance additions ONLY (exclude registration fee receipts)
@@ -2123,15 +2129,45 @@ export const paymentService = {
       });
     totalCredits = balanceAdditions.reduce((sum, p) => sum + Number((p as any).amount || 0), 0);
 
-    // Attendance-based fee adjustment per group
-    for (const studentGroup of studentGroups) {
-      // Add safety check for groups array
-      if (!studentGroup.groups || !Array.isArray(studentGroup.groups) || studentGroup.groups.length === 0) {
-        console.warn(`Student group has no valid groups data:`, studentGroup);
-        continue;
-      }
+    // Priority 1: Registration fee (always first)
+    if (registrationAmount > 0) {
+      // Apply student's default discount to registration fee
+      const defaultDiscount = Number(student.default_discount || 0);
+      const discountedRegistrationAmount = defaultDiscount > 0 ? registrationAmount * (1 - defaultDiscount / 100) : registrationAmount;
 
-      const group = studentGroup.groups[0];
+      totalBalance += discountedRegistrationAmount; // Use discounted amount
+      totalPaid += registrationPaidAmount;
+      const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaidAmount);
+
+      groupBalances.push({
+        groupId: 0, // Special ID for registration fee
+        groupName: 'Registration Fee',
+        groupFees: discountedRegistrationAmount, // Show discounted amount
+        amountPaid: registrationPaidAmount,
+        remainingAmount: regRemaining,
+        discount: defaultDiscount,
+        isRegistrationFee: true,
+        startDate: undefined,
+      });
+    }
+
+    // Priority 2: Group fees (ordered by oldest first)
+    const sortedStudentGroups = studentGroups
+      .filter(sg => sg.groups && sg.groups.length > 0)
+      .map(sg => ({
+        ...sg,
+        group: sg.groups[0],
+        startDate: sg.groups[0]?.start_date || null
+      }))
+      .sort((a, b) => {
+        const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return da - db; // oldest first
+      });
+
+    // Attendance-based fee adjustment per group
+    for (const studentGroup of sortedStudentGroups) {
+      const group = studentGroup.group;
       if (!group || !group.id) {
         console.warn(`Student group has invalid group data:`, group);
         continue;
@@ -2155,8 +2191,9 @@ export const paymentService = {
         })));
       }
 
-      // Fetch sessions and attendance statuses
+      // Fetch sessions and attendance statuses for refund calculations
       let countedSessions = totalSessions;
+      let refundableSessions = 0;
       if (totalSessions > 0) {
         const { data: sess } = await supabase
           .from('sessions')
@@ -2169,9 +2206,25 @@ export const paymentService = {
             .select('session_id, status')
             .eq('student_id', studentId)
             .in('session_id', sessionIds);
+
+          // Sessions that don't count for payment
           const notCounted = new Set(['justify', 'new', 'change', 'stop']);
-          const notCountedCount = (att || []).reduce((c, a) => c + (notCounted.has(String((a as any).status)) ? 1 : 0), 0);
+          let notCountedCount = 0;
+          for (const a of (att || [])) {
+            if (notCounted.has(String(a.status))) {
+              notCountedCount += 1;
+            }
+          }
           countedSessions = Math.max(0, totalSessions - notCountedCount);
+
+          // Sessions that qualify for refunds (already paid but shouldn't count)
+          const refundableStatuses = new Set(['justify', 'change', 'new', 'stop']);
+          refundableSessions = 0;
+          for (const a of (att || [])) {
+            if (refundableStatuses.has(String(a.status))) {
+              refundableSessions += 1;
+            }
+          }
         }
       }
 
@@ -2195,25 +2248,8 @@ export const paymentService = {
         amountPaid: actualAmountPaid,
         remainingAmount: groupOwed,
         discount: student.default_discount || 0,
-      });
-    }
-
-    // Include registration fee as a pseudo group balance (groupId 0)
-    if (registrationAmount > 0) {
-      // Apply student's default discount to registration fee
-      const defaultDiscount = Number(student.default_discount || 0);
-      const discountedRegistrationAmount = defaultDiscount > 0 ? registrationAmount * (1 - defaultDiscount / 100) : registrationAmount;
-
-      totalBalance += discountedRegistrationAmount; // Use discounted amount
-      totalPaid += registrationPaidAmount;
-      const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaidAmount);
-      groupBalances.unshift({
-        groupId: 0,
-        groupName: 'Registration fee',
-        groupFees: discountedRegistrationAmount, // Show discounted amount
-        amountPaid: registrationPaidAmount,
-        remainingAmount: regRemaining,
-        discount: defaultDiscount,
+        isRegistrationFee: false,
+        startDate: group.start_date || null,
       });
     }
 

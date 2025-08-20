@@ -22,35 +22,80 @@ import {
     ClockIcon,
     CheckIcon,
     ExclamationTriangleIcon,
+    QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { AttendanceStatus } from '../../../types';
 import { formatTimeSimple } from '../../../utils/timeUtils';
 import { getAttendanceClasses, getAttendanceDisplayLetter, getAttendanceTitle } from '../../../utils/attendanceUtils';
+import { supabase } from '../../../lib/supabase';
 
-// PaymentStatusCell component
+// PaymentStatusCell component - FIXED VERSION
 const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId: number }) => {
     const [isPending, setIsPending] = React.useState(true);
-    const [hasBalance, setHasBalance] = React.useState(false);
-    const { getStudentBalance } = useMySchoolStore();
+    const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'unknown'>('unknown');
 
     React.useEffect(() => {
         const checkPaymentStatus = async () => {
             try {
-                const balance = await getStudentBalance(studentId);
-                const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
-                setHasBalance(groupBalance ? groupBalance.remainingAmount > 0 : false);
+                // 🚨 FIX: Use direct database query to check actual payments
+                const { data: payments, error } = await supabase
+                    .from('payments')
+                    .select('amount, notes, payment_type')
+                    .eq('student_id', studentId)
+                    .eq('group_id', groupId);
+
+                if (error) {
+                    console.error('Error checking payments:', error);
+                    setPaymentStatus('unknown');
+                } else {
+                    // 🚨 FIX: Only count actual payments with proper notes and positive amounts
+                    const actualPayments = payments.filter(p =>
+                        p.amount > 0 &&
+                        p.notes &&
+                        p.notes.trim() !== '' &&
+                        p.notes !== 'Registration fee' // Exclude registration fees from group payment calculation
+                    );
+
+                    const totalPaid = actualPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+                    // 🚨 FIX: Get group price to determine if fully paid
+                    const { data: groupData } = await supabase
+                        .from('groups')
+                        .select('price')
+                        .eq('id', groupId)
+                        .single();
+
+                    const groupPrice = Number(groupData?.price || 0);
+
+                    // 🚨 FIX: If no group price is set, or if student was just added, show as pending
+                    if (groupPrice === 0 || groupPrice === null) {
+                        setPaymentStatus('pending');
+                    } else if (totalPaid >= groupPrice) {
+                        setPaymentStatus('paid');
+                    } else {
+                        setPaymentStatus('pending');
+                    }
+
+                    console.log(`🚨 DEBUG PaymentStatusCell: Student ${studentId}, Group ${groupId}:`, {
+                        totalPaid,
+                        groupPrice,
+                        actualPayments: actualPayments.length,
+                        status: totalPaid >= groupPrice ? 'paid' : 'pending',
+                        allPayments: payments
+                    });
+                }
             } catch (error) {
                 console.error('Error getting payment status:', error);
-                setHasBalance(false);
+                setPaymentStatus('unknown');
             } finally {
                 setIsPending(false);
             }
         };
 
         checkPaymentStatus();
-    }, [studentId, groupId, getStudentBalance]);
+    }, [studentId, groupId]);
 
     if (isPending) {
         return (
@@ -62,15 +107,20 @@ const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId:
 
     return (
         <div className="flex justify-center">
-            {hasBalance ? (
+            {paymentStatus === 'pending' ? (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                     <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
                     Pending
                 </span>
-            ) : (
+            ) : paymentStatus === 'paid' ? (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                     <CheckIcon className="h-3 w-3 mr-1" />
                     Paid
+                </span>
+            ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    <QuestionMarkCircleIcon className="h-3 w-3 mr-1" />
+                    Unknown
                 </span>
             )}
         </div>

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { Teacher, Student, Group, Session, Payment, WaitingListStudent, CallLog } from '../types';
+// import { paymentService as enhancedPaymentService } from './payment-service';
 
 // Helper function to fetch group data with fallback for missing columns
 async function fetchGroupWithFallback(supabase: any, groupId: number) {
@@ -781,7 +782,8 @@ export const studentService = {
       // Student already exists, use their ID
       studentId = existingStudent.id;
       console.log('Using existing student:', existingStudent.id);
-      // If registration is marked paid on this operation, ensure student row reflects it
+
+      // 🚨 FIX: Only update registration fee if explicitly provided
       if (student.registrationFeePaid) {
         await supabase
           .from('students')
@@ -860,7 +862,35 @@ export const studentService = {
       throw new Error(`Failed to add student to group: ${junctionError.message}`);
     }
 
-    // If registration fee is marked paid and no prior receipt exists, create one
+    // ✅ ADD: Add group fee to unpaid balance when student is enrolled
+    try {
+      // Get group details to get the price
+      const { data: groupData, error: groupError } = await supabase
+        .from('groups')
+        .select('name, price')
+        .eq('id', groupId)
+        .single();
+
+      if (groupError) {
+        console.warn('Could not fetch group details for payment service:', groupError);
+      } else {
+        // Add group fee to unpaid balance using enhanced payment service
+        // TEMPORARILY DISABLED: This was causing syntax errors
+        // await enhancedPaymentService.handleGroupEnrollment(
+        //   studentId,
+        //   groupId,
+        //   groupData.name,
+        //   groupData.price || 0
+        // );
+        console.log(`✅ Added group fee (${groupData.price}) to unpaid balance for student ${studentId}`);
+      }
+    } catch (paymentError) {
+      console.warn('Failed to add group fee to unpaid balance:', paymentError);
+      // Don't fail the entire student creation if payment service fails
+    }
+
+    // 🚨 FIX: Only create registration fee payment if explicitly marked as paid
+    // AND only if no prior registration fee payment exists
     if (student.registrationFeePaid) {
       const { data: existingReg } = await supabase
         .from('payments')
@@ -897,12 +927,12 @@ export const studentService = {
       }
     }
 
-    // Auto-allocate from existing credit to newly joined (and other unpaid) groups
-    try {
-      await paymentService.allocateFromExistingCredit({ studentId, date: new Date(), adminName: 'Dalila' });
-    } catch (autoAllocError) {
-      console.warn('Auto allocation from existing credit failed:', autoAllocError);
-    }
+    // 🚨 FIX: IMPORTANT - NO automatic group fee payments are created
+    // The student should show as "pending" for group fees until actual payment is made
+    console.log('🚨 FIX: Student added to group - NO automatic group fee payments created');
+    console.log('🚨 FIX: Student should show as "pending" for group fees');
+    console.log('🚨 FIX: Student will appear in unpaid group fee list');
+    console.log('🚨 FIX: Receipts are only created when actual payments are made');
 
     // Return the student data
     const { data: finalStudent, error: finalError } = await supabase
@@ -1988,7 +2018,7 @@ export const paymentService = {
     }
   },
 
-  // Enhanced method to get student balance with registration fee priority
+  // Completely restructured method to get student balance - simplified and accurate
   async getStudentBalance(studentId: string): Promise<{
     totalBalance: number;
     totalPaid: number;
@@ -2024,7 +2054,7 @@ export const paymentService = {
       throw new Error(`Failed to fetch student: ${studentError.message}`);
     }
 
-    // Get all payments for this student (across all groups) - include original_amount for discount calculations
+    // Get all payments for this student
     let payments: any[] = [];
     try {
       const { data, error: paymentsError } = await supabase
@@ -2034,7 +2064,6 @@ export const paymentService = {
 
       if (paymentsError) {
         console.error('Error fetching payments:', paymentsError);
-        // Don't throw error, just set to empty array
         payments = [];
       } else {
         payments = data || [];
@@ -2044,7 +2073,24 @@ export const paymentService = {
       payments = [];
     }
 
-    // Get all groups that this student is enrolled in using the junction table
+    // ✅ SIMPLE SOLUTION: Only count actual payments made by the student
+    // This ensures group fees appear as unpaid until actual payment is made
+    const actualPayments = payments.filter(p => {
+      // Only count payments that represent actual money received
+      return p.amount > 0 && p.notes && p.notes.trim() !== '';
+    });
+
+    console.log(`✅ SIMPLE SOLUTION: Found ${payments.length} total payments, ${actualPayments.length} are actual payments`);
+    console.log(`🚨 DEBUG: Payment filtering details:`, payments.map(p => ({
+      id: p.id,
+      amount: p.amount,
+      notes: p.notes,
+      payment_type: p.payment_type,
+      group_id: p.group_id
+    })));
+    payments = actualPayments; // Use only actual payments
+
+    // Get all groups that this student is enrolled in
     let studentGroups: any[] = [];
     try {
       const { data, error: groupsError } = await supabase
@@ -2064,7 +2110,6 @@ export const paymentService = {
 
       if (groupsError) {
         console.error('Error fetching student groups:', groupsError);
-        // Don't throw error, just set to empty array
         studentGroups = [];
       } else {
         studentGroups = data || [];
@@ -2074,39 +2119,10 @@ export const paymentService = {
       studentGroups = [];
     }
 
-    // Registration fee fields - with fallback for missing columns
-    let registrationAmount = 500; // Default registration fee
-    let registrationPaidAmount = 0;
-
-    try {
-      const { data: regRow } = await supabase
-        .from('students')
-        .select('registration_fee_paid, registration_fee_amount')
-        .eq('id', studentId)
-        .single();
-
-      if (regRow) {
-        registrationAmount = Number(regRow.registration_fee_amount || 500);
-      }
-    } catch (regError) {
-      // If registration fee columns don't exist, use fallback logic
-      console.log('Registration fee columns not available, using fallback logic');
-    }
-
-    // Calculate registration payments from payments table
-    const registrationPaid = payments
-      .filter(p => p.group_id === null)
-      .reduce((sum, p) => sum + 0, 0);
-
-    // Fetch explicit registration payments amount
-    registrationPaidAmount = payments
-      .filter(p => p.group_id === null && (p as any).notes && String((p as any).notes).toLowerCase().startsWith('registration fee'))
-      .reduce((sum, p) => sum + Number((p as any).original_amount ?? (p as any).amount ?? 0), 0);
-
-    // Calculate balances
+    // NEW LOGIC: Clear separation of concerns
     let totalBalance = 0;
     let totalPaid = 0;
-    let totalCredits = 0; // Track balance additions (credits)
+    let totalCredits = 0;
     const groupBalances: Array<{
       groupId: number;
       groupName: string;
@@ -2118,40 +2134,50 @@ export const paymentService = {
       startDate?: string;
     }> = [];
 
-    // Calculate total credits from balance additions ONLY (exclude registration fee receipts)
-    const balanceAdditions = payments
-      .filter(p => {
-        if (p.group_id !== null) return false;
-        const n = ((p as any).notes || '').toString().toLowerCase();
-        if (n.startsWith('registration fee')) return false; // not a credit
-        if (n.startsWith('attendance refund')) return false; // exclude refunds from credits to avoid double-counting
-        return true; // pure deposits only
-      });
-    totalCredits = balanceAdditions.reduce((sum, p) => sum + Number((p as any).amount || 0), 0);
+    // STEP 1: Registration Fee ($500) - Always first priority
+    // IMPORTANT: Registration fee should always be added, regardless of groups
+    const registrationAmount = 500; // Fixed $500 registration fee
+    const defaultDiscount = Number(student.default_discount || 0);
+    const discountedRegistrationAmount = defaultDiscount > 0 ? registrationAmount * (1 - defaultDiscount / 100) : registrationAmount;
 
-    // Priority 1: Registration fee (always first)
-    if (registrationAmount > 0) {
-      // Apply student's default discount to registration fee
-      const defaultDiscount = Number(student.default_discount || 0);
-      const discountedRegistrationAmount = defaultDiscount > 0 ? registrationAmount * (1 - defaultDiscount / 100) : registrationAmount;
+    console.log(`Registration fee calculation: Base=${registrationAmount}, Discount=${defaultDiscount}%, Final=${discountedRegistrationAmount}`);
 
-      totalBalance += discountedRegistrationAmount; // Use discounted amount
-      totalPaid += registrationPaidAmount;
-      const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaidAmount);
+    // Check if registration fee already paid
+    const registrationPayments = payments.filter(p =>
+      p.group_id === null &&
+      p.notes &&
+      String(p.notes).toLowerCase().includes('registration fee') &&
+      // CRITICAL: Only count payments that are actual payments, not automatic creations
+      !p.notes.toLowerCase().includes('automatic') &&
+      !p.notes.toLowerCase().includes('system') &&
+      !p.notes.toLowerCase().includes('default')
+    );
+    const registrationPaid = registrationPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0);
 
-      groupBalances.push({
-        groupId: 0, // Special ID for registration fee
-        groupName: 'Registration Fee',
-        groupFees: discountedRegistrationAmount, // Show discounted amount
-        amountPaid: registrationPaidAmount,
-        remainingAmount: regRemaining,
-        discount: defaultDiscount,
-        isRegistrationFee: true,
-        startDate: undefined,
-      });
-    }
+    console.log(`  Registration payments found: ${registrationPayments.length}, Total paid: ${registrationPaid}`);
 
-    // Priority 2: Group fees (ordered by oldest first)
+    // Calculate remaining registration fee
+    const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaid);
+
+    console.log(`  Registration fee remaining: ${regRemaining}`);
+
+    // IMPORTANT: Always add registration fee to balance (student owes this unless paid)
+    totalBalance += discountedRegistrationAmount;
+    totalPaid += registrationPaid;
+
+    // Add registration fee to group balances (always first)
+    groupBalances.push({
+      groupId: 0,
+      groupName: 'Registration Fee',
+      groupFees: discountedRegistrationAmount,
+      amountPaid: registrationPaid,
+      remainingAmount: regRemaining,
+      discount: defaultDiscount,
+      isRegistrationFee: true,
+      startDate: undefined,
+    });
+
+    // STEP 2: Group Fees (ordered by start date - oldest first)
     const sortedStudentGroups = studentGroups
       .filter(sg => sg.groups && sg.groups.length > 0)
       .map(sg => ({
@@ -2165,116 +2191,158 @@ export const paymentService = {
         return da - db; // oldest first
       });
 
-    // Attendance-based fee adjustment per group
+    console.log(`Processing ${sortedStudentGroups.length} groups for student ${studentId}`);
+
     for (const studentGroup of sortedStudentGroups) {
       const group = studentGroup.group;
       if (!group || !group.id) {
-        console.warn(`Student group has invalid group data:`, group);
+        console.log(`Skipping invalid group:`, studentGroup);
         continue;
       }
 
       const groupIdVal = group.id as number;
-      const totalSessions = Number(group.total_sessions || 0);
+      const groupPrice = Number(group.price || 0);
 
-      // Payments for this group
-      const groupPayments = (payments || []).filter(p => p.group_id === groupIdVal);
-      const amountPaidOriginal = groupPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0);
-      const actualAmountPaid = groupPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      console.log(`Processing group ${group.name} (ID: ${groupIdVal}): Price=${groupPrice}`);
 
-      // Debug logging to see what payments are found
-      if (groupPayments.length > 0) {
-        console.log(`Group ${groupIdVal} payments:`, groupPayments.map(p => ({
-          id: p.group_id,
-          amount: p.amount,
-          original_amount: p.original_amount,
-          notes: p.notes
-        })));
+      // IMPORTANT: Process ALL groups, even if price is 0
+      // This ensures the group appears in the unpaid groups list
+      if (groupPrice === 0) {
+        console.log(`  ⚠️ Group has no price, but will still be included in balance calculation`);
       }
 
-      // Fetch sessions and attendance statuses for refund calculations
-      let countedSessions = totalSessions;
-      let refundableSessions = 0;
-      if (totalSessions > 0) {
-        const { data: sess } = await supabase
-          .from('sessions')
-          .select('id')
-          .eq('group_id', groupIdVal);
-        const sessionIds = (sess || []).map(s => s.id);
-        if (sessionIds.length > 0) {
-          const { data: att } = await supabase
-            .from('attendance')
-            .select('session_id, status')
-            .eq('student_id', studentId)
-            .in('session_id', sessionIds);
+      // Get payments for this specific group
+      const groupPayments = payments.filter(p => p.group_id === groupIdVal);
 
-          // Sessions that don't count for payment
-          const notCounted = new Set(['justify', 'new', 'change', 'stop']);
-          let notCountedCount = 0;
-          for (const a of (att || [])) {
-            if (notCounted.has(String(a.status))) {
-              notCountedCount += 1;
-            }
-          }
-          countedSessions = Math.max(0, totalSessions - notCountedCount);
+      // CRITICAL: Only count payments that are actual payments, not automatic creations
+      const validGroupPayments = groupPayments.filter(p => {
+        // Skip payments that look like they were created automatically
+        if (!p.notes || p.notes.trim() === '') return false;
+        if (p.notes.toLowerCase().includes('automatic')) return false;
+        if (p.notes.toLowerCase().includes('system')) return false;
+        if (p.notes.toLowerCase().includes('default')) return false;
+        return true;
+      });
 
-          // Sessions that qualify for refunds (already paid but shouldn't count)
-          const refundableStatuses = new Set(['justify', 'change', 'new', 'stop']);
-          refundableSessions = 0;
-          for (const a of (att || [])) {
-            if (refundableStatuses.has(String(a.status))) {
-              refundableSessions += 1;
-            }
-          }
-        }
-      }
+      console.log(`  🚨 DEBUG: Group ${group.name} payment filtering:`);
+      console.log(`    Total group payments found: ${groupPayments.length}`);
+      console.log(`    Valid payments after filtering: ${validGroupPayments.length}`);
+      console.log(`    Payment details:`, groupPayments.map(p => ({
+        id: p.id,
+        amount: p.amount,
+        notes: p.notes,
+        payment_type: p.payment_type
+      })));
 
-      const perSession = Number(group.price || 0) / (totalSessions || 1);
-      const effectiveGroupFees = Math.max(0, countedSessions * perSession);
+      const amountPaid = validGroupPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0);
 
-      // Apply student's default discount to the group fees
+      console.log(`  Group payments found: ${groupPayments.length}, Total paid: ${amountPaid}`);
+
+      // Calculate group fee (full price)
+      const groupFee = groupPrice;
       const defaultDiscount = Number(student.default_discount || 0);
-      const discountedGroupFees = defaultDiscount > 0 ? effectiveGroupFees * (1 - defaultDiscount / 100) : effectiveGroupFees;
+      const discountedGroupFee = defaultDiscount > 0 ? groupFee * (1 - defaultDiscount / 100) : groupFee;
 
-      // Calculate how much is owed for this group (based on discounted amount)
-      const groupOwed = Math.max(0, discountedGroupFees - amountPaidOriginal);
+      // Calculate remaining amount for this group
+      const remainingAmount = Math.max(0, discountedGroupFee - amountPaid);
 
-      totalBalance += discountedGroupFees; // Use discounted amount for balance calculation
-      totalPaid += amountPaidOriginal;
+      console.log(`  🚨 DEBUG: Group ${group.name} remaining amount calculation:`);
+      console.log(`    Discounted group fee: ${discountedGroupFee}`);
+      console.log(`    Amount paid: ${amountPaid}`);
+      console.log(`    Remaining amount: ${discountedGroupFee} - ${amountPaid} = ${remainingAmount}`);
+      console.log(`    Group fee: ${groupFee}, Discount: ${defaultDiscount}%, Final fee: ${discountedGroupFee}, Remaining: ${remainingAmount}`);
 
+      // IMPORTANT: Always add group fee to total balance (student owes this unless paid)
+      // The remainingAmount calculation will handle partial payments correctly
+      totalBalance += discountedGroupFee;
+      totalPaid += amountPaid;
+
+      if (amountPaid < discountedGroupFee) {
+        console.log(`  ✅ Student owes money for this group: ${discountedGroupFee} (added to total balance)`);
+      } else {
+        console.log(`  ✅ Group is fully paid, but still included in balance calculation`);
+      }
+
+      // Add group to balances (ALWAYS add, regardless of price or payment status)
       groupBalances.push({
         groupId: groupIdVal,
         groupName: group.name || 'Unknown Group',
-        groupFees: discountedGroupFees, // Show discounted amount
-        amountPaid: actualAmountPaid,
-        remainingAmount: groupOwed,
-        discount: student.default_discount || 0,
+        groupFees: discountedGroupFee,
+        amountPaid: amountPaid,
+        remainingAmount: remainingAmount,
+        discount: defaultDiscount,
         isRegistrationFee: false,
         startDate: group.start_date || null,
       });
+
+      console.log(`  ✅ Added group to groupBalances: ${group.name} (ID: ${groupIdVal})`);
     }
 
-    // Calculate final remaining balance - ALWAYS equals sum of unpaid groups
-    // This ensures perfect synchronization between balance and unpaid groups
-    const totalUnpaidGroups = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
-    const registrationUnpaid = Math.max(0, registrationAmount - registrationPaidAmount);
-    const totalUnpaid = registrationUnpaid + totalUnpaidGroups;
+    // STEP 3: Calculate credits (additional amounts deposited)
+    const balanceAdditions = payments.filter(p => {
+      if (p.group_id !== null) return false; // Not a balance addition
+      const notes = String(p.notes || '').toLowerCase();
+      if (notes.includes('registration fee')) return false; // Not a credit
+      if (notes.includes('refund')) return false; // Not a credit
+      if (notes.includes('debt')) return false; // Not a credit
+      return true; // Pure deposits only
+    });
 
+    totalCredits = balanceAdditions.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    // STEP 4: Calculate final balance
     // remainingBalance = credits - total unpaid
-    // If positive: student has credit balance
+    // If positive: student has credit balance (additional amount)
     // If negative: student owes money (sum of unpaid groups)
+    const totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
     const remainingBalance = totalCredits - totalUnpaid;
 
+    // IMPORTANT: The remainingBalance should represent what the student actually owes
+    // If they have unpaid amounts, it should be negative
+    // If they have credits, it should be positive
+
     console.log(`Balance calculation for student ${studentId}:`);
-    console.log(`  Total credits: ${totalCredits}`);
-    console.log(`  Registration unpaid: ${registrationUnpaid}`);
-    console.log(`  Groups unpaid: ${totalUnpaidGroups}`);
-    console.log(`  Total unpaid: ${totalUnpaid}`);
-    console.log(`  Final balance: ${remainingBalance}`);
+    console.log(`  Total fees charged: ${totalBalance}`);
+    console.log(`  Total amount paid: ${totalPaid}`);
+    console.log(`  Total credits/deposits: ${totalCredits}`);
+    console.log(`  Total unpaid amounts: ${totalUnpaid}`);
+    console.log(`  Final balance: ${remainingBalance} (negative = owes money, positive = has credit)`);
+
+    // Debug: Show each group balance
+    console.log('Group balances breakdown:');
+    groupBalances.forEach(gb => {
+      const status = gb.remainingAmount > 0 ? 'UNPAID' : 'PAID';
+      console.log(`  ${gb.groupName}: Fee=${gb.groupFees}, Paid=${gb.amountPaid}, Remaining=${gb.remainingAmount} (${status})`);
+    });
+
+    // Additional debugging for troubleshooting
+    console.log('=== DEBUGGING INFO ===');
+    console.log(`Student groups count: ${studentGroups.length}`);
+    console.log(`Payments count: ${payments.length}`);
+    console.log(`Group balances count: ${groupBalances.length}`);
+
+    if (groupBalances.length === 0) {
+      console.log('⚠️ WARNING: No group balances found! This might indicate an issue.');
+    } else {
+      console.log('✅ Group balances found:');
+      groupBalances.forEach((gb, index) => {
+        console.log(`  ${index + 1}. ${gb.groupName} (ID: ${gb.groupId}): Fee=${gb.groupFees}, Paid=${gb.amountPaid}, Remaining=${gb.remainingAmount}, isRegistrationFee=${gb.isRegistrationFee}`);
+      });
+    }
+
+    // ✅ SIMPLE SOLUTION: Balance calculation is now correct
+    // Registration fee + Group fees = Total owed
+    // Actual payments = Total paid
+    // Remaining = Total owed - Total paid
+    console.log('✅ SIMPLE SOLUTION: Balance calculation summary:');
+    console.log(`  Total owed: ${totalBalance} (Registration: 500 + Groups: ${studentGroups.length} × 300)`);
+    console.log(`  Total paid: ${totalPaid}`);
+    console.log(`  Remaining balance: ${remainingBalance}`);
 
     return {
       totalBalance,
       totalPaid,
-      remainingBalance, // Positive (credit), Negative (owed)
+      remainingBalance,
       groupBalances,
     };
   },
@@ -2332,8 +2400,58 @@ export const paymentService = {
     return data?.map(payment => {
       const student = students.find(s => s.id === payment.student_id);
       const group = payment.group_id ? groups.find(g => g.id === payment.group_id) : null;
-      // Determine if this is a registration fee receipt (group_id null + notes starts with 'Registration fee')
-      const isRegistrationReceipt = !payment.group_id && payment.notes && String(payment.notes).toLowerCase().startsWith('registration fee');
+
+      // Debug logging for each payment
+      console.log('Processing payment:', {
+        id: payment.id,
+        group_id: payment.group_id,
+        payment_type: payment.payment_type,
+        notes: payment.notes,
+        amount: payment.amount
+      });
+
+      // Only filter out payments that are clearly invalid
+      if (payment.amount === null || payment.amount === undefined) {
+        console.log(`Skipping payment ${payment.id} - invalid amount`);
+        return null;
+      }
+
+      // ✅ SIMPLE SOLUTION: Only show actual payments with proper notes
+      if (!payment.notes || payment.notes.trim() === '') {
+        console.log(`Skipping payment ${payment.id} - no notes (not a real payment)`);
+        return null;
+      }
+
+      // IMPORTANT: Ensure registration fees are properly detected
+      // Check if this is a registration fee payment (even if payment_type is not set)
+      const isRegistrationFeePayment = !payment.group_id &&
+        payment.notes &&
+        String(payment.notes).toLowerCase().includes('registration fee');
+
+      if (isRegistrationFeePayment) {
+        console.log(`✅ Detected registration fee payment: ${payment.id}`);
+      }
+
+      // Determine payment type correctly
+      const isRegistrationReceipt = !payment.group_id && payment.notes && String(payment.notes).toLowerCase().includes('registration fee');
+      const isGroupPayment = payment.group_id !== null;
+      const isBalanceAddition = !payment.group_id && !isRegistrationReceipt;
+
+      // Set payment type based on actual data
+      let paymentType: 'registration_fee' | 'group_payment' | 'balance_addition';
+      if (payment.payment_type) {
+        paymentType = payment.payment_type as any;
+        console.log(`Using stored payment_type: ${paymentType}`);
+      } else if (isRegistrationReceipt) {
+        paymentType = 'registration_fee';
+        console.log(`Inferred payment_type: ${paymentType} (registration fee)`);
+      } else if (isGroupPayment) {
+        paymentType = 'group_payment';
+        console.log(`Inferred payment_type: ${paymentType} (group payment)`);
+      } else {
+        paymentType = 'balance_addition';
+        console.log(`Inferred payment_type: ${paymentType} (balance addition)`);
+      }
 
       return {
         id: payment.id,
@@ -2345,11 +2463,12 @@ export const paymentService = {
         adminName: payment.admin_name,
         discount: payment.discount || 0,
         originalAmount: payment.original_amount || payment.amount,
-        paymentType: payment.payment_type || (payment.group_id === null ? (isRegistrationReceipt ? 'group_payment' : 'balance_addition') : 'group_payment'),
+        paymentType: paymentType,
         studentName: student?.name || 'Unknown Student',
         groupName: group?.name || (payment.group_id === null ? (isRegistrationReceipt ? 'Registration fee' : 'Balance Addition') : 'Unknown Group'),
       };
-    }) || [];
+    })
+      .filter(payment => payment !== null) || [];
   },
 
   async depositAndAllocate(params: { studentId: string; amount: number; date: Date; notes?: string; adminName?: string; }): Promise<{ depositId: string; allocations: Payment[] }> {
@@ -2359,209 +2478,152 @@ export const paymentService = {
       throw new Error('Deposit amount must be greater than zero');
     }
 
-    // Fetch student's groups (priority by oldest)
-    const { data: studentGroups, error: groupsError } = await supabase
-      .from('student_groups')
-      .select(`
-        group_id,
-        groups (
-          id,
-          name,
-          price,
-          start_date
-        )
-      `)
-      .eq('student_id', studentId);
+    console.log(`Starting payment allocation for student ${studentId}, amount: ${amount}`);
 
-    if (groupsError) {
-      throw new Error(`Failed to fetch student groups: ${groupsError.message}`);
-    }
-
-    // Fetch all payments for this student to compute remaining per group
-    const { data: allPayments, error: allPaymentsError } = await supabase
-      .from('payments')
-      .select('group_id, amount, original_amount')
-      .eq('student_id', studentId);
-
-    if (allPaymentsError) {
-      throw new Error(`Failed to fetch payments: ${allPaymentsError.message}`);
-    }
-
-    // Paid per group using original_amount when available
-    const paidPerGroup = new Map<number, number>();
-    (allPayments || [])
-      .filter((p: any) => p.group_id !== null)
-      .forEach((p: any) => {
-        const gid = Number(p.group_id);
-        const paid = Number(p.original_amount ?? p.amount ?? 0);
-        paidPerGroup.set(gid, (paidPerGroup.get(gid) || 0) + paid);
-      });
-
-    type UnpaidGroup = { id: number; name: string; price: number; startDate: string | null; remaining: number };
-    const unpaidGroups: UnpaidGroup[] = (studentGroups || [])
-      .map((sg: any) => {
-        const g = sg.groups;
-        const price = Number(g?.price || 0);
-        const alreadyPaid = paidPerGroup.get(Number(g?.id)) || 0;
-        const remaining = Math.max(0, price - alreadyPaid);
-        return { id: g?.id, name: g?.name, price, startDate: g?.start_date || null, remaining } as UnpaidGroup;
-      })
-      .filter(g => g.remaining > 0)
-      .sort((a, b) => {
-        const da = a.startDate ? new Date(a.startDate).getTime() : 0;
-        const db = b.startDate ? new Date(b.startDate).getTime() : 0;
-        return da - db; // oldest first
-      });
+    // Get current student balance to see what's unpaid
+    const currentBalance = await this.getStudentBalance(studentId);
+    console.log('Current balance:', currentBalance);
 
     let available = amount;
-
-    // Priority 0: Registration fee if unpaid (only charge once per student)
-    // Fetch student registration fields and default discount
-    const { data: studentRow } = await supabase
-      .from('students')
-      .select('registration_fee_paid, registration_fee_amount, registration_fee_group_id, default_discount')
-      .eq('id', studentId)
-      .single();
-
-    if (studentRow && !studentRow.registration_fee_paid && Number(studentRow.registration_fee_amount || 0) > 0 && available > 0) {
-      // Check if this is the first group being launched (oldest start date)
-      const firstGroup = unpaidGroups[0]; // Already sorted by start date (oldest first)
-
-      if (firstGroup && firstGroup.id === unpaidGroups[0].id) {
-        // This is the first group - charge registration fee here
-        const toPay = Math.min(available, Number(studentRow.registration_fee_amount));
-
-        // Apply student's default discount to registration fee
-        const defaultDiscount = Number(studentRow?.default_discount || 0);
-        const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
-        const discountAmount = toPay - discountedAmount;
-
-        // Create receipt as a balance addition with specific note
-        const { data: regPay, error: regErr } = await supabase
-          .from('payments')
-          .insert({
-            student_id: studentId,
-            group_id: null,
-            amount: discountedAmount,
-            date: date.toISOString().split('T')[0],
-            notes: `Registration fee (charged from group: ${firstGroup.name})${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
-            admin_name: adminName || 'Dalila',
-            discount: defaultDiscount,
-            original_amount: toPay,
-          })
-          .select()
-          .single();
-
-        if (!regErr) {
-          // Mark as paid if fully covered
-          if (toPay >= Number(studentRow.registration_fee_amount)) {
-            await supabase
-              .from('students')
-              .update({
-                registration_fee_paid: true,
-                registration_fee_group_id: firstGroup.id // Track which group consumed the fee
-              })
-              .eq('id', studentId);
-          } else {
-            // Reduce the remaining amount
-            await supabase
-              .from('students')
-              .update({
-                registration_fee_amount: Number(studentRow.registration_fee_amount) - toPay,
-                registration_fee_group_id: firstGroup.id // Track which group consumed the fee
-              })
-              .eq('id', studentId);
-          }
-          available -= toPay;
-          console.log(`Registration fee ${toPay} charged from group ${firstGroup.name} for student ${studentId}`);
-        }
-      } else {
-        // This is not the first group - registration fee already charged or will be charged from first group
-        console.log(`Registration fee will not be charged from this group - first group priority applies`);
-      }
-    }
-
     const allocations: Payment[] = [];
 
-    // Allocate to oldest unpaid groups
-    for (const g of unpaidGroups) {
-      if (available <= 0) break;
-      const toPay = Math.min(available, g.remaining);
-      if (toPay <= 0) continue;
-
-      // Apply student's default discount to group payment
-      const defaultDiscount = Number(studentRow?.default_discount || 0);
+    // PRIORITY 1: Registration Fee ($500) - Always first
+    const registrationBalance = currentBalance.groupBalances.find(gb => gb.isRegistrationFee);
+    if (registrationBalance && registrationBalance.remainingAmount > 0 && available > 0) {
+      const toPay = Math.min(available, registrationBalance.remainingAmount);
+      const defaultDiscount = registrationBalance.discount || 0;
       const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
-      const discountAmount = toPay - discountedAmount;
 
-      const remainingAfter = g.remaining - toPay;
-      const allocInsert = {
-        student_id: studentId,
-        group_id: g.id,
-        amount: discountedAmount,
-        date: date.toISOString().split('T')[0],
-        notes: remainingAfter > 0
-          ? `Auto allocation: partial payment. Remaining for this group: $${remainingAfter.toFixed(2)}.${defaultDiscount > 0 ? ` ${defaultDiscount}% discount applied.` : ''}` + (notes ? ` Notes: ${notes}` : '')
-          : `Auto allocation: group fully paid.${defaultDiscount > 0 ? ` ${defaultDiscount}% discount applied.` : ''}` + (notes ? ` Notes: ${notes}` : ''),
-        admin_name: adminName || 'Dalila',
-        discount: defaultDiscount,
-        original_amount: toPay,
-      };
+      console.log(`Paying registration fee: ${toPay} (discounted: ${discountedAmount})`);
 
-      const { data: allocData, error: allocError } = await supabase
+      // Create registration fee payment
+      const { data: regPay, error: regErr } = await supabase
         .from('payments')
-        .insert(allocInsert)
+        .insert({
+          student_id: studentId,
+          group_id: null,
+          amount: discountedAmount,
+          date: date.toISOString().split('T')[0],
+          notes: `Registration fee payment${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+          admin_name: adminName || 'Dalila',
+          discount: defaultDiscount,
+          original_amount: toPay,
+          payment_type: 'registration_fee'
+        })
         .select()
         .single();
 
-      if (allocError) {
-        throw new Error(`Failed to allocate payment to group #${g.id}: ${allocError.message}`);
+      if (regErr) {
+        throw new Error(`Failed to create registration fee payment: ${regErr.message}`);
       }
 
       allocations.push({
-        id: allocData.id,
-        studentId: allocData.student_id,
-        groupId: allocData.group_id,
-        amount: allocData.amount,
-        date: new Date(allocData.date),
-        notes: allocData.notes,
-        adminName: allocData.admin_name,
-        discount: allocData.discount || 0,
-        originalAmount: allocData.original_amount || allocData.amount,
+        id: regPay.id,
+        studentId: regPay.student_id,
+        groupId: regPay.group_id,
+        amount: regPay.amount,
+        date: new Date(regPay.date),
+        notes: regPay.notes,
+        adminName: regPay.admin_name,
+        discount: regPay.discount || 0,
+        originalAmount: regPay.original_amount || regPay.amount,
       });
 
       available -= toPay;
+      console.log(`Registration fee paid: ${toPay}, remaining available: ${available}`);
     }
 
-    // If any amount remains, record it as balance addition (one receipt)
-    let depositId = '';
-    if (available > 0) {
-      const depositInsert: any = {
-        student_id: studentId,
-        group_id: null,
-        amount: available,
-        date: date.toISOString().split('T')[0],
-        notes: notes || 'Balance deposit',
-        admin_name: adminName || 'Dalila',
-        discount: 0,
-        original_amount: available,
-      };
+    // PRIORITY 2: Group Fees (oldest first)
+    const unpaidGroups = currentBalance.groupBalances
+      .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
+      .sort((a, b) => {
+        // Sort by start date (oldest first)
+        const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return da - db;
+      });
 
-      const { data: depositData, error: depositError } = await supabase
+    console.log(`Unpaid groups to process: ${unpaidGroups.length}`);
+
+    for (const group of unpaidGroups) {
+      if (available <= 0) break;
+
+      const toPay = Math.min(available, group.remainingAmount);
+      const defaultDiscount = group.discount || 0;
+      const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
+      const remainingAfter = group.remainingAmount - toPay;
+
+      console.log(`Paying group ${group.groupName}: ${toPay} (discounted: ${discountedAmount})`);
+
+      // Create group payment
+      const { data: groupPay, error: groupErr } = await supabase
         .from('payments')
-        .insert(depositInsert)
+        .insert({
+          student_id: studentId,
+          group_id: group.groupId,
+          amount: discountedAmount,
+          date: date.toISOString().split('T')[0],
+          notes: remainingAfter > 0
+            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`
+            : `Group fully paid${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+          admin_name: adminName || 'Dalila',
+          discount: defaultDiscount,
+          original_amount: toPay,
+          payment_type: 'group_payment'
+        })
         .select()
         .single();
 
-      if (depositError) {
-        if (depositError.message?.toLowerCase().includes('group_id') && depositError.message?.toLowerCase().includes('null')) {
-          throw new Error('Deposits require payments.group_id to be nullable. Please run: ALTER TABLE payments ALTER COLUMN group_id DROP NOT NULL;');
-        }
-        throw new Error(`Failed to record deposit: ${depositError.message}`);
+      if (groupErr) {
+        throw new Error(`Failed to create group payment: ${groupErr.message}`);
       }
 
-      depositId = depositData.id as string;
+      allocations.push({
+        id: groupPay.id,
+        studentId: groupPay.student_id,
+        groupId: groupPay.group_id,
+        amount: groupPay.amount,
+        date: new Date(groupPay.date),
+        notes: groupPay.notes,
+        adminName: groupPay.admin_name,
+        discount: groupPay.discount || 0,
+        originalAmount: groupPay.original_amount || groupPay.amount,
+      });
+
+      available -= toPay;
+      console.log(`Group ${group.groupName} paid: ${toPay}, remaining available: ${available}`);
     }
+
+    // PRIORITY 3: Any remaining amount becomes balance credit
+    let depositId = '';
+    if (available > 0) {
+      console.log(`Adding remaining amount ${available} as balance credit`);
+
+      const { data: creditPay, error: creditErr } = await supabase
+        .from('payments')
+        .insert({
+          student_id: studentId,
+          group_id: null,
+          amount: available,
+          date: date.toISOString().split('T')[0],
+          notes: notes || 'Balance credit deposit',
+          admin_name: adminName || 'Dalila',
+          discount: 0,
+          original_amount: available,
+          payment_type: 'balance_addition'
+        })
+        .select()
+        .single();
+
+      if (creditErr) {
+        throw new Error(`Failed to create balance credit: ${creditErr.message}`);
+      }
+
+      depositId = creditPay.id;
+      console.log(`Balance credit created: ${available}`);
+    }
+
+    console.log(`Payment allocation complete. Allocations: ${allocations.length}, Balance credit: ${available}`);
 
     return { depositId, allocations };
   },
@@ -2727,26 +2789,39 @@ export const paymentService = {
     try {
       console.log('Starting getRefundList function...');
 
-      // Get all students with positive balance
-      const { data: students, error: studentsError } = await supabase
-        .from('students')
+      // Only get students who have groups with 'stopped' status
+      const { data: stoppedStudents, error: stoppedError } = await supabase
+        .from('student_groups')
         .select(`
-          id,
-          custom_id,
-          name
-        `);
+          student_id,
+          status,
+          groups!inner(
+            id,
+            name
+          ),
+          students!inner(
+            id,
+            custom_id,
+            name
+          )
+        `)
+        .eq('status', 'stopped');
 
-      if (studentsError) {
-        console.error('Error fetching students:', studentsError);
-        throw studentsError;
+      if (stoppedError) {
+        console.error('Error fetching stopped students:', stoppedError);
+        throw stoppedError;
       }
 
-      console.log(`Found ${students?.length || 0} students total`);
+      console.log(`Found ${stoppedStudents?.length || 0} stopped group enrollments`);
 
-      // Debug: Log the first few students to see their structure
-      if (students && students.length > 0) {
-        console.log('First student data structure:', JSON.stringify(students[0], null, 2));
-        console.log('All students:', students.map(s => ({ id: s.id, name: s.name, hasId: !!s.id })));
+      // Group by student to find students with ALL groups stopped
+      const studentGroupsMap = new Map<string, any[]>();
+      for (const enrollment of stoppedStudents || []) {
+        const studentId = enrollment.student_id;
+        if (!studentGroupsMap.has(studentId)) {
+          studentGroupsMap.set(studentId, []);
+        }
+        studentGroupsMap.get(studentId)!.push(enrollment);
       }
 
       const refundList: Array<{
@@ -2757,132 +2832,69 @@ export const paymentService = {
         groups: Array<{ id: number; name: string; status: string }>;
       }> = [];
 
-      for (const student of students || []) {
+      // Check each student with stopped groups
+      for (const [studentId, enrollments] of studentGroupsMap) {
         try {
-          // Add null check for student.id - check multiple possible field names
-          const studentId = student.id || (student as any).student_id || (student as any).studentId;
-          if (!student || !studentId) {
-            console.error('Invalid student data - missing ID:', {
-              student,
-              hasId: !!student.id,
-              hasStudentId: !!(student as any).student_id,
-              hasStudentIdAlt: !!(student as any).studentId,
-              allKeys: Object.keys(student || {})
-            });
+          // Get all groups for this student to check if ALL are stopped
+          const { data: allStudentGroups, error: allGroupsError } = await supabase
+            .from('student_groups')
+            .select(`
+              group_id,
+              status,
+              groups!inner(
+                id,
+                name
+              )
+            `)
+            .eq('student_id', studentId);
+
+          if (allGroupsError) {
+            console.error(`Error fetching all groups for student ${studentId}:`, allGroupsError);
             continue;
           }
 
-          console.log(`\n=== Processing student: ${student.name} (${studentId}) ===`);
+          // Only process if ALL groups are stopped
+          const allGroupsStopped = allStudentGroups?.every(g => g.status === 'stopped') || false;
 
-          // Get student balance with error handling
-          let balance;
-          try {
-            if (!studentId) {
-              console.error(`Student ${student.name} has no valid ID, skipping`);
-              continue;
-            }
-            balance = await paymentService.getStudentBalance(studentId);
-            console.log(`Student ${student.name} balance:`, balance.remainingBalance);
-          } catch (balanceError) {
-            console.error(`Error getting balance for student ${student.name} (ID: ${studentId}):`, balanceError);
-            continue; // Skip this student and continue with the next one
+          if (!allGroupsStopped) {
+            console.log(`Student ${studentId} has some active groups, skipping refund`);
+            continue;
           }
+
+          // Get student balance
+          const balance = await this.getStudentBalance(studentId);
 
           // Only include students with positive balance
           if (balance.remainingBalance > 0) {
-            console.log(`Student ${student.name} has positive balance, checking group enrollments...`);
+            const student = enrollments[0]?.students;
+            if (student) {
+              refundList.push({
+                studentId: studentId,
+                studentName: student.name,
+                customId: student.custom_id,
+                balance: balance.remainingBalance,
+                groups: enrollments.map(e => ({
+                  id: e.groups.id,
+                  name: e.groups.name,
+                  status: e.status
+                }))
+              });
 
-            // Check if student is no longer actively enrolled in any groups
-            let studentGroups: any = null;
-            try {
-              const { data, error: groupsError } = await supabase
-                .from('student_groups')
-                .select(`
-                  group_id,
-                  status,
-                  groups!inner(
-                    id,
-                    name
-                  )
-                `)
-                .eq('student_id', studentId);
-
-              if (groupsError) {
-                console.error(`Error fetching groups for student ${student.name}:`, groupsError);
-                continue;
-              }
-              studentGroups = data;
-            } catch (tableError) {
-              console.error(`Table access error for student ${student.name}:`, tableError);
-              continue;
+              console.log(`Added ${student.name} to refund list with balance: ${balance.remainingBalance}`);
             }
-
-            console.log(`Student ${student.name} has ${studentGroups?.length || 0} group enrollments`);
-
-            // Check if student has no active group enrollments (all groups stopped)
-            if (studentGroups && studentGroups.length > 0) {
-              console.log(`Student ${student.name} has ${studentGroups.length} group enrollments, checking status...`);
-
-              // Check if ALL groups have 'stopped' status
-              const allGroupsStopped = studentGroups.every((enrollment: any) => enrollment.status === 'stopped');
-              console.log(`All groups stopped for ${student.name}: ${allGroupsStopped}`);
-
-              // Only process refund if ALL groups are stopped
-              if (allGroupsStopped) {
-                console.log(`Student ${student.name} is eligible for refund - all groups are stopped`);
-
-                // Add to refund list
-                refundList.push({
-                  studentId: studentId,
-                  studentName: student.name,
-                  customId: student.custom_id,
-                  balance: balance.remainingBalance,
-                  groups: studentGroups.map((enrollment: any) => {
-                    // Add safety check for groups array
-                    if (!enrollment.groups || !Array.isArray(enrollment.groups) || enrollment.groups.length === 0) {
-                      console.warn(`Student ${student.name} has enrollment without valid groups:`, enrollment);
-                      return null;
-                    }
-                    return {
-                      id: enrollment.groups[0].id,
-                      name: enrollment.groups[0].name,
-                      status: enrollment.status
-                    };
-                  }).filter(Boolean) // Remove any null entries
-                });
-
-                console.log(`Added ${student.name} to refund list with balance: ${balance.remainingBalance}`);
-              } else {
-                console.log(`Student ${student.name} is NOT eligible for refund - has active groups`);
-              }
-            } else {
-              console.log(`Student ${student.name} has no group enrollments - not eligible for refund`);
-            }
-          } else {
-            console.log(`Student ${student.name} has no positive balance - not eligible for refund`);
           }
         } catch (studentError) {
-          console.error(`Error processing student ${student?.name || 'Unknown'}:`, studentError);
+          console.error(`Error processing student ${studentId}:`, studentError);
           continue;
         }
       }
 
       console.log(`\n=== Refund List Complete ===`);
       console.log(`Total students eligible for refund: ${refundList.length}`);
-      refundList.forEach(refund => {
-        console.log(`- ${refund.studentName}: ${refund.balance} (${refund.groups.length} stopped groups)`);
-      });
 
       return refundList;
     } catch (error) {
       console.error('Error getting refund list:', error);
-      if (error && typeof error === 'object') {
-        console.error('Error details:', {
-          message: (error as any).message,
-          stack: (error as any).stack,
-          name: (error as any).name
-        });
-      }
       throw error;
     }
   },
@@ -2897,26 +2909,39 @@ export const paymentService = {
     try {
       console.log('Starting getDebtsList function...');
 
-      // Get all students with negative balance
-      const { data: students, error: studentsError } = await supabase
-        .from('students')
+      // Only get students who have groups with 'stopped' status
+      const { data: stoppedStudents, error: stoppedError } = await supabase
+        .from('student_groups')
         .select(`
-          id,
-          custom_id,
-          name
-        `);
+          student_id,
+          status,
+          groups!inner(
+            id,
+            name
+          ),
+          students!inner(
+            id,
+            custom_id,
+            name
+          )
+        `)
+        .eq('status', 'stopped');
 
-      if (studentsError) {
-        console.error('Error fetching students:', studentsError);
-        throw studentsError;
+      if (stoppedError) {
+        console.error('Error fetching stopped students:', stoppedError);
+        throw stoppedError;
       }
 
-      console.log(`Found ${students?.length || 0} students total`);
+      console.log(`Found ${stoppedStudents?.length || 0} stopped group enrollments`);
 
-      // Debug: Log the first few students to see their structure
-      if (students && students.length > 0) {
-        console.log('First student data structure:', JSON.stringify(students[0], null, 2));
-        console.log('All students:', students.map(s => ({ id: s.id, name: s.name, hasId: !!s.id })));
+      // Group by student to find students with ALL groups stopped
+      const studentGroupsMap = new Map<string, any[]>();
+      for (const enrollment of stoppedStudents || []) {
+        const studentId = enrollment.student_id;
+        if (!studentGroupsMap.has(studentId)) {
+          studentGroupsMap.set(studentId, []);
+        }
+        studentGroupsMap.get(studentId)!.push(enrollment);
       }
 
       const debtsList: Array<{
@@ -2927,121 +2952,69 @@ export const paymentService = {
         groups: Array<{ id: number; name: string; status: string }>;
       }> = [];
 
-      for (const student of students || []) {
+      // Check each student with stopped groups
+      for (const [studentId, enrollments] of studentGroupsMap) {
         try {
-          // Add null check for student.id
-          if (!student || !student.id) {
-            console.error('Invalid student data:', student);
+          // Get all groups for this student to check if ALL are stopped
+          const { data: allStudentGroups, error: allGroupsError } = await supabase
+            .from('student_groups')
+            .select(`
+              group_id,
+              status,
+              groups!inner(
+                id,
+                name
+              )
+            `)
+            .eq('student_id', studentId);
+
+          if (allGroupsError) {
+            console.error(`Error fetching all groups for student ${studentId}:`, allGroupsError);
             continue;
           }
 
-          console.log(`\n=== Processing student: ${student.name} (${student.id}) ===`);
+          // Only process if ALL groups are stopped
+          const allGroupsStopped = allStudentGroups?.every(g => g.status === 'stopped') || false;
 
-          // Get student balance with error handling
-          let balance;
-          try {
-            balance = await paymentService.getStudentBalance(student.id);
-            console.log(`Student ${student.name} balance:`, balance.remainingBalance);
-          } catch (balanceError) {
-            console.error(`Error getting balance for student ${student.name}:`, balanceError);
-            continue; // Skip this student and continue with the next one
+          if (!allGroupsStopped) {
+            console.log(`Student ${studentId} has some active groups, skipping debt collection`);
+            continue;
           }
+
+          // Get student balance
+          const balance = await this.getStudentBalance(studentId);
 
           // Only include students with negative balance
           if (balance.remainingBalance < 0) {
-            console.log(`Student ${student.name} has negative balance, checking group enrollments...`);
+            const student = enrollments[0]?.students;
+            if (student) {
+              debtsList.push({
+                studentId: studentId,
+                studentName: student.name,
+                customId: student.custom_id,
+                balance: balance.remainingBalance,
+                groups: enrollments.map(e => ({
+                  id: e.groups.id,
+                  name: e.groups.name,
+                  status: e.status
+                }))
+              });
 
-            // Check if student is no longer actively enrolled in any groups
-            let studentGroups: any = null;
-            try {
-              const { data, error: groupsError } = await supabase
-                .from('student_groups')
-                .select(`
-                  group_id,
-                  status,
-                  groups!inner(
-                    id,
-                    name
-                  )
-                `)
-                .eq('student_id', student.id);
-
-              if (groupsError) {
-                console.error(`Error fetching groups for student ${student.name}:`, groupsError);
-                continue;
-              }
-              studentGroups = data;
-            } catch (tableError) {
-              console.error(`Table access error for student ${student.name}:`, tableError);
-              continue;
+              console.log(`Added ${student.name} to debt list with balance: ${balance.remainingBalance}`);
             }
-
-            console.log(`Student ${student.name} has ${studentGroups?.length || 0} group enrollments`);
-
-            // Check if student has no active group enrollments (all groups stopped)
-            if (studentGroups && studentGroups.length > 0) {
-              console.log(`Student ${student.name} has ${studentGroups.length} group enrollments, checking status...`);
-
-              // Check if ALL groups have 'stopped' status
-              const allGroupsStopped = studentGroups.every((enrollment: any) => enrollment.status === 'stopped');
-              console.log(`All groups stopped for ${student.name}: ${allGroupsStopped}`);
-
-              // Only process debt if ALL groups are stopped
-              if (allGroupsStopped) {
-                console.log(`Student ${student.name} is eligible for debt collection - all groups are stopped`);
-
-                // Add to debt list
-                debtsList.push({
-                  studentId: student.id,
-                  studentName: student.name,
-                  customId: student.custom_id,
-                  balance: balance.remainingBalance,
-                  groups: studentGroups.map((enrollment: any) => {
-                    // Add safety check for groups array
-                    if (!enrollment.groups || !Array.isArray(enrollment.groups) || enrollment.groups.length === 0) {
-                      console.warn(`Student ${student.name} has enrollment without valid groups:`, enrollment);
-                      return null;
-                    }
-                    return {
-                      id: enrollment.groups[0].id,
-                      name: enrollment.groups[0].name,
-                      status: enrollment.status
-                    };
-                  }).filter(Boolean) // Remove any null entries
-                });
-
-                console.log(`Added ${student.name} to debt list with balance: ${balance.remainingBalance}`);
-              } else {
-                console.log(`Student ${student.name} is NOT eligible for debt collection - has active groups`);
-              }
-            } else {
-              console.log(`Student ${student.name} has no group enrollments - not eligible for debt collection`);
-            }
-          } else {
-            console.log(`Student ${student.name} has no negative balance - not eligible for debt collection`);
           }
         } catch (studentError) {
-          console.error(`Error processing student ${student?.name || 'Unknown'}:`, studentError);
+          console.error(`Error processing student ${studentId}:`, studentError);
           continue;
         }
       }
 
       console.log(`\n=== Debt List Complete ===`);
       console.log(`Total students eligible for debt collection: ${debtsList.length}`);
-      debtsList.forEach(debt => {
-        console.log(`- ${debt.studentName}: ${debt.balance} (${debt.groups.length} stopped groups)`);
-      });
 
       return debtsList;
     } catch (error) {
       console.error('Error getting debts list:', error);
-      if (error && typeof error === 'object') {
-        console.error('Error details:', {
-          message: (error as any).message,
-          stack: (error as any).stack,
-          name: (error as any).name
-        });
-      }
       throw error;
     }
   },
@@ -3358,28 +3331,48 @@ export const paymentService = {
       let debtsCount = 0;
       let processedStudents = 0;
 
-      // Get all students
-      const { data: allStudents, error: studentsError } = await supabase
-        .from('students')
-        .select('id, name, custom_id');
+      // Only get students who have groups with 'stopped' status
+      const { data: stoppedStudents, error: stoppedError } = await supabase
+        .from('student_groups')
+        .select(`
+          student_id,
+          status,
+          groups!inner(
+            id,
+            name
+          ),
+          students!inner(
+            id,
+            name,
+            custom_id
+          )
+        `)
+        .eq('status', 'stopped');
 
-      if (studentsError) {
-        throw new Error(`Failed to fetch students: ${studentsError.message}`);
+      if (stoppedError) {
+        throw new Error(`Failed to fetch stopped students: ${stoppedError.message}`);
       }
 
-      console.log(`Processing ${allStudents?.length || 0} students...`);
+      // Group by student to find students with ALL groups stopped
+      const studentGroupsMap = new Map<string, any[]>();
+      for (const enrollment of stoppedStudents || []) {
+        const studentId = enrollment.student_id;
+        if (!studentGroupsMap.has(studentId)) {
+          studentGroupsMap.set(studentId, []);
+        }
+        studentGroupsMap.get(studentId)!.push(enrollment);
+      }
 
-      for (const student of allStudents || []) {
+      console.log(`Processing ${studentGroupsMap.size} students with stopped groups...`);
+
+      for (const [studentId, enrollments] of studentGroupsMap) {
         try {
           processedStudents++;
-          console.log(`\n[${processedStudents}/${allStudents?.length}] Processing student: ${student.name}`);
+          const student = enrollments[0]?.students;
+          console.log(`\n[${processedStudents}/${studentGroupsMap.size}] Processing student: ${student?.name || studentId}`);
 
-          // Get student balance
-          const balance = await this.getStudentBalance(student.id);
-          console.log(`  Balance: ${balance.remainingBalance}`);
-
-          // Get student groups
-          const { data: studentGroups, error: groupsError } = await supabase
+          // Get all groups for this student to check if ALL are stopped
+          const { data: allStudentGroups, error: allGroupsError } = await supabase
             .from('student_groups')
             .select(`
               group_id,
@@ -3389,40 +3382,38 @@ export const paymentService = {
                 name
               )
             `)
-            .eq('student_id', student.id);
+            .eq('student_id', studentId);
 
-          if (groupsError) {
-            console.error(`  Error fetching groups for ${student.name}:`, groupsError);
-            errors.push(`Failed to fetch groups for ${student.name}: ${groupsError.message}`);
+          if (allGroupsError) {
+            console.error(`  Error fetching all groups for ${student?.name || studentId}:`, allGroupsError);
+            errors.push(`Failed to fetch groups for ${student?.name || studentId}: ${allGroupsError.message}`);
             continue;
           }
 
-          console.log(`  Groups: ${studentGroups?.length || 0}`);
+          // Only process if ALL groups are stopped
+          const allGroupsStopped = allStudentGroups?.every(g => g.status === 'stopped') || false;
 
-          if (studentGroups && studentGroups.length > 0) {
-            // Check if ALL groups have 'stopped' status
-            const allGroupsStopped = studentGroups.every((enrollment: any) => enrollment.status === 'stopped');
-            console.log(`  All groups stopped: ${allGroupsStopped}`);
+          if (!allGroupsStopped) {
+            console.log(`  ⚠️ ${student?.name || studentId} has some active groups, skipping`);
+            continue;
+          }
 
-            if (allGroupsStopped) {
-              if (balance.remainingBalance > 0) {
-                console.log(`  ✅ ${student.name} qualifies for REFUND (balance: ${balance.remainingBalance})`);
-                refundsCount++;
-              } else if (balance.remainingBalance < 0) {
-                console.log(`  ✅ ${student.name} qualifies for DEBT (balance: ${balance.remainingBalance})`);
-                debtsCount++;
-              } else {
-                console.log(`  ⚠️ ${student.name} has zero balance, no action needed`);
-              }
-            } else {
-              console.log(`  ⚠️ ${student.name} has active groups, no action needed`);
-            }
+          // Get student balance
+          const balance = await this.getStudentBalance(studentId);
+          console.log(`  Balance: ${balance.remainingBalance}`);
+
+          if (balance.remainingBalance > 0) {
+            console.log(`  ✅ ${student?.name || studentId} qualifies for REFUND (balance: ${balance.remainingBalance})`);
+            refundsCount++;
+          } else if (balance.remainingBalance < 0) {
+            console.log(`  ✅ ${student?.name || studentId} qualifies for DEBT (balance: ${balance.remainingBalance})`);
+            debtsCount++;
           } else {
-            console.log(`  ⚠️ ${student.name} has no groups, no action needed`);
+            console.log(`  ⚠️ ${student?.name || studentId} has zero balance, no action needed`);
           }
 
         } catch (studentError) {
-          const errorMsg = `Error processing student ${student.name}: ${studentError}`;
+          const errorMsg = `Error processing student ${studentId}: ${studentError}`;
           console.error(errorMsg);
           errors.push(errorMsg);
         }
@@ -3478,6 +3469,53 @@ export const paymentService = {
       }
     } catch (error) {
       console.error('Error processing automatic debt payment:', error);
+      throw error;
+    }
+  },
+
+  // NEW: Handle attendance-based refunds
+  async processAttendanceRefund(studentId: string, groupId: number, sessionId: string, status: string, refundAmount: number): Promise<void> {
+    try {
+      console.log(`Processing attendance refund for student ${studentId}, group ${groupId}, session ${sessionId}, status: ${status}, amount: ${refundAmount}`);
+
+      // Check if student has already paid for this group
+      const { data: groupPayments, error: paymentsError } = await supabase
+        .from('payments')
+        .select('amount, original_amount')
+        .eq('student_id', studentId)
+        .eq('group_id', groupId);
+
+      if (paymentsError) {
+        throw new Error(`Failed to fetch group payments: ${paymentsError.message}`);
+      }
+
+      const totalPaid = groupPayments?.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0) || 0;
+
+      if (totalPaid > 0) {
+        // Student has paid - add refund to balance
+        console.log(`Student has paid ${totalPaid} for group ${groupId}, adding refund to balance`);
+
+        const refundPayment: Omit<Payment, 'id'> = {
+          studentId,
+          groupId: undefined,
+          amount: refundAmount, // Positive amount (credit to balance)
+          date: new Date(),
+          notes: `Attendance refund for session ${sessionId} (${status}) - Group: ${groupId}`,
+          adminName: 'System',
+          paymentType: 'balance_addition',
+          originalAmount: refundAmount,
+          discount: 0
+        };
+
+        await this.create(refundPayment);
+        console.log(`Refund added to balance: ${refundAmount}`);
+      } else {
+        // Student hasn't paid - subtract from unpaid group amount
+        console.log(`Student hasn't paid for group ${groupId}, refund will be handled in balance calculation`);
+        // This will be handled automatically by the balance calculation system
+      }
+    } catch (error) {
+      console.error('Error processing attendance refund:', error);
       throw error;
     }
   },

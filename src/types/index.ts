@@ -151,7 +151,7 @@ export interface Payment {
     adminName?: string; // Admin who processed the payment
     discount?: number; // Discount applied to this payment
     originalAmount?: number; // Original amount before discount
-    paymentType?: 'group_payment' | 'balance_addition'; // Type of payment
+    paymentType?: 'group_payment' | 'balance_addition' | 'registration_fee'; // Type of payment
 }
 
 // New interface for student balance
@@ -172,6 +172,8 @@ export interface GroupBalance {
     amountPaid: number; // Amount paid for this group
     remainingAmount: number; // Remaining amount for this group
     discount?: number; // Default discount for this student in this group
+    isRegistrationFee?: boolean; // Whether this is a registration fee
+    startDate?: string | null; // Start date for proper ordering
 }
 
 export interface AppState {

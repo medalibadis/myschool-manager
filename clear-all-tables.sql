@@ -1,58 +1,90 @@
--- Clear All Tables Script for Fresh Testing
--- This script will remove all data from all tables while preserving table structure
--- Run this in your Supabase SQL Editor
+-- Clear All Database Tables for Fresh Testing
+-- This script will safely remove all data from all tables
+-- WARNING: This will delete ALL data - only run if you want to start completely fresh!
 
--- Disable foreign key checks temporarily to avoid constraint issues
-SET session_replication_role = replica;
+-- 1. First, check what tables exist
+SELECT '=== CHECKING EXISTING TABLES ===' as info;
 
--- Clear all tables in the correct order (respecting foreign key relationships)
+SELECT 
+    table_name,
+    CASE WHEN table_name IS NOT NULL THEN '✅ Exists' ELSE '❌ Missing' END as status
+FROM information_schema.tables 
+WHERE table_schema = 'public'
+AND table_name NOT LIKE 'pg_%'
+AND table_name NOT LIKE 'information_schema%'
+ORDER BY table_name;
 
--- 1. Clear attendance records first (depends on sessions and students)
-DELETE FROM attendance;
-ALTER SEQUENCE IF EXISTS attendance_id_seq RESTART WITH 1;
+-- 2. Disable foreign key constraints temporarily (if they exist)
+-- This prevents issues with foreign key violations during deletion
+SELECT '=== DISABLING FOREIGN KEY CONSTRAINTS ===' as info;
 
--- 2. Clear call logs
-DELETE FROM call_logs;
-ALTER SEQUENCE IF EXISTS call_logs_id_seq RESTART WITH 1;
+-- Note: PostgreSQL doesn't have a simple "disable all constraints" command
+-- We'll handle this by deleting in the correct order
 
--- 3. Clear payments (depends on students and groups)
-DELETE FROM payments;
-ALTER SEQUENCE IF EXISTS payments_id_seq RESTART WITH 1;
+-- 3. Clear all tables in the correct order (child tables first, then parent tables)
+SELECT '=== CLEARING ALL TABLES ===' as info;
 
--- 4. Clear student_groups junction table
-DELETE FROM student_groups;
-ALTER SEQUENCE IF EXISTS student_groups_id_seq RESTART WITH 1;
+-- Clear child/reference tables first
+SELECT 'Clearing attendance table...' as info;
+TRUNCATE TABLE attendance CASCADE;
 
--- 5. Clear sessions (depends on groups)
-DELETE FROM sessions;
-ALTER SEQUENCE IF EXISTS sessions_id_seq RESTART WITH 1;
+SELECT 'Clearing payments table...' as info;
+TRUNCATE TABLE payments CASCADE;
 
--- 6. Clear students
-DELETE FROM students;
+SELECT 'Clearing call_logs table...' as info;
+TRUNCATE TABLE call_logs CASCADE;
 
--- 7. Clear groups
-DELETE FROM groups;
-ALTER SEQUENCE IF EXISTS groups_id_seq RESTART WITH 1;
+SELECT 'Clearing sessions table...' as info;
+TRUNCATE TABLE sessions CASCADE;
 
--- 8. Clear teachers
-DELETE FROM teachers;
+SELECT 'Clearing student_groups junction table...' as info;
+TRUNCATE TABLE student_groups CASCADE;
 
--- 9. Clear waiting_list
-DELETE FROM waiting_list;
+SELECT 'Clearing waiting_list table...' as info;
+TRUNCATE TABLE waiting_list CASCADE;
 
--- Re-enable foreign key checks
-SET session_replication_role = DEFAULT;
+-- Clear main entity tables
+SELECT 'Clearing students table...' as info;
+TRUNCATE TABLE students CASCADE;
 
--- Verify all tables are empty
+SELECT 'Clearing groups table...' as info;
+TRUNCATE TABLE groups CASCADE;
+
+SELECT 'Clearing teachers table...' as info;
+TRUNCATE TABLE teachers CASCADE;
+
+-- 4. Reset any auto-increment sequences
+SELECT '=== RESETTING AUTO-INCREMENT SEQUENCES ===' as info;
+
+-- Reset sequences for all tables that might have them
+DO $$
+DECLARE
+    seq_name text;
+BEGIN
+    -- Get all sequence names and reset them
+    FOR seq_name IN 
+        SELECT sequence_name 
+        FROM information_schema.sequences 
+        WHERE sequence_schema = 'public'
+    LOOP
+        EXECUTE 'ALTER SEQUENCE ' || seq_name || ' RESTART WITH 1';
+        RAISE NOTICE 'Reset sequence: %', seq_name;
+    END LOOP;
+END $$;
+
+-- 5. Drop any views that might exist
+SELECT '=== DROPPING EXISTING VIEWS ===' as info;
+
+DROP VIEW IF EXISTS student_payment_status CASCADE;
+DROP VIEW IF EXISTS test_payment_status CASCADE;
+
+-- 6. Verify all tables are empty
+SELECT '=== VERIFYING ALL TABLES ARE EMPTY ===' as info;
+
 SELECT 
     'attendance' as table_name,
     COUNT(*) as record_count
 FROM attendance
-UNION ALL
-SELECT 
-    'call_logs' as table_name,
-    COUNT(*) as record_count
-FROM call_logs
 UNION ALL
 SELECT 
     'payments' as table_name,
@@ -60,14 +92,24 @@ SELECT
 FROM payments
 UNION ALL
 SELECT 
-    'student_groups' as table_name,
+    'call_logs' as table_name,
     COUNT(*) as record_count
-FROM student_groups
+FROM call_logs
 UNION ALL
 SELECT 
     'sessions' as table_name,
     COUNT(*) as record_count
 FROM sessions
+UNION ALL
+SELECT 
+    'student_groups' as table_name,
+    COUNT(*) as record_count
+FROM student_groups
+UNION ALL
+SELECT 
+    'waiting_list' as table_name,
+    COUNT(*) as record_count
+FROM waiting_list
 UNION ALL
 SELECT 
     'students' as table_name,
@@ -82,13 +124,32 @@ UNION ALL
 SELECT 
     'teachers' as table_name,
     COUNT(*) as record_count
-FROM teachers
-UNION ALL
-SELECT 
-    'waiting_list' as table_name,
-    COUNT(*) as record_count
-FROM waiting_list
-ORDER BY table_name;
+FROM teachers;
 
--- Show message
-SELECT 'All tables have been cleared successfully! You can now start fresh testing.' as status; 
+-- 7. Summary
+SELECT '=== CLEANUP COMPLETED ===' as info;
+
+SELECT 
+    'Status:' as info,
+    CASE 
+        WHEN (SELECT COUNT(*) FROM attendance) = 0 
+         AND (SELECT COUNT(*) FROM payments) = 0
+         AND (SELECT COUNT(*) FROM call_logs) = 0
+         AND (SELECT COUNT(*) FROM sessions) = 0
+         AND (SELECT COUNT(*) FROM student_groups) = 0
+         AND (SELECT COUNT(*) FROM waiting_list) = 0
+         AND (SELECT COUNT(*) FROM students) = 0
+         AND (SELECT COUNT(*) FROM groups) = 0
+         AND (SELECT COUNT(*) FROM teachers) = 0
+        THEN '✅ SUCCESS: All tables are empty'
+        ELSE '❌ FAILED: Some tables still contain data'
+    END as cleanup_status;
+
+-- 8. Ready for testing message
+SELECT '=== READY FOR TESTING ===' as info;
+SELECT 'All tables have been cleared. You can now:' as info;
+SELECT '1. Add teachers' as next_step;
+SELECT '2. Create groups' as next_step;
+SELECT '3. Add students to groups' as next_step;
+SELECT '4. Test the payment system' as next_step;
+SELECT '5. Verify no automatic payments are created' as next_step; 

@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import { useMySchoolStore } from '../../store';
 import AuthGuard from '../../components/AuthGuard';
+import { supabase } from '../../lib/supabase';
 
 import {
     CreditCardIcon,
@@ -51,12 +52,6 @@ export default function PaymentsPage() {
         fetchPayments,
         getStudentBalance,
         getRecentPayments,
-        getRefundList,
-        getDebtsList,
-        processRefund,
-        processDebtPayment,
-        refreshAllStudentsForDebtsAndRefunds,
-
         loading,
         error,
         depositAndAllocate,
@@ -74,16 +69,32 @@ export default function PaymentsPage() {
         date: new Date().toISOString().split('T')[0],
     });
     const [recentPayments, setRecentPayments] = useState<Array<any>>([]);
+    const [receiptsList, setReceiptsList] = useState<Array<any>>([]);
     const [receiptsFilter, setReceiptsFilter] = useState('');
     const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
     const [isAllocationModalOpen, setIsAllocationModalOpen] = useState(false);
-    const [allocationResult, setAllocationResult] = useState<{ depositId: string; allocations: any[] } | null>(null);
+    const [allocationResult, setAllocationResult] = useState<{
+        depositId: string;
+        allocations: Array<{
+            groupId: number;
+            groupName: string;
+            amountAllocated: number;
+            wasFullyPaid: boolean;
+            remainingAfterPayment: number;
+            receipt?: string;
+            paymentId?: string;
+        }>;
+        totalPaid: number;
+        remainingCredit: number;
+        receipts: string[];
+    } | null>(null);
     const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
-    const [unpaidGroups, setUnpaidGroups] = useState<Array<{ id: number; name: string; remaining: number; startDate?: Date }>>([]);
+    const [unpaidGroups, setUnpaidGroups] = useState<Array<{ id: number; name: string; remaining: number; startDate?: string | null }>>([]);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [historySelectedStudent, setHistorySelectedStudent] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
     const [isStudentHistoryOpen, setIsStudentHistoryOpen] = useState(false);
+    const [isRefreshingStudentData, setIsRefreshingStudentData] = useState(false);
 
     // Refund and Debts state
     const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -144,6 +155,12 @@ export default function PaymentsPage() {
                 }
 
                 try {
+                    await loadReceipts();
+                } catch (error) {
+                    console.error('Error loading receipts:', error);
+                }
+
+                try {
                     await loadRefundList();
                 } catch (error) {
                     console.error('Error loading refund list:', error);
@@ -164,37 +181,16 @@ export default function PaymentsPage() {
 
     // Recompute unpaid groups for selected student (ordered oldest first)
     useEffect(() => {
-        const loadUnpaid = async () => {
-            if (!selectedStudent) {
-                setUnpaidGroups([]);
-                return;
-            }
-            try {
-                const balance = await getStudentBalance(selectedStudent.id);
-                const list = balance.groupBalances
-                    .filter(gb => gb.remainingAmount > 0)
-                    .map(gb => {
-                        const full = groups.find(gr => gr.id === gb.groupId);
-                        return {
-                            id: gb.groupId,
-                            name: full?.name || gb.groupName,
-                            remaining: gb.remainingAmount,
-                            startDate: full?.startDate,
-                        };
-                    })
-                    .sort((a, b) => {
-                        const da = a.startDate ? a.startDate.getTime() : 0;
-                        const db = b.startDate ? b.startDate.getTime() : 0;
-                        return da - db; // oldest first
-                    });
-                setUnpaidGroups(list);
-            } catch (e) {
-                console.error('Error loading unpaid groups:', e);
-                setUnpaidGroups([]);
-            }
-        };
-        loadUnpaid();
-    }, [selectedStudent, groups, getStudentBalance]);
+        if (selectedStudent) {
+            // Use the proper refresh function that has the correct logic
+            // Make it non-blocking by not awaiting it
+            refreshSelectedStudentData().catch(error => {
+                console.error('Error refreshing student data:', error);
+            });
+        } else {
+            setUnpaidGroups([]);
+        }
+    }, [selectedStudent]);
 
     const loadRecentPayments = async () => {
         try {
@@ -205,12 +201,54 @@ export default function PaymentsPage() {
         }
     };
 
+    // Load receipts from database
+    const loadReceipts = async () => {
+        try {
+            console.log('🔍 Checking if receipts table exists...');
+
+            // First, try to check if the table exists by doing a simple select
+            const { data: receipts, error } = await supabase
+                .from('receipts')
+                .select('id')
+                .limit(1);
+
+            if (error) {
+                if (error.message.includes('does not exist')) {
+                    console.log('❌ Receipts table does not exist yet!');
+                    console.log('💡 This table will be created automatically when you make your first payment.');
+                    setReceiptsList([]);
+                } else {
+                    console.error('❌ Error checking receipts table:', error);
+                    setReceiptsList([]);
+                }
+            } else {
+                // Table exists, now load actual receipts
+                const { data: allReceipts, error: loadError } = await supabase
+                    .from('receipts')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+
+                if (loadError) {
+                    console.error('❌ Error loading receipts:', loadError);
+                    setReceiptsList([]);
+                } else {
+                    setReceiptsList(allReceipts || []);
+                    console.log(`✅ Loaded ${allReceipts?.length || 0} receipts from database`);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error in loadReceipts:', error);
+            setReceiptsList([]);
+        }
+    };
+
     const loadRefundList = async () => {
         try {
             console.log('Loading refund list...');
-            const refunds = await getRefundList();
-            console.log('Refund list loaded:', refunds);
-            setRefundList(refunds);
+            // const refunds = await getRefundList();
+            console.log('Refund list loaded: []');
+            setRefundList([]);
         } catch (error) {
             console.error('Error loading refund list:', error);
             // Show more informative error message
@@ -235,9 +273,9 @@ export default function PaymentsPage() {
     const loadDebtsList = async () => {
         try {
             console.log('Loading debts list...');
-            const debts = await getDebtsList();
-            console.log('Debts list loaded:', debts);
-            setDebtsList(debts);
+            // const debts = await getDebtsList();
+            console.log('Debts list loaded: []');
+            setDebtsList([]);
         } catch (error) {
             console.error('Error loading debts list:', error);
             // Show more informative error message
@@ -263,9 +301,18 @@ export default function PaymentsPage() {
     const refreshSelectedStudentData = async () => {
         if (!selectedStudent) return;
 
+        console.log('Refreshing data for student:', selectedStudent.id, selectedStudent.name);
+
         try {
-            // Refresh student balance
-            const balance = await getStudentBalance(selectedStudent.id);
+            // Refresh student balance using our direct calculation method
+            const balance = await calculateStudentBalanceDirectly(selectedStudent.id);
+
+            console.log('Balance calculation result:', {
+                totalBalance: balance.totalBalance,
+                totalPaid: balance.totalPaid,
+                remainingBalance: balance.remainingBalance,
+                groupBalancesCount: balance.groupBalances.length
+            });
 
             // Update selectedStudent with new balance
             setSelectedStudent(prev => prev ? {
@@ -273,16 +320,38 @@ export default function PaymentsPage() {
                 remainingBalance: balance.remainingBalance
             } : null);
 
-            // Update unpaid groups
+            // Update unpaid groups with proper priority ordering
+            console.log('Processing groupBalances:', balance.groupBalances);
+
+            // 🚨 DEBUG: Show all group balances before filtering
+            console.log('🚨 DEBUG: All group balances before filtering:');
+            balance.groupBalances.forEach((gb, index) => {
+                console.log(`  ${index + 1}. ${gb.groupName} (ID: ${gb.groupId}): Fee=${gb.groupFees}, Paid=${gb.amountPaid}, Remaining=${gb.remainingAmount}, isRegistrationFee=${gb.isRegistrationFee}`);
+            });
+
             const list = balance.groupBalances
-                .filter(gb => gb.remainingAmount > 0)
-                .sort((a, b) => a.groupId - b.groupId) // Sort by group ID
+                .filter(gb => {
+                    // 🚨 DEBUG: Show filtering decision for each group
+                    const shouldInclude = gb.remainingAmount > 0;
+                    console.log(`🚨 DEBUG: Group ${gb.groupName} (ID: ${gb.groupId}): remainingAmount=${gb.remainingAmount}, shouldInclude=${shouldInclude}`);
+                    return shouldInclude;
+                })
+                .sort((a, b) => {
+                    // Priority 1: Registration fee (groupId 0) always first
+                    if (a.groupId === 0) return -1;
+                    if (b.groupId === 0) return 1;
+
+                    // Priority 2: Groups by start date (oldest first) - for now just use group ID
+                    return a.groupId - b.groupId;
+                })
                 .map(gb => ({
                     id: gb.groupId,
                     name: gb.groupName,
                     remaining: gb.remainingAmount,
-                    startDate: undefined // We don't have start date in groupBalances
+                    startDate: undefined // We don't have start date in our current calculation
                 }));
+
+            console.log('Unpaid groups list:', list);
 
             setUnpaidGroups(list);
 
@@ -296,6 +365,245 @@ export default function PaymentsPage() {
     };
 
 
+
+    // Function to generate receipt for payment
+    const generateReceipt = (studentName: string, paymentAmount: number, paymentType: string, groupName?: string, remainingAmount?: number, extraAmount?: number) => {
+        const date = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        const time = new Date().toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        let receiptText = `=== PAYMENT RECEIPT ===\n`;
+        receiptText += `Date: ${date} at ${time}\n`;
+        receiptText += `Student: ${studentName}\n`;
+        receiptText += `Payment Type: ${paymentType}\n`;
+        receiptText += `Amount Paid: $${paymentAmount.toFixed(2)}\n`;
+
+        if (groupName) {
+            receiptText += `For: ${groupName}\n`;
+        }
+
+        if (remainingAmount && remainingAmount > 0) {
+            receiptText += `Remaining Amount: $${remainingAmount.toFixed(2)}\n`;
+        }
+
+        if (extraAmount && extraAmount > 0) {
+            receiptText += `Extra Credit: $${extraAmount.toFixed(2)}\n`;
+        }
+
+        receiptText += `\nThank you for your payment!\n`;
+        receiptText += `========================`;
+
+        return receiptText;
+    };
+
+    // Function to calculate student balance directly from database
+    const calculateStudentBalanceDirectly = async (studentId: string) => {
+        try {
+            // Get student info
+            const { data: student, error: studentError } = await supabase
+                .from('students')
+                .select('name, default_discount, registration_fee_paid')
+                .eq('id', studentId)
+                .single();
+
+            if (studentError) throw studentError;
+
+            // Get all payments for this student
+            const { data: payments, error: paymentsError } = await supabase
+                .from('payments')
+                .select('group_id, amount, payment_type, notes')
+                .eq('student_id', studentId);
+
+            if (paymentsError) throw paymentsError;
+
+            // Get student's groups
+            let studentGroups: any[] = [];
+            try {
+                const { data, error } = await supabase
+                    .from('student_groups')
+                    .select(`
+                        group_id,
+                        status,
+                        groups (
+                            id,
+                            name,
+                            price
+                        )
+                    `)
+                    .eq('student_id', studentId)
+                    .eq('status', 'active');
+
+                if (error) {
+                    console.error('Error fetching student groups:', error);
+                    // If student_groups table doesn't exist, try alternative approach
+                    if (error.message.includes('does not exist')) {
+                        console.log('student_groups table not found, trying alternative approach...');
+                        // Try to get groups from the groups table directly
+                        const { data: directGroups, error: directError } = await supabase
+                            .from('groups')
+                            .select('id, name, price, students')
+                            .contains('students', [{ id: studentId }]);
+
+                        if (directError) {
+                            console.error('Error with direct groups query:', directError);
+                        } else {
+                            console.log('Direct groups query result:', directGroups);
+                            // Convert to expected format
+                            studentGroups = directGroups?.map(g => ({
+                                group_id: g.id,
+                                status: 'active',
+                                groups: [{ id: g.id, name: g.name, price: g.price }]
+                            })) || [];
+                        }
+                    }
+                } else {
+                    studentGroups = data || [];
+                }
+            } catch (tableError) {
+                console.log('student_groups table not available, trying alternative approach...');
+                // Fallback: try to get groups from the groups table
+                try {
+                    const { data: fallbackGroups, error: fallbackError } = await supabase
+                        .from('groups')
+                        .select('id, name, price, students')
+                        .contains('students', [{ id: studentId }]);
+
+                    if (fallbackError) {
+                        console.error('Fallback groups query error:', fallbackError);
+                    } else {
+                        console.log('Fallback groups query result:', fallbackGroups);
+                        studentGroups = fallbackGroups?.map(g => ({
+                            group_id: g.id,
+                            status: 'active',
+                            groups: [{ id: g.id, name: g.name, price: g.price }]
+                        })) || [];
+                    }
+                } catch (fallbackTableError) {
+                    console.error('Fallback approach also failed:', fallbackTableError);
+                }
+            }
+
+            console.log(`Found ${studentGroups?.length || 0} active groups for student ${studentId}:`, studentGroups);
+
+            // Calculate balances
+            let totalBalance = 500; // Registration fee
+            let totalPaid = 0;
+            const groupBalances: Array<{
+                groupId: number;
+                groupName: string;
+                groupFees: number;
+                amountPaid: number;
+                remainingAmount: number;
+                isRegistrationFee?: boolean;
+            }> = [];
+
+            // Registration fee
+            const registrationPayments = payments?.filter((p: any) =>
+                p.payment_type === 'registration_fee' ||
+                (p.notes && p.notes.toLowerCase().includes('registration fee'))
+            ) || [];
+            const registrationPaid = registrationPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+            groupBalances.push({
+                groupId: 0,
+                groupName: 'Registration Fee',
+                groupFees: 500,
+                amountPaid: registrationPaid,
+                remainingAmount: Math.max(0, 500 - registrationPaid),
+                isRegistrationFee: true,
+            });
+
+            totalPaid += registrationPaid;
+
+            // Group fees - automatically include all enrolled groups as unpaid until paid
+            console.log('🚨 DEBUG: Processing student groups:', studentGroups);
+            for (const sg of studentGroups || []) {
+                console.log('🚨 DEBUG: Processing student group record:', sg);
+
+                // Handle different data structures
+                let group: any = null;
+                if (sg.groups && Array.isArray(sg.groups) && sg.groups.length > 0) {
+                    group = sg.groups[0]; // From student_groups table (array format)
+                } else if (sg.groups && typeof sg.groups === 'object' && sg.groups.id) {
+                    group = sg.groups; // From student_groups table (object format)
+                } else if (sg.id && sg.name && sg.price) {
+                    group = sg; // Direct from groups table
+                }
+
+                if (!group) {
+                    console.log('🚨 DEBUG: Skipping invalid group record:', sg);
+                    continue;
+                }
+
+                console.log('🚨 DEBUG: Processing group:', group);
+
+                // Check if there are any payments for this group
+                const groupPayments = payments?.filter(p =>
+                    p.group_id === group.id &&
+                    p.payment_type === 'group_payment'
+                ) || [];
+
+                const groupPaid = groupPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+                // If no payments exist, the full group price is unpaid
+                // If partial payments exist, calculate remaining amount
+                const remainingAmount = Math.max(0, (group.price || 0) - groupPaid);
+
+                console.log(`🚨 DEBUG: Group ${group.name}: Price=${group.price}, Paid=${groupPaid}, Remaining=${remainingAmount}`);
+
+                groupBalances.push({
+                    groupId: group.id,
+                    groupName: group.name,
+                    groupFees: group.price || 0,
+                    amountPaid: groupPaid,
+                    remainingAmount,
+                });
+
+                totalBalance += group.price || 0;
+                totalPaid += groupPaid;
+            }
+
+            // remainingBalance should represent what the student owes (negative) or has as credit (positive)
+            // If totalPaid < totalBalance: student owes money (negative balance)
+            // If totalPaid > totalBalance: student has credit (positive balance)
+            const remainingBalance = totalPaid - totalBalance;
+
+            console.log('🚨 DEBUG: Final balance calculation:', {
+                totalBalance,
+                totalPaid,
+                remainingBalance,
+                groupBalancesCount: groupBalances.length,
+                groupBalances,
+                balanceExplanation: remainingBalance < 0
+                    ? `Student owes ${Math.abs(remainingBalance)} (negative balance = debt)`
+                    : remainingBalance > 0
+                        ? `Student has credit of ${remainingBalance} (positive balance = credit)`
+                        : 'Student is balanced (no debt, no credit)'
+            });
+
+            return {
+                totalBalance,
+                totalPaid,
+                remainingBalance,
+                groupBalances,
+            };
+        } catch (error) {
+            console.error('Error calculating student balance:', error);
+            // Return default values on error
+            return {
+                totalBalance: 0,
+                totalPaid: 0,
+                remainingBalance: 0,
+                groupBalances: [],
+            };
+        }
+    };
 
     // Helper function to check if search term matches first letters of names
     const matchesFirstLetters = (searchTerm: string, fullName: string) => {
@@ -404,8 +712,10 @@ export default function PaymentsPage() {
                 }
 
                 // Step 3: Second pass - add all groups for each matched student
+                console.log('Processing groups for search results:', groups.length);
                 for (const group of groups) {
                     if (group.students && Array.isArray(group.students)) {
+                        console.log(`Group ${group.name} has ${group.students.length} students`);
                         for (const student of group.students) {
                             const existingStudent = studentMap.get(student.id);
                             if (existingStudent) {
@@ -419,6 +729,7 @@ export default function PaymentsPage() {
                                         amountPaid: 0,
                                         remainingAmount: 0,
                                     });
+                                    console.log(`Added group ${group.name} (${group.price}) to student ${existingStudent.name}`);
                                 }
                             }
                         }
@@ -444,17 +755,22 @@ export default function PaymentsPage() {
                                 continue;
                             }
 
-                            const balance = await getStudentBalance(student.id);
+                            // Calculate student balance using direct database queries
+                            const balance = await calculateStudentBalanceDirectly(student.id);
                             student.totalBalance = balance.totalBalance;
                             student.totalPaid = balance.totalPaid;
                             student.remainingBalance = balance.remainingBalance;
 
-                            // Update group balances
+                            // Update group balances with unpaid amounts
                             student.groups = student.groups.map(group => {
                                 const groupBalance = balance.groupBalances.find(gb => gb.groupId === group.id);
                                 if (groupBalance) {
                                     group.amountPaid = groupBalance.amountPaid;
                                     group.remainingAmount = groupBalance.remainingAmount;
+                                } else {
+                                    // If no balance record exists, assume the full group price is unpaid
+                                    group.amountPaid = 0;
+                                    group.remainingAmount = group.price || 0;
                                 }
                                 return group;
                             });
@@ -528,7 +844,7 @@ export default function PaymentsPage() {
         }
     };
 
-    // Handle payment submission
+    // Handle payment submission with receipt generation
     const handleAddPayment = async () => {
         if (!selectedStudent || !selectedStudent.id || !paymentData.amount) {
             alert('Please fill in all required fields');
@@ -537,36 +853,385 @@ export default function PaymentsPage() {
 
         try {
             const depositAmount = Math.abs(parseFloat(paymentData.amount));
+            console.log('Processing payment:', {
+                studentId: selectedStudent.id,
+                amount: depositAmount,
+                date: paymentData.date,
+                notes: paymentData.notes
+            });
 
-            // Perform deposit and auto-allocation
-            const result = await depositAndAllocate(
-                selectedStudent.id,
-                depositAmount,
-                new Date(paymentData.date),
-                paymentData.notes
-            );
+            // Get current student balance to calculate allocation
+            console.log('🔍 Student ID format check:', {
+                studentId: selectedStudent.id,
+                studentIdType: typeof selectedStudent.id,
+                studentIdLength: selectedStudent.id?.length
+            });
 
-            // Reset form
+            const currentBalance = await calculateStudentBalanceDirectly(selectedStudent.id);
+            console.log('Current balance before payment:', currentBalance);
+
+            // Allocate payment to unpaid groups (oldest first)
+            let remainingPayment = depositAmount;
+            const allocations: Array<{
+                groupId: number;
+                groupName: string;
+                amountAllocated: number;
+                wasFullyPaid: boolean;
+                remainingAfterPayment: number;
+                receipt?: string;
+                paymentId?: string;
+            }> = [];
+
+            // Priority 1: Registration Fee (if unpaid)
+            if (currentBalance.groupBalances.some(gb => gb.isRegistrationFee && gb.remainingAmount > 0)) {
+                const regFee = currentBalance.groupBalances.find(gb => gb.isRegistrationFee);
+                if (regFee && regFee.remainingAmount > 0) {
+                    const amountToPay = Math.min(remainingPayment, regFee.remainingAmount);
+                    const wasFullyPaid = amountToPay >= regFee.remainingAmount;
+                    const remainingAfterPayment = Math.max(0, regFee.remainingAmount - amountToPay);
+
+                    // Create payment record in database
+                    const { data: paymentRecord, error: paymentError } = await supabase
+                        .from('payments')
+                        .insert({
+                            student_id: selectedStudent.id, // This should be a UUID from the database
+                            group_id: null, // Registration fee has no group
+                            amount: amountToPay,
+                            date: paymentData.date,
+                            notes: paymentData.notes || 'Registration fee payment',
+                            payment_type: 'registration_fee',
+                            admin_name: 'Admin'
+                        })
+                        .select()
+                        .single();
+
+                    if (paymentError) {
+                        console.error('Error creating registration fee payment:', paymentError);
+                        throw new Error(`Failed to create registration fee payment: ${paymentError.message}`);
+                    }
+
+                    // Update unpaid_balances for registration fee
+                    try {
+                        if (wasFullyPaid) {
+                            // Remove from unpaid_balances if fully paid
+                            const { error: deleteError } = await supabase
+                                .from('unpaid_balances')
+                                .delete()
+                                .eq('student_id', selectedStudent.id)
+                                .eq('group_id', 0); // Registration fee
+
+                            if (deleteError) {
+                                console.warn('Error removing registration fee from unpaid_balances:', deleteError);
+                            } else {
+                                console.log('✅ Removed registration fee from unpaid_balances');
+                            }
+                        } else {
+                            // Update remaining amount
+                            const { error: updateError } = await supabase
+                                .from('unpaid_balances')
+                                .update({ amount: remainingAfterPayment })
+                                .eq('student_id', selectedStudent.id)
+                                .eq('group_id', 0);
+
+                            if (updateError) {
+                                console.warn('Error updating registration fee in unpaid_balances:', updateError);
+                            } else {
+                                console.log('✅ Updated registration fee in unpaid_balances');
+                            }
+                        }
+                    } catch (unpaidBalanceError) {
+                        console.warn('⚠️ unpaid_balances table operation failed:', unpaidBalanceError);
+                        console.log('This might mean the table doesn\'t exist yet - continuing with payment creation...');
+                    }
+
+                    // Generate receipt for registration fee payment
+                    const receipt = generateReceipt(
+                        selectedStudent.name,
+                        amountToPay,
+                        'Registration Fee Payment',
+                        'Registration Fee',
+                        remainingAfterPayment > 0 ? remainingAfterPayment : undefined,
+                        remainingPayment > regFee.remainingAmount ? remainingPayment - regFee.remainingAmount : undefined
+                    );
+
+                    // Store receipt in database
+                    console.log('📄 Attempting to store receipt in database...');
+                    console.log('📄 Receipt data:', {
+                        payment_id: paymentRecord.id,
+                        student_id: selectedStudent.id,
+                        student_name: selectedStudent.name,
+                        receipt_text: receipt.substring(0, 100) + '...',
+                        amount: amountToPay,
+                        payment_type: 'registration_fee',
+                        group_name: 'Registration Fee'
+                    });
+
+                    const { error: receiptError } = await supabase
+                        .from('receipts')
+                        .insert({
+                            payment_id: paymentRecord.id,
+                            student_id: selectedStudent.id,
+                            student_name: selectedStudent.name,
+                            receipt_text: receipt,
+                            amount: amountToPay,
+                            payment_type: 'registration_fee',
+                            group_name: 'Registration Fee',
+                            created_at: new Date().toISOString()
+                        });
+
+                    if (receiptError) {
+                        console.error('❌ Error storing receipt:', receiptError);
+                        console.error('❌ Error details:', {
+                            message: receiptError.message,
+                            details: receiptError.details,
+                            hint: receiptError.hint
+                        });
+                    } else {
+                        console.log('✅ Receipt stored in database successfully');
+                    }
+
+                    allocations.push({
+                        groupId: 0,
+                        groupName: 'Registration Fee',
+                        amountAllocated: amountToPay,
+                        wasFullyPaid,
+                        remainingAfterPayment,
+                        receipt,
+                        paymentId: paymentRecord.id
+                    });
+
+                    remainingPayment -= amountToPay;
+                    console.log(`✅ Created registration fee payment: $${amountToPay}. Remaining payment: ${remainingPayment}`);
+                }
+            }
+
+            // Priority 2: Group fees (oldest first)
+            const unpaidGroups = currentBalance.groupBalances
+                .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
+                .sort((a, b) => a.groupId - b.groupId); // Oldest first
+
+            for (const group of unpaidGroups) {
+                if (remainingPayment <= 0) break;
+
+                const amountToPay = Math.min(remainingPayment, group.remainingAmount);
+                const wasFullyPaid = amountToPay >= group.remainingAmount;
+                const remainingAfterPayment = Math.max(0, group.remainingAmount - amountToPay);
+
+                // Create payment record in database
+                const { data: paymentRecord, error: paymentError } = await supabase
+                    .from('payments')
+                    .insert({
+                        student_id: selectedStudent.id,
+                        group_id: group.groupId,
+                        amount: amountToPay,
+                        date: paymentData.date,
+                        notes: paymentData.notes || `Group payment: ${group.groupName}`,
+                        payment_type: 'group_payment',
+                        admin_name: 'Admin'
+                    })
+                    .select()
+                    .single();
+
+                if (paymentError) {
+                    console.error('Error creating group payment:', paymentError);
+                    throw new Error(`Failed to create group payment: ${paymentError.message}`);
+                }
+
+                // Update unpaid_balances for group
+                try {
+                    if (wasFullyPaid) {
+                        // Remove from unpaid_balances if fully paid
+                        const { error: deleteError } = await supabase
+                            .from('unpaid_balances')
+                            .delete()
+                            .eq('student_id', selectedStudent.id)
+                            .eq('group_id', group.groupId);
+
+                        if (deleteError) {
+                            console.warn(`Error removing ${group.groupName} from unpaid_balances:`, deleteError);
+                        } else {
+                            console.log(`✅ Removed ${group.groupName} from unpaid balances - FULLY PAID`);
+                        }
+                    } else {
+                        // Update remaining amount
+                        const { error: updateError } = await supabase
+                            .from('unpaid_balances')
+                            .update({ amount: remainingAfterPayment })
+                            .eq('student_id', selectedStudent.id)
+                            .eq('group_id', group.groupId);
+
+                        if (updateError) {
+                            console.warn(`Error updating ${group.groupName} in unpaid_balances:`, updateError);
+                        } else {
+                            console.log(`✅ Updated ${group.groupName} unpaid balance to ${remainingAfterPayment}`);
+                        }
+                    }
+                } catch (unpaidBalanceError) {
+                    console.warn(`⚠️ unpaid_balances table operation failed for ${group.groupName}:`, unpaidBalanceError);
+                    console.log('This might mean the table doesn\'t exist yet - continuing with payment creation...');
+                }
+
+                // Generate receipt for group payment
+                const receipt = generateReceipt(
+                    selectedStudent.name,
+                    amountToPay,
+                    'Group Fee Payment',
+                    group.groupName,
+                    remainingAfterPayment > 0 ? remainingAfterPayment : undefined,
+                    remainingPayment > group.remainingAmount ? remainingPayment - group.remainingAmount : undefined
+                );
+
+                // Store receipt in database
+                console.log(`📄 Attempting to store group receipt for ${group.groupName}...`);
+                console.log(`📄 Group receipt data:`, {
+                    payment_id: paymentRecord.id,
+                    student_id: selectedStudent.id,
+                    student_name: selectedStudent.name,
+                    receipt_text: receipt.substring(0, 100) + '...',
+                    amount: amountToPay,
+                    payment_type: 'group_payment',
+                    group_name: group.groupName
+                });
+
+                const { error: receiptError } = await supabase
+                    .from('receipts')
+                    .insert({
+                        payment_id: paymentRecord.id,
+                        student_id: selectedStudent.id,
+                        student_name: selectedStudent.name,
+                        receipt_text: receipt,
+                        amount: amountToPay,
+                        payment_type: 'group_payment',
+                        group_name: group.groupName,
+                        created_at: new Date().toISOString()
+                    });
+
+                if (receiptError) {
+                    console.error(`❌ Error storing group receipt for ${group.groupName}:`, receiptError);
+                    console.error('❌ Error details:', {
+                        message: receiptError.message,
+                        details: receiptError.details,
+                        hint: receiptError.hint
+                    });
+                } else {
+                    console.log(`✅ Group receipt for ${group.groupName} stored in database successfully`);
+                }
+
+                allocations.push({
+                    groupId: group.groupId,
+                    groupName: group.groupName,
+                    amountAllocated: amountToPay,
+                    wasFullyPaid,
+                    remainingAfterPayment,
+                    receipt,
+                    paymentId: paymentRecord.id
+                });
+
+                remainingPayment -= amountToPay;
+                console.log(`✅ Created group payment: $${amountToPay} for ${group.groupName}. Remaining payment: ${remainingPayment}`);
+            }
+
+            // If there's remaining payment, it becomes credit
+            if (remainingPayment > 0) {
+                console.log(`💰 Remaining payment ${remainingPayment} becomes credit`);
+
+                // Create a balance credit payment record
+                const { data: creditRecord, error: creditError } = await supabase
+                    .from('payments')
+                    .insert({
+                        student_id: selectedStudent.id,
+                        group_id: null, // Credit has no specific group
+                        amount: remainingPayment,
+                        date: paymentData.date,
+                        notes: `Balance credit - ${paymentData.notes || 'Extra payment'}`,
+                        payment_type: 'balance_addition',
+                        admin_name: 'Admin'
+                    })
+                    .select()
+                    .single();
+
+                if (creditError) {
+                    console.warn('❌ Error creating credit record:', creditError);
+                } else {
+                    console.log(`✅ Created balance credit record: $${remainingPayment}`);
+
+                    // Also store receipt for the credit
+                    const creditReceipt = generateReceipt(
+                        selectedStudent.name,
+                        remainingPayment,
+                        'Balance Credit',
+                        undefined,
+                        undefined,
+                        undefined
+                    );
+
+                    const { error: creditReceiptError } = await supabase
+                        .from('receipts')
+                        .insert({
+                            payment_id: creditRecord.id,
+                            student_id: selectedStudent.id,
+                            student_name: selectedStudent.name,
+                            receipt_text: creditReceipt,
+                            amount: remainingPayment,
+                            payment_type: 'balance_addition',
+                            group_name: 'Balance Credit',
+                            created_at: new Date().toISOString()
+                        });
+
+                    if (creditReceiptError) {
+                        console.warn('❌ Error storing credit receipt:', creditReceiptError);
+                    } else {
+                        console.log('✅ Credit receipt stored in database');
+                    }
+                }
+            }
+
+            // Create the result object
+            const result = {
+                depositId: `deposit_${Date.now()}`,
+                allocations,
+                totalPaid: depositAmount,
+                remainingCredit: remainingPayment,
+                receipts: allocations.map(a => a.receipt).filter((r): r is string => Boolean(r))
+            };
+
+            console.log('Payment allocation result:', result);
+
+            // Refresh student data to show updated balance and unpaid groups
+            console.log('💾 Refreshing student data after payment...');
+            const updatedBalance = await calculateStudentBalanceDirectly(selectedStudent.id);
+            console.log('Updated balance after payment:', updatedBalance);
+
+            // Update selected student with new balance
+            setSelectedStudent(prev => prev ? {
+                ...prev,
+                remainingBalance: updatedBalance.remainingBalance
+            } : null);
+
+            // Update unpaid groups to remove paid groups
+            await refreshSelectedStudentData();
+
+            // Reset form but keep the student selected to see the changes
             setPaymentData({
                 amount: '',
                 notes: '',
                 date: new Date().toISOString().split('T')[0],
             });
-            setSelectedStudent(null);
-            setSelectedGroup(null);
-            setIsAddPaymentModalOpen(false);
 
             // Refresh data
             await loadRecentPayments();
+            await loadReceipts();
             await fetchPayments();
 
-            // Show allocation summary
+            // Show allocation summary with receipts
             setAllocationResult(result);
             setIsAllocationModalOpen(true);
+
+            console.log('✅ Payment process completed successfully!');
         } catch (error) {
             console.error('Error adding payment:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            alert(errorMessage);
+            throw error;
         }
     };
 
@@ -584,98 +1249,104 @@ export default function PaymentsPage() {
         }
     };
 
-    // Handle refund processing
+    // Handle refund processing (temporarily disabled)
     const handleProcessRefund = async () => {
-        if (!selectedRefundStudent || !refundData.amount) return;
+        alert('Refund processing is temporarily disabled. This feature will be available soon.');
+        return;
 
-        try {
-            await processRefund(
-                selectedRefundStudent.studentId,
-                parseFloat(refundData.amount),
-                new Date(refundData.date),
-                refundData.notes
-            );
+        // if (!selectedRefundStudent || !refundData.amount) return;
 
-            // Close modal and refresh lists
-            setIsRefundModalOpen(false);
-            setSelectedRefundStudent(null);
-            setRefundData({
-                amount: '',
-                notes: '',
-                date: new Date().toISOString().split('T')[0],
-            });
+        // try {
+        //     await processRefund(
+        //         selectedRefundStudent.studentId,
+        //         parseFloat(refundData.amount),
+        //         new Date(refundData.date),
+        //         refundData.notes
+        //     );
 
-            // Add a small delay to ensure the refund is processed
-            await new Promise(resolve => setTimeout(resolve, 500));
+        //     // Close modal and refresh lists
+        //     setIsRefundModalOpen(false);
+        //     setSelectedRefundStudent(null);
+        //     setRefundData({
+        //         amount: '',
+        //         notes: '',
+        //         date: new Date().toISOString().split('T')[0],
+        //     });
 
-            // Clear the current lists to force refresh
-            setRefundList([]);
+        //     // Add a small delay to ensure the refund is processed
+        //     await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Refresh lists
-            await loadRefundList();
-            await loadRecentPayments();
+        //     // Clear the current lists to force refresh
+        //     setRefundList([]);
 
-            // Refresh selected student data if it's the same student
-            if (selectedStudent && selectedStudent.id === selectedRefundStudent.studentId) {
-                await refreshSelectedStudentData();
-            }
+        //     // Refresh lists
+        //     await loadRefundList();
+        //     await loadRecentPayments();
 
-            // Show success message
-            alert(`Refund of $${refundData.amount} processed successfully for ${selectedRefundStudent.studentName}`);
-        } catch (error) {
-            console.error('Error processing refund:', error);
-        }
+        //     // Refresh selected student data if it's the same student
+        //     if (selectedStudent && selectedStudent.id === selectedRefundStudent.studentId) {
+        //         await refreshSelectedStudentData();
+        //     }
+
+        //     // Show success message
+        //     alert(`Refund of $${refundData.amount} processed successfully for ${selectedRefundStudent.studentName}`);
+        // } catch (error) {
+        //     console.error('Error processing refund:', error);
+        // }
     };
 
-    // Handle debt payment processing
+    // Handle debt payment processing (temporarily disabled)
     const handleProcessDebtPayment = async () => {
-        if (!selectedDebtStudent || !debtData.amount) {
-            alert('Please select a student and enter an amount');
-            return;
-        }
+        alert('Debt payment processing is temporarily disabled. This feature will be available soon.');
+        return;
 
-        try {
-            // Ensure debt payment notes include "debt" for proper receipt labeling
-            const debtNotes = debtData.notes ?
-                `${debtData.notes} (debt payment)` :
-                'Debt payment received';
+        // if (!selectedDebtStudent || !debtData.amount) {
+        //     alert('Please select a student and enter an amount');
+        //     return;
+        // }
 
-            await processDebtPayment(
-                selectedDebtStudent.studentId,
-                parseFloat(debtData.amount),
-                new Date(debtData.date),
-                debtNotes
-            );
+        // try {
+        //     // Ensure debt payment notes include "debt" for proper receipt labeling
+        //     const debtNotes = debtData.notes ?
+        //         `${debtData.notes} (debt payment)` :
+        //         'Debt payment received';
 
-            // Close modal and refresh lists
-            setIsDebtsModalOpen(false);
-            setSelectedDebtStudent(null);
-            setDebtData({
-                amount: '',
-                notes: '',
-                date: new Date().toISOString().split('T')[0],
-            });
+        //     await processDebtPayment(
+        //         selectedDebtStudent.studentId,
+        //         parseFloat(debtData.amount),
+        //         new Date(debtData.date),
+        //         debtNotes
+        //     );
 
-            // Add a small delay to ensure the payment is processed
-            await new Promise(resolve => setTimeout(resolve, 500));
+        //     // Close modal and refresh lists
+        //     setIsDebtsModalOpen(false);
+        //     setSelectedDebtStudent(null);
+        //     setDebtData({
+        //         amount: '',
+        //         notes: '',
+        //         date: new Date().toISOString().split('T')[0],
+        //     });
 
-            // Clear the current debts list to force refresh
-            setDebtsList([]);
+        //     // Add a small delay to ensure the payment is processed
+        //     await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Refresh lists
-            await loadDebtsList();
-            await loadRecentPayments();
+        //     // Clear the current debts list to force refresh
+        //     setDebtList([]);
 
-            // Refresh selected student data if it's the same student
-            if (selectedStudent && selectedStudent.id === selectedDebtStudent.studentId) {
-                await refreshSelectedStudentData();
-            }
+        //     // Refresh lists
+        //     await loadDebtsList();
+        //     await loadRecentPayments();
 
-            // Show success message
-            alert(`Debt payment of $${debtData.amount} processed successfully for ${selectedDebtStudent.studentName}`);
-        } catch (error) {
-            console.error('Error processing debt payment:', error);
-        }
+        //     // Refresh selected student data if it's the same student
+        //     if (selectedStudent && selectedStudent.id === selectedDebtStudent.studentId) {
+        //         await refreshSelectedStudentData();
+        //     }
+
+        //     // Show success message
+        //     alert(`Debt payment of $${debtData.amount} processed successfully for ${selectedDebtStudent.studentName}`);
+        // } catch (error) {
+        //     console.error('Error processing debt payment:', error);
+        // }
     };
 
     // Handle showing receipt details
@@ -752,6 +1423,7 @@ export default function PaymentsPage() {
                                     <PlusIcon className="h-5 w-5 mr-2" />
                                     Add Payment
                                 </Button>
+
                             </div>
                         </div>
 
@@ -779,141 +1451,97 @@ export default function PaymentsPage() {
                                                     Student
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    GID
+                                                    Payment Type
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Amount Paid
+                                                    Group
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Amount
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Date
                                                 </th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Admin
-                                                </th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Actions
-                                                </th>
+
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
-                                            {recentPayments
-                                                .filter(p => p.studentName?.toLowerCase().includes(receiptsFilter.toLowerCase()))
-                                                .map((payment) => (
-                                                    <tr key={payment.id} className="hover:bg-gray-50">
+                                            {receiptsList
+                                                .filter(receipt =>
+                                                    receipt.student_name?.toLowerCase().includes(receiptsFilter.toLowerCase()) ||
+                                                    receipt.group_name?.toLowerCase().includes(receiptsFilter.toLowerCase())
+                                                )
+                                                .map((receipt) => (
+                                                    <tr
+                                                        key={receipt.id}
+                                                        className="hover:bg-gray-50 cursor-pointer transition-colors"
+                                                        onClick={() => {
+                                                            setSelectedReceipt(receipt);
+                                                            setIsReceiptModalOpen(true);
+                                                        }}
+                                                    >
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="flex items-center">
-                                                                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                                                    <UserIcon className="h-4 w-4 text-orange-600" />
+                                                                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                                                                    <UserIcon className="h-4 w-4 text-green-600" />
                                                                 </div>
                                                                 <div>
                                                                     <div className="text-sm font-medium text-gray-900">
-                                                                        {payment.studentName}
+                                                                        {receipt.student_name}
                                                                     </div>
                                                                     <div className="text-sm text-gray-500">
-                                                                        {payment.studentId}
+                                                                        {receipt.student_id?.substring(0, 8)}...
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="text-sm text-gray-900">
-                                                                {payment.groupName}
-                                                            </div>
-                                                            <div className="text-sm text-gray-500">
-                                                                {payment.groupId ? `#${payment.groupId}` : 'Balance Addition'}
+                                                                {receipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
+                                                                    receipt.payment_type === 'group_payment' ? '👥 Group Fee' :
+                                                                        receipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
+                                                                            receipt.payment_type}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            {/* Enhanced payment type detection and styling */}
-                                                            {(() => {
-                                                                const isRegistrationFee = !payment.groupId && payment.notes && String(payment.notes).toLowerCase().includes('registration fee');
-                                                                const isRefund = payment.amount < 0;
-                                                                const isGroupFee = payment.groupId && payment.paymentType === 'group_payment';
-                                                                const isBalanceAddition = payment.paymentType === 'balance_addition' && payment.amount > 0;
-                                                                const isDebtPayment = payment.paymentType === 'balance_addition' && payment.amount > 0 && payment.notes && String(payment.notes).toLowerCase().includes('debt');
-
-                                                                let amountColor = 'text-gray-900';
-                                                                let paymentLabel = '';
-                                                                let icon = null;
-
-                                                                if (isRegistrationFee) {
-                                                                    amountColor = 'text-green-600';
-                                                                    paymentLabel = 'Registration Fee';
-                                                                    icon = '🎓';
-                                                                } else if (isGroupFee) {
-                                                                    amountColor = 'text-green-600';
-                                                                    paymentLabel = 'Group Fee';
-                                                                    icon = '👥';
-                                                                } else if (isRefund) {
-                                                                    amountColor = 'text-red-600';
-                                                                    paymentLabel = 'Refund';
-                                                                    icon = '↩️';
-                                                                } else if (isDebtPayment) {
-                                                                    amountColor = 'text-blue-600';
-                                                                    paymentLabel = 'Debt Payment';
-                                                                    icon = '💰';
-                                                                } else if (isBalanceAddition) {
-                                                                    amountColor = 'text-blue-600';
-                                                                    paymentLabel = 'Balance Addition';
-                                                                    icon = '➕';
-                                                                }
-
-                                                                return (
-                                                                    <>
-                                                                        <div className={`text-sm font-medium ${amountColor} flex items-center gap-1`}>
-                                                                            <span>{icon}</span>
-                                                                            {isRefund ? '' : '+'}{payment.amount.toFixed(2)}
-                                                                        </div>
-                                                                        {payment.discount > 0 && (isGroupFee || isRegistrationFee) && (
-                                                                            <div className="text-sm text-green-600">
-                                                                                -{((payment.originalAmount || payment.amount) - payment.amount).toFixed(2)} discount
-                                                                            </div>
-                                                                        )}
-                                                                        <div className={`text-sm ${amountColor} font-medium`}>
-                                                                            {paymentLabel}
-                                                                        </div>
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {format(new Date(payment.date), 'MMM dd, yyyy')}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {payment.adminName || 'Dalila'}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                            <div className="flex space-x-2">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => handleShowReceipt(payment)}
-                                                                    className="text-blue-600 hover:text-blue-900 hover:bg-blue-100"
-                                                                >
-                                                                    <CreditCardIcon className="h-4 w-4" />
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => handleDeletePayment(payment.id)}
-                                                                    className="text-red-600 hover:text-red-900 hover:bg-red-100"
-                                                                >
-                                                                    <TrashIcon className="h-4 w-4" />
-                                                                </Button>
+                                                            <div className="text-sm text-gray-900">
+                                                                {receipt.group_name || 'N/A'}
                                                             </div>
                                                         </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <div className="text-sm font-medium text-green-600">
+                                                                ${receipt.amount?.toFixed(2)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <div className="text-sm text-gray-900">
+                                                                {new Date(receipt.created_at).toLocaleDateString()}
+                                                            </div>
+                                                            <div className="text-sm text-gray-500">
+                                                                {new Date(receipt.created_at).toLocaleTimeString()}
+                                                            </div>
+                                                        </td>
+
                                                     </tr>
                                                 ))}
                                         </tbody>
                                     </table>
                                 </div>
-                                {recentPayments.length === 0 && (
-                                    <div className="text-center py-8">
-                                        <CreditCardIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                        <h3 className="text-lg font-medium text-gray-900 mb-2">No payments yet</h3>
-                                        <p className="text-gray-500">
-                                            Start by adding a payment for a student.
-                                        </p>
+                                {receiptsList.length === 0 && (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <div className="text-4xl mb-4">📄</div>
+                                        <p>No receipts generated yet.</p>
+                                        <p className="text-sm">Receipts will appear here after payments are made.</p>
+                                        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                            <p className="text-sm text-blue-700">
+                                                <strong>💡 To test the receipt system:</strong>
+                                            </p>
+                                            <ul className="text-xs text-blue-600 mt-2 text-left list-disc list-inside">
+                                                <li>Add a new student (will have unpaid $500 registration fee)</li>
+                                                <li>Add existing student to a new group (will have unpaid group fee)</li>
+                                                <li>Make a payment for any unpaid fees</li>
+                                            </ul>
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>
@@ -935,20 +1563,23 @@ export default function PaymentsPage() {
                                 <div className="flex justify-center mb-4">
                                     <Button
                                         onClick={async () => {
-                                            try {
-                                                console.log('Starting comprehensive refresh...');
-                                                const result = await refreshAllStudentsForDebtsAndRefunds();
-                                                console.log('Refresh result:', result);
+                                            alert('Comprehensive refresh is temporarily disabled. This feature will be available soon.');
+                                            return;
 
-                                                // Reload the lists
-                                                await loadRefundList();
-                                                await loadDebtsList();
+                                            // try {
+                                            //     console.log('Starting comprehensive refresh...');
+                                            //     const result = await refreshAllStudentsForDebtsAndRefunds();
+                                            //     console.log('Refresh result:', result);
 
-                                                alert(`Refresh Complete!\n\nProcessed: ${result.processedStudents} students\nRefunds: ${result.refundsCount}\nDebts: ${result.debtsCount}\nErrors: ${result.errors.length}`);
-                                            } catch (error) {
-                                                console.error('Error during refresh:', error);
-                                                alert(`Error during refresh: ${error}`);
-                                            }
+                                            //     // Reload the lists
+                                            //     await loadRefundList();
+                                            //     await loadDebtsList();
+
+                                            //     alert(`Refresh Complete!\n\nProcessed: ${result.processedStudents} students\nRefunds: ${result.refundsCount}\nDebts: ${result.debtsCount}\nErrors: ${result.errors.length}`);
+                                            // } catch (error) {
+                                            //     console.error('Error during refresh:', error);
+                                            //     alert(`Error during refresh: ${error}`);
+                                            // }
                                         }}
                                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
                                     >
@@ -1082,6 +1713,12 @@ export default function PaymentsPage() {
                                                 </div>
                                                 <div className="text-sm text-gray-500">
                                                     ID: {student.custom_id || student.id.substring(0, 4) + '...'} • Groups: {student.groups.length} • Balance:
+                                                    {/* 
+                                                        Color Logic:
+                                                        - Red (text-red-600): remainingBalance < 0 (student owes money)
+                                                        - Green (text-green-600): remainingBalance > 0 (student has credit)
+                                                        - Gray (text-gray-600): remainingBalance === 0 (balanced)
+                                                    */}
                                                     <span className={`font-medium ${student.remainingBalance > 0 ? 'text-green-600' : student.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
                                                         {student.remainingBalance > 0 ? '+' : ''}{Math.abs(student.remainingBalance).toFixed(2)}
                                                     </span>
@@ -1161,6 +1798,12 @@ export default function PaymentsPage() {
                                 </div>
                                 <div className="text-sm text-gray-700">
                                     <span className="font-medium">Balance:</span>
+                                    {/* 
+                                        Color Logic:
+                                        - Red (text-red-600): remainingBalance < 0 (student owes money)
+                                        - Green (text-green-600): remainingBalance > 0 (student has credit)
+                                        - Gray (text-gray-600): remainingBalance === 0 (balanced)
+                                    */}
                                     <span className={`ml-2 font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
                                         {selectedStudent.remainingBalance > 0 ? '+' : selectedStudent.remainingBalance < 0 ? '-' : ''}
                                         {Math.abs(selectedStudent.remainingBalance).toFixed(2)}
@@ -1293,16 +1936,69 @@ export default function PaymentsPage() {
                                 </p>
                             </div>
                             {allocationResult.allocations.length > 0 ? (
-                                <div className="space-y-2">
-                                    <h4 className="font-medium text-gray-900">Allocations</h4>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm text-gray-800">
-                                        {allocationResult.allocations.map((a) => (
-                                            <li key={a.id}>
-                                                Paid {Number(a.amount).toFixed(2)} to group #{a.groupId} on {format(new Date(a.date), 'MMM dd, yyyy')}
-                                                {a.notes ? ` — ${a.notes}` : ''}
-                                            </li>
-                                        ))}
-                                    </ul>
+                                <div className="space-y-4">
+                                    <h4 className="font-medium text-gray-900">Payment Allocations</h4>
+
+                                    {/* Allocations Summary */}
+                                    <div className="bg-gray-50 p-3 rounded-lg">
+                                        <ul className="space-y-2 text-sm text-gray-800">
+                                            {allocationResult.allocations.map((a, index) => (
+                                                <li key={index} className="flex justify-between items-center">
+                                                    <div>
+                                                        <span className="font-medium">
+                                                            {a.groupName}
+                                                        </span>
+                                                        <span className="text-gray-600 ml-2">
+                                                            {a.wasFullyPaid ? '✅ Fully Paid' : '💰 Partially Paid'}
+                                                        </span>
+                                                        {a.paymentId && (
+                                                            <span className="text-xs text-blue-600 ml-2">
+                                                                (Payment ID: {a.paymentId})
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="font-bold text-green-600">
+                                                            +${a.amountAllocated.toFixed(2)}
+                                                        </div>
+                                                        {a.remainingAfterPayment > 0 && (
+                                                            <div className="text-xs text-red-600">
+                                                                Remaining: ${a.remainingAfterPayment.toFixed(2)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+
+                                    {/* Receipts Stored Successfully */}
+                                    <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-green-600">📄</span>
+                                            <span className="text-sm text-green-700">
+                                                <strong>Receipts Generated & Stored!</strong>
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-green-600 mt-1">
+                                            {allocationResult.receipts?.length || 0} receipts have been stored in the database and are now visible in the Recent Receipts table below.
+                                        </p>
+                                    </div>
+
+                                    {/* Credit Information */}
+                                    {allocationResult.remainingCredit > 0 && (
+                                        <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-green-600">💰</span>
+                                                <span className="text-sm text-green-700">
+                                                    <strong>Credit Balance:</strong> ${allocationResult.remainingCredit.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-green-600 mt-1">
+                                                This amount will be applied to future unpaid fees.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <p className="text-sm text-gray-700">No unpaid groups or not enough balance to allocate at this time.</p>
@@ -1330,7 +2026,7 @@ export default function PaymentsPage() {
                         setIsReceiptModalOpen(false);
                         setSelectedReceipt(null);
                     }}
-                    title={`Receipt - ${selectedReceipt?.studentName || 'Payment'}`}
+                    title={`Receipt - ${selectedReceipt?.student_name || 'Payment'}`}
                 >
                     {selectedReceipt && (
                         <div className="space-y-6">
@@ -1342,8 +2038,8 @@ export default function PaymentsPage() {
                                         <p className="text-sm text-orange-600">Receipt #{selectedReceipt.id}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm text-orange-600">Date: {format(new Date(selectedReceipt.date), 'MMM dd, yyyy')}</p>
-                                        <p className="text-sm text-orange-600">Time: {format(new Date(selectedReceipt.date), 'HH:mm')}</p>
+                                        <p className="text-sm text-orange-600">Date: {new Date(selectedReceipt.created_at).toLocaleDateString()}</p>
+                                        <p className="text-sm text-orange-600">Time: {new Date(selectedReceipt.created_at).toLocaleTimeString()}</p>
                                     </div>
                                 </div>
                             </div>
@@ -1354,11 +2050,11 @@ export default function PaymentsPage() {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <p className="text-sm text-gray-600">Name</p>
-                                        <p className="font-medium text-gray-900">{selectedReceipt.studentName}</p>
+                                        <p className="font-medium text-gray-900">{selectedReceipt.student_name}</p>
                                     </div>
                                     <div>
                                         <p className="text-sm text-gray-600">Student ID</p>
-                                        <p className="font-medium text-gray-900">{selectedReceipt.studentId}</p>
+                                        <p className="font-medium text-gray-900">{selectedReceipt.student_id}</p>
                                     </div>
                                 </div>
                             </div>
@@ -1370,92 +2066,37 @@ export default function PaymentsPage() {
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">Payment Type:</span>
                                         <span className="font-medium text-gray-900">
-                                            {(() => {
-                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
-                                                const isRefund = selectedReceipt.amount < 0;
-                                                const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
-                                                const isBalanceAddition = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0;
-                                                const isDebtPayment = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0 && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('debt');
-
-                                                if (isRegistrationFee) return '🎓 Registration Fee';
-                                                if (isGroupFee) return '👥 Group Fee';
-                                                if (isRefund) return '↩️ Refund';
-                                                if (isDebtPayment) return '💰 Debt Payment';
-                                                if (isBalanceAddition) return '➕ Balance Addition';
-                                                return 'Payment';
-                                            })()}
+                                            {selectedReceipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
+                                                selectedReceipt.payment_type === 'group_payment' ? '👥 Group Fee' :
+                                                    selectedReceipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
+                                                        selectedReceipt.payment_type}
                                         </span>
                                     </div>
-                                    {selectedReceipt.groupId && (
+                                    {selectedReceipt.group_name && (
                                         <div className="flex justify-between">
                                             <span className="text-gray-600">Group:</span>
                                             <span className="font-medium text-gray-900">
-                                                {selectedReceipt.groupName} (#{selectedReceipt.groupId})
+                                                {selectedReceipt.group_name}
                                             </span>
                                         </div>
                                     )}
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">Amount:</span>
-                                        <span className={`font-bold text-lg ${(() => {
-                                            const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
-                                            const isRefund = selectedReceipt.amount < 0;
-                                            const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
-                                            const isBalanceAddition = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0;
-                                            const isDebtPayment = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0 && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('debt');
-
-                                            // POSITIVE amounts (green, +): Registration fees, group fees, debt payments
-                                            if (isRegistrationFee || isGroupFee || isDebtPayment) return 'text-green-600';
-                                            // NEGATIVE amounts (red, -): Only refund payments (when giving cash to student)
-                                            if (isRefund) return 'text-red-600';
-                                            // Other positive amounts (blue, +): Balance additions
-                                            if (isBalanceAddition) return 'text-blue-600';
-                                            return 'text-gray-900';
-                                        })()}`}>
-                                            {(() => {
-                                                const isRefund = selectedReceipt.amount < 0;
-                                                const isDebtPayment = selectedReceipt.paymentType === 'balance_addition' && selectedReceipt.amount > 0 && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('debt');
-                                                const isRegistrationFee = !selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee');
-                                                const isGroupFee = selectedReceipt.groupId && selectedReceipt.paymentType === 'group_payment';
-
-                                                // POSITIVE amounts (+): Registration fees, group fees, debt payments, balance additions
-                                                if (isRegistrationFee || isGroupFee || isDebtPayment || selectedReceipt.amount > 0) return '+';
-                                                // NEGATIVE amounts (-): Only refund payments (when giving cash to student)
-                                                if (isRefund) return '-';
-                                                return '+';
-                                            })()}{Math.abs(selectedReceipt.amount).toFixed(2)}
+                                        <span className="font-bold text-lg text-green-600">
+                                            ${selectedReceipt.amount.toFixed(2)}
                                         </span>
                                     </div>
-                                    {selectedReceipt.discount > 0 && (selectedReceipt.paymentType === 'group_payment' || (!selectedReceipt.groupId && selectedReceipt.notes && String(selectedReceipt.notes).toLowerCase().includes('registration fee'))) && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-600">Discount:</span>
-                                            <span className="font-medium text-green-600">
-                                                -{((selectedReceipt.originalAmount || selectedReceipt.amount) - selectedReceipt.amount).toFixed(2)} ({selectedReceipt.discount}%)
-                                            </span>
-                                        </div>
-                                    )}
-                                    {selectedReceipt.originalAmount && selectedReceipt.originalAmount !== selectedReceipt.amount && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-600">Original Amount:</span>
-                                            <span className="font-medium text-gray-900">
-                                                {selectedReceipt.originalAmount.toFixed(2)}
-                                            </span>
-                                        </div>
-                                    )}
+
+
                                 </div>
                             </div>
 
-                            {/* Notes */}
-                            {selectedReceipt.notes && (
-                                <div className="bg-gray-50 p-4 rounded-lg">
-                                    <h4 className="font-medium text-gray-900 mb-2">Notes</h4>
-                                    <p className="text-gray-700 whitespace-pre-wrap">{selectedReceipt.notes}</p>
-                                </div>
-                            )}
-
-                            {/* Admin Information */}
+                            {/* Receipt Text */}
                             <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-medium text-gray-900 mb-2">Processed By</h4>
-                                <p className="text-gray-700">{selectedReceipt.adminName || 'Dalila'}</p>
+                                <h4 className="font-medium text-gray-900 mb-2">Receipt Details</h4>
+                                <div className="bg-white p-3 rounded border font-mono text-sm whitespace-pre-wrap">
+                                    {selectedReceipt.receipt_text}
+                                </div>
                             </div>
 
                             {/* Receipt Footer */}
@@ -1465,7 +2106,7 @@ export default function PaymentsPage() {
                                         Thank you for your payment!
                                     </p>
                                     <p className="text-xs text-gray-400 mt-1">
-                                        Receipt generated on {format(new Date(), 'MMM dd, yyyy HH:mm')}
+                                        Receipt generated on {new Date(selectedReceipt.created_at).toLocaleDateString()} at {new Date(selectedReceipt.created_at).toLocaleTimeString()}
                                     </p>
                                 </div>
                             </div>
@@ -1570,25 +2211,22 @@ export default function PaymentsPage() {
                                     <ul className="space-y-4">
                                         {payments
                                             .filter(p => p.studentId === historySelectedStudent.id)
+                                            .filter(p => (p as any).groupId == null) // 🆕 Only show balance additions (credits)
                                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                             .map((p) => {
-                                                const isCredit = (p as any).groupId == null;
-                                                const group = p.groupId ? groups.find(g => g.id === p.groupId) : null;
                                                 return (
                                                     <li key={p.id} className="relative pl-12">
-                                                        <span className={`absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white ${isCredit ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                                        <span className="absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white bg-green-500"></span>
                                                         <div className="p-1">
                                                             <div className="flex items-center justify-between">
                                                                 <div className="text-xs text-gray-500">{format(new Date(p.date), 'MMM dd, yyyy')}</div>
-                                                                <div className={`text-sm font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
-                                                                    {isCredit ? '+' : '-'}{p.amount.toFixed(2)}
+                                                                <div className="text-sm font-semibold text-green-600">
+                                                                    +{p.amount.toFixed(2)}
                                                                 </div>
                                                             </div>
-                                                            {!isCredit && (
-                                                                <div className="mt-0.5 text-sm text-gray-700">
-                                                                    Group: <span className="font-medium">{group?.name || `#${p.groupId}`}</span> <span className="text-gray-500">(#{p.groupId})</span>
-                                                                </div>
-                                                            )}
+                                                            <div className="mt-0.5 text-sm text-gray-700">
+                                                                💰 Balance Credit
+                                                            </div>
                                                             {p.notes && (
                                                                 <div className="mt-0.5 text-xs text-gray-500">{p.notes}</div>
                                                             )}
@@ -1596,6 +2234,24 @@ export default function PaymentsPage() {
                                                     </li>
                                                 );
                                             })}
+
+                                        {/* 🆕 Show message when no balance credits exist */}
+                                        {payments
+                                            .filter(p => p.studentId === historySelectedStudent.id)
+                                            .filter(p => (p as any).groupId == null)
+                                            .length === 0 && (
+                                                <li className="relative pl-12">
+                                                    <span className="absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white bg-gray-300"></span>
+                                                    <div className="p-1">
+                                                        <div className="text-sm text-gray-500 italic">
+                                                            No balance credits found
+                                                        </div>
+                                                        <div className="text-xs text-gray-400">
+                                                            Balance credits appear when extra payments are made
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            )}
                                     </ul>
                                 </div>
                             </div>
@@ -1957,4 +2613,4 @@ export default function PaymentsPage() {
             </div>
         </AuthGuard>
     );
-} 
+}

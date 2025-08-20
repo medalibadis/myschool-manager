@@ -422,6 +422,11 @@ export default function PaymentsPage() {
 
             if (paymentsError) throw paymentsError;
 
+            // Calculate total balance credits (extra payments)
+            const balanceCredits = payments?.filter((p: any) => p.payment_type === 'balance_addition') || [];
+            const totalCredits = balanceCredits.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+            console.log(`💰 Found ${balanceCredits.length} balance credit payments totaling $${totalCredits}`);
+
             // Get student's groups
             let studentGroups: any[] = [];
             try {
@@ -572,11 +577,15 @@ export default function PaymentsPage() {
             // remainingBalance should represent what the student owes (negative) or has as credit (positive)
             // If totalPaid < totalBalance: student owes money (negative balance)
             // If totalPaid > totalBalance: student has credit (positive balance)
-            const remainingBalance = totalPaid - totalBalance;
+            // Include balance credits in the total paid amount
+            const totalPaidWithCredits = totalPaid + totalCredits;
+            const remainingBalance = totalPaidWithCredits - totalBalance;
 
             console.log('🚨 DEBUG: Final balance calculation:', {
                 totalBalance,
                 totalPaid,
+                totalCredits,
+                totalPaidWithCredits,
                 remainingBalance,
                 groupBalancesCount: groupBalances.length,
                 groupBalances,
@@ -1005,6 +1014,8 @@ export default function PaymentsPage() {
                 }
             }
 
+
+
             // Priority 2: Group fees (oldest first)
             const unpaidGroups = currentBalance.groupBalances
                 .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
@@ -1134,6 +1145,7 @@ export default function PaymentsPage() {
             // If there's remaining payment, it becomes credit
             if (remainingPayment > 0) {
                 console.log(`💰 Remaining payment ${remainingPayment} becomes credit`);
+                console.log(`💰 This will be added to student's balance as credit (positive balance)`);
 
                 // Create a balance credit payment record
                 const { data: creditRecord, error: creditError } = await supabase
@@ -1183,6 +1195,19 @@ export default function PaymentsPage() {
                     } else {
                         console.log('✅ Credit receipt stored in database');
                     }
+
+                    // Add to allocations array for display
+                    allocations.push({
+                        groupId: -1, // Special ID for balance credit
+                        groupName: 'Balance Credit',
+                        amountAllocated: remainingPayment,
+                        wasFullyPaid: true,
+                        remainingAfterPayment: 0,
+                        receipt: creditReceipt,
+                        paymentId: creditRecord.id
+                    });
+
+                    console.log(`✅ Added $${remainingPayment} as balance credit to allocations`);
                 }
             }
 
@@ -1845,7 +1870,14 @@ export default function PaymentsPage() {
                                         ))}
                                     </ul>
                                 ) : (
-                                    <p className="text-sm text-gray-600">No unpaid groups.</p>
+                                    <div className="text-center py-6 text-gray-500">
+                                        <div className="text-4xl mb-2">✅</div>
+                                        <p className="font-medium">All groups are fully paid!</p>
+                                        <p className="text-sm">💰 <strong>You can still add extra payments!</strong></p>
+                                        <p className="text-xs text-blue-600 mt-2">
+                                            Extra amounts will be added to the student's balance as credit (shown in green).
+                                        </p>
+                                    </div>
                                 )}
                                 <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
                                     <strong>Payment Priority:</strong> Registration fees are always paid first, then groups are paid from oldest to newest.

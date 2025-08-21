@@ -1290,6 +1290,7 @@ export const sessionService = {
   },
 
   async updateAttendance(sessionId: string, studentId: string, status: string): Promise<void> {
+    console.log(`🚨 ATTENDANCE UPDATE CALLED: sessionId=${sessionId}, studentId=${studentId}, status=${status}`);
     try {
       // First, get the group ID for this session
       const { data: session, error: sessionError } = await supabase
@@ -1321,14 +1322,26 @@ export const sessionService = {
       }
 
       // Handle financial adjustments for certain statuses
-      if (['justify', 'stop', 'new', 'change'].includes(status)) {
-        await this.handleAttendanceFinancialAdjustment(studentId, groupId, status, sessionId);
+      console.log(`🔍 Checking if status '${status}' requires financial adjustment...`);
+      if (['justified', 'new', 'change'].includes(status)) {
+        console.log(`✅ Status '${status}' requires financial adjustment. Starting payment processing...`);
+        try {
+          // Import and use the new attendance payment service
+          const { attendancePaymentService } = await import('./attendance-payment-service');
+          console.log(`📦 Attendance payment service imported successfully.`);
+          const result = await attendancePaymentService.processAttendanceAdjustment(sessionId, studentId, status);
+          console.log(`💰 Payment adjustment result:`, result);
+        } catch (error) {
+          console.error(`❌ Error in attendance payment processing:`, error);
+        }
+      } else {
+        console.log(`⏭️ Status '${status}' does not require financial adjustment.`);
       }
 
       // If status is 'stop', mark student as stopped in this group
       if (status === 'stop') {
         await this.markStudentAsStoppedInGroup(studentId, groupId);
-      } else if (['present', 'absent', 'justify', 'change', 'new'].includes(status)) {
+      } else if (['present', 'absent', 'justified', 'change', 'new'].includes(status)) {
         // If status is active, mark student as active in this group
         await this.markStudentAsActiveInGroup(studentId, groupId);
       }
@@ -1340,128 +1353,7 @@ export const sessionService = {
     }
   },
 
-  // Handle financial adjustments when attendance status changes
-  async handleAttendanceFinancialAdjustment(studentId: string, groupId: number, status: string, sessionId: string): Promise<void> {
-    try {
-      // Get group details to calculate session value
-      const { data: group, error: groupError } = await supabase
-        .from('groups')
-        .select('price, total_sessions')
-        .eq('id', groupId)
-        .single();
 
-      if (groupError) {
-        console.error('Error fetching group details:', groupError);
-        return;
-      }
-
-      const sessionValue = Number(group.price || 0) / Number(group.total_sessions || 1);
-
-      // Check if student has already paid for this group
-      const { data: payments, error: paymentsError } = await supabase
-        .from('payments')
-        .select('amount, group_id')
-        .eq('student_id', studentId)
-        .eq('group_id', groupId);
-
-      if (paymentsError) {
-        console.error('Error fetching payments:', paymentsError);
-        return;
-      }
-
-      const totalPaidForGroup = (payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-      if (totalPaidForGroup > 0) {
-        // Student has already paid - add refund to balance
-        const refundAmount = sessionValue;
-
-        // Check if student has active unpaid groups to use this refund
-        const { data: activeGroups } = await supabase
-          .from('student_groups')
-          .select(`
-            group_id,
-            status,
-            groups!inner(
-              id,
-              name,
-              price,
-              total_sessions
-            )
-          `)
-          .eq('student_id', studentId)
-          .eq('status', 'active');
-
-        if (activeGroups && activeGroups.length > 0) {
-          // Student has active groups - use refund to pay oldest unpaid group
-          const oldestGroup = activeGroups[0]; // Assuming sorted by creation date
-
-          // Add safety check for groups array
-          if (!oldestGroup.groups || !Array.isArray(oldestGroup.groups) || oldestGroup.groups.length === 0) {
-            console.warn(`Oldest group has no valid groups data:`, oldestGroup);
-            return; // Exit the function instead of continue
-          }
-
-          const groupName = oldestGroup.groups[0]?.name || 'Unknown Group';
-          console.log(`Student has active groups - using refund to pay group: ${groupName}`);
-
-          // Create payment record for the oldest group
-          const { error: paymentError } = await supabase
-            .from('payments')
-            .insert({
-              student_id: studentId,
-              group_id: oldestGroup.group_id,
-              amount: refundAmount,
-              date: new Date().toISOString().split('T')[0],
-              notes: `Session refund applied to group ${groupName}`,
-              admin_name: 'System',
-              payment_type: 'group_payment',
-              discount: 0,
-              original_amount: refundAmount
-            });
-
-          if (paymentError) {
-            console.error('Error creating group payment from refund:', paymentError);
-          } else {
-            console.log(`Refund of ${refundAmount} applied to group ${groupName}`);
-          }
-        } else {
-          // Student has no active groups - add to refund list
-          console.log(`Student has no active groups - adding ${refundAmount} to refund list`);
-
-          // Create refund payment record
-          const { error: refundError } = await supabase
-            .from('payments')
-            .insert({
-              student_id: studentId,
-              group_id: null, // No specific group for refunds
-              amount: -refundAmount, // Negative amount for refunds
-              date: new Date().toISOString().split('T')[0],
-              notes: `Refund for session ${sessionId} (${status} status) - no active groups`,
-              admin_name: 'System',
-              payment_type: 'balance_addition',
-              discount: 0,
-              original_amount: refundAmount
-            });
-
-          if (refundError) {
-            console.error('Error creating refund payment:', refundError);
-          } else {
-            console.log(`Refund of ${refundAmount} added to student ${studentId} balance for session ${sessionId}`);
-          }
-        }
-      } else {
-        // Student hasn't paid - reduce the group fee calculation
-        // This will be handled by the getStudentBalance function
-        // which counts sessions based on attendance status
-        console.log(`Session ${sessionId} marked as ${status} - will reduce group fee calculation for student ${studentId}`);
-      }
-
-      // Update debts/refunds lists automatically
-      await this.updateDebtsAndRefundsLists();
-    } catch (error) {
-      console.error('Error handling attendance financial adjustment:', error);
-    }
-  },
 
   // Mark student as stopped in a specific group
   async markStudentAsStoppedInGroup(studentId: string, groupId: number): Promise<void> {
@@ -1865,7 +1757,7 @@ export const sessionService = {
         await this.updateAttendance(update.sessionId, update.studentId, update.status);
 
         // Track students whose status affects their group status
-        if (['stop', 'present', 'absent', 'justify', 'change', 'new'].includes(update.status)) {
+        if (['stop', 'present', 'absent', 'justified', 'change', 'new'].includes(update.status)) {
           studentsWithStatusChanges.add(update.studentId);
         }
       }
@@ -3157,9 +3049,9 @@ export const paymentService = {
           continue;
         }
 
-        // Calculate total paid for this group
+        // Calculate total paid for this group (including attendance credits)
         const totalPaid = payments?.reduce((sum, p) => {
-          if (p.payment_type === 'group_payment' || p.amount > 0) {
+          if (p.payment_type === 'group_payment' || p.payment_type === 'attendance_credit' || p.amount > 0) {
             return sum + p.amount;
           }
           return sum;
@@ -3177,7 +3069,7 @@ export const paymentService = {
         for (const att of attendance || []) {
           if (att.status === 'stop') {
             hasStopStatus = true;
-          } else if (['justify', 'change', 'new'].includes(att.status)) {
+          } else if (['justified', 'change', 'new'].includes(att.status)) {
             hasJustifyChangeNew = true;
           } else if (['present', 'absent'].includes(att.status)) {
             presentSessions++;
@@ -3551,6 +3443,10 @@ export const waitingListService = {
       customLanguage: student.custom_language,
       customLevel: student.custom_level,
       customCategory: student.custom_category,
+      // 🆕 ADD: Missing fields that were being lost
+      defaultDiscount: student.default_discount || 0,
+      registrationFeePaid: student.registration_fee_paid || false,
+      registrationFeeAmount: student.registration_fee_amount || 500,
       createdAt: new Date(student.created_at),
     })) || [];
   },
@@ -3584,6 +3480,9 @@ export const waitingListService = {
         custom_level: student.customLevel,
         custom_category: student.customCategory,
         default_discount: student.defaultDiscount || 0,
+        // 🆕 DEBUG: Registration fee fields
+        registration_fee_paid: student.registrationFeePaid,
+        registration_fee_amount: student.registrationFeeAmount,
       });
 
       // Validate required fields
@@ -3612,6 +3511,9 @@ export const waitingListService = {
           custom_level: student.customLevel,
           custom_category: student.customCategory,
           default_discount: student.defaultDiscount || 0,
+          // 🆕 ADD: Registration fee fields
+          registration_fee_paid: student.registrationFeePaid || false,
+          registration_fee_amount: student.registrationFeeAmount || 500,
         })
         .select()
         .single();
@@ -3661,6 +3563,9 @@ export const waitingListService = {
         customLevel: data.custom_level,
         customCategory: data.custom_category,
         defaultDiscount: data.default_discount || 0,
+        // 🆕 ADD: Registration fee fields
+        registrationFeePaid: data.registration_fee_paid || false,
+        registrationFeeAmount: data.registration_fee_amount || 500,
         createdAt: new Date(data.created_at),
       };
     } catch (error) {
@@ -3689,6 +3594,10 @@ export const waitingListService = {
       if (student.customLevel !== undefined) updateData.custom_level = student.customLevel;
       if (student.customCategory !== undefined) updateData.custom_category = student.customCategory;
       if (student.defaultDiscount !== undefined) updateData.default_discount = student.defaultDiscount;
+
+      // 🆕 ADD: Registration fee fields
+      if (student.registrationFeePaid !== undefined) updateData.registration_fee_paid = student.registrationFeePaid;
+      if (student.registrationFeeAmount !== undefined) updateData.registration_fee_amount = student.registrationFeeAmount;
 
       // Handle email - only update if provided
       if (student.email !== undefined) {
@@ -3814,6 +3723,10 @@ export const waitingListService = {
       customLanguage: item.custom_language,
       customLevel: item.custom_level,
       customCategory: item.custom_category,
+      // 🆕 ADD: Missing fields that were being lost
+      defaultDiscount: item.default_discount || 0,
+      registrationFeePaid: item.registration_fee_paid || false,
+      registrationFeeAmount: item.registration_fee_amount || 500,
       createdAt: new Date(item.created_at),
     })) || [];
   },
@@ -3877,6 +3790,10 @@ export const waitingListService = {
       customLanguage: student.custom_language,
       customLevel: student.custom_level,
       customCategory: student.custom_category,
+      // 🆕 ADD: Missing fields that were being lost
+      defaultDiscount: student.default_discount || 0,
+      registrationFeePaid: student.registration_fee_paid || false,
+      registrationFeeAmount: student.registration_fee_amount || 500,
       createdAt: new Date(student.created_at),
       callLogs: callLogsMap.get(student.id) || [],
     })) || [];

@@ -272,16 +272,17 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
             // 🆕 Auto-generate receipt if registration fee is paid
             if (student.registrationFeePaid && student.registrationFeeAmount) {
                 try {
-                    console.log('🆕 Generating receipt for paid registration fee...');
+                    console.log('🆕 Auto-generating receipt for paid registration fee...');
+                    console.log(`🆕 Student: ${student.name}, Amount: $${student.registrationFeeAmount}`);
 
                     // Import supabase for receipt creation
                     const { supabase } = await import('../lib/supabase');
 
-                    // Create receipt for registration fee payment
+                    // Create receipt for registration fee (no payment record to avoid duplication)
                     const { error: receiptError } = await supabase
                         .from('receipts')
                         .insert({
-                            payment_id: null, // No payment record yet
+                            payment_id: null, // No payment record yet - will be created when payment is processed
                             student_id: newStudent.id,
                             student_name: newStudent.name,
                             receipt_text: `RECEIPT
@@ -291,6 +292,8 @@ Amount: $${student.registrationFeeAmount}
 Date: ${new Date().toLocaleDateString()}
 Time: ${new Date().toLocaleTimeString()}
 Status: PAID
+Source: Students Page
+Note: Receipt generated automatically - payment will be processed separately
 Thank you for your payment!`,
                             amount: student.registrationFeeAmount,
                             payment_type: 'registration_fee',
@@ -299,9 +302,10 @@ Thank you for your payment!`,
                         });
 
                     if (receiptError) {
-                        console.warn('⚠️ Could not create receipt (table might not exist):', receiptError);
+                        console.warn('⚠️ Could not create receipt:', receiptError);
                     } else {
                         console.log('✅ Receipt generated successfully for registration fee');
+                        console.log('📝 Note: Payment record will be created when payment is processed to avoid duplication');
                     }
                 } catch (receiptError) {
                     console.warn('⚠️ Receipt generation failed:', receiptError);
@@ -647,15 +651,20 @@ Thank you for your payment!`,
                 phone: waitingListStudent.phone,
                 address: waitingListStudent.address,
                 birthDate: waitingListStudent.birthDate,
-                totalPaid: 0, // 🚨 FIX: Start with 0 total paid
+                totalPaid: 0, // Start with 0 total paid
                 groupId: groupId,
-                // 🚨 FIX: Don't mark registration fee as paid automatically
-                registrationFeePaid: false,
-                registrationFeeAmount: 500, // Default amount but not paid
+                // 🆕 PRESERVE registration fee status from waiting list
+                registrationFeePaid: waitingListStudent.registrationFeePaid || false,
+                registrationFeeAmount: waitingListStudent.registrationFeeAmount || 500,
             };
 
             console.log('Creating new student:', newStudent);
-            console.log('🚨 FIX: Student will show as pending for group fees');
+            console.log('🆕 Registration fee status preserved from waiting list:');
+            console.log(`   - registrationFeePaid: ${newStudent.registrationFeePaid}`);
+            console.log(`   - registrationFeeAmount: ${newStudent.registrationFeeAmount}`);
+            if (newStudent.registrationFeePaid && newStudent.registrationFeeAmount) {
+                console.log('✅ Auto-receipt will be generated for this registration fee');
+            }
 
             await get().addStudentToGroup(groupId, newStudent);
             console.log('Student added to group successfully');

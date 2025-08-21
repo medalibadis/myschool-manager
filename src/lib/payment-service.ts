@@ -820,7 +820,7 @@ export class PaymentService {
                 if (!group) continue;
 
                 const groupPayments = payments?.filter(p =>
-                    p.payment_type === 'group_payment' && p.group_id === group.id
+                    (p.payment_type === 'group_payment' || p.payment_type === 'attendance_credit') && p.group_id === group.id
                 ) || [];
 
                 const groupPaid = groupPayments.reduce((sum, p) => sum + (p.amount || 0), 0);

@@ -315,6 +315,11 @@ export default function WaitingListPage() {
             };
 
             console.log('Submitting student data:', studentData);
+            console.log('🔍 DEBUG: Form data values:');
+            console.log('  - formData.registrationFeePaid (raw):', formData.registrationFeePaid);
+            console.log('  - formData.registrationFeePaid (type):', typeof formData.registrationFeePaid);
+            console.log('  - studentData.registrationFeePaid (processed):', studentData.registrationFeePaid);
+            console.log('  - studentData.registrationFeePaid (type):', typeof studentData.registrationFeePaid);
             await addToWaitingList(studentData);
 
             // Link to payment system immediately: create/update students row
@@ -1046,46 +1051,8 @@ export default function WaitingListPage() {
                             studentId = createdStudent.id;
                             console.log('Student created:', createdStudent);
 
-                            // Handle registration fee payment
-                            if (registrationFeePaid && registrationFeeAmount > 0) {
-                                // Add to receipt - create payment record
-                                const { error: paymentError } = await supabase
-                                    .from('payments')
-                                    .insert({
-                                        student_id: studentId,
-                                        group_id: null, // Registration fee is not tied to a specific group
-                                        amount: registrationFeeAmount,
-                                        date: new Date().toISOString().split('T')[0],
-                                        notes: `Registration fee for group: ${newGroup.name}`,
-                                        admin_name: 'System',
-                                        payment_type: 'registration_fee',
-                                    });
-
-                                if (paymentError) {
-                                    console.error('Error creating registration fee payment:', paymentError);
-                                } else {
-                                    console.log('Registration fee payment recorded');
-                                }
-                            } else if (registrationFeeAmount > 0) {
-                                // Add to student's balance as unpaid group fee
-                                const { error: balanceError } = await supabase
-                                    .from('payments')
-                                    .insert({
-                                        student_id: studentId,
-                                        group_id: newGroup.id,
-                                        amount: -registrationFeeAmount, // Negative amount indicates debt
-                                        date: new Date().toISOString().split('T')[0],
-                                        notes: `Registration fee - unpaid for group: ${newGroup.name}`,
-                                        admin_name: 'System',
-                                        payment_type: 'registration_fee',
-                                    });
-
-                                if (balanceError) {
-                                    console.error('Error creating registration fee debt:', balanceError);
-                                } else {
-                                    console.log('Registration fee debt recorded');
-                                }
-                            }
+                            // Note: Registration fee handling is now done after linking to group
+                            // to ensure consistent receipt generation logic
                         }
 
                         // 3) Link student to the new group via junction
@@ -1101,25 +1068,98 @@ export default function WaitingListPage() {
                             continue;
                         }
 
-                        // 4) Add group fee to student's balance as unpaid
-                        if (selectedGroup.coursePrice && selectedGroup.coursePrice > 0) {
-                            const { error: feeError } = await supabase
-                                .from('payments')
-                                .insert({
-                                    student_id: studentId,
-                                    group_id: newGroup.id,
-                                    amount: -selectedGroup.coursePrice, // Negative amount indicates debt
-                                    date: new Date().toISOString().split('T')[0],
-                                    notes: `Group fee - unpaid for group: ${newGroup.name}`,
-                                    admin_name: 'System',
-                                    payment_type: 'group_fee',
-                                });
+                        // 🆕 Auto-generate receipt if registration fee is paid
+                        // Use the database values that were actually stored
+                        let dbRegistrationFeePaid: any = null;
+                        try {
+                            if (studentId) {
+                                const { data, error } = await supabase
+                                    .from('students')
+                                    .select('registration_fee_paid, registration_fee_amount')
+                                    .eq('id', studentId)
+                                    .single();
 
-                            if (feeError) {
-                                console.error('Error creating group fee debt:', feeError);
-                            } else {
-                                console.log('Group fee debt recorded');
+                                if (error) {
+                                    console.warn('⚠️ Could not fetch student registration fee data:', error);
+                                    // Fallback to waiting list data
+                                    dbRegistrationFeePaid = {
+                                        registration_fee_paid: student.registrationFeePaid,
+                                        registration_fee_amount: student.registrationFeeAmount
+                                    };
+                                } else {
+                                    dbRegistrationFeePaid = data;
+                                }
                             }
+                        } catch (queryError) {
+                            console.warn('⚠️ Error querying student registration fee data:', queryError);
+                            // Fallback to waiting list data
+                            dbRegistrationFeePaid = {
+                                registration_fee_paid: student.registrationFeePaid,
+                                registration_fee_amount: student.registrationFeeAmount
+                            };
+                        }
+
+                        console.log('🔍 Checking student registration fee data:', {
+                            name: student.name,
+                            waitingListData: {
+                                registrationFeePaid: student.registrationFeePaid,
+                                registrationFeeAmount: student.registrationFeeAmount
+                            },
+                            databaseData: dbRegistrationFeePaid,
+                            shouldGenerateReceipt: dbRegistrationFeePaid?.registration_fee_paid && dbRegistrationFeePaid?.registration_fee_amount
+                        });
+
+                        if (dbRegistrationFeePaid?.registration_fee_paid && dbRegistrationFeePaid?.registration_fee_amount) {
+                            try {
+                                console.log('🆕 Auto-generating receipt for paid registration fee from waiting list...');
+                                console.log(`🆕 Student: ${student.name}, Amount: $${dbRegistrationFeePaid.registration_fee_amount}`);
+
+                                // Create receipt for registration fee (no payment record to avoid duplication)
+                                const { error: receiptError } = await supabase
+                                    .from('receipts')
+                                    .insert({
+                                        payment_id: null, // No payment record yet - will be created when payment is processed
+                                        student_id: studentId,
+                                        student_name: student.name,
+                                        receipt_text: `RECEIPT
+Registration Fee Payment
+Student: ${student.name}
+Amount: $${dbRegistrationFeePaid.registration_fee_amount}
+Date: ${new Date().toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+Status: PAID
+Source: Waiting List to Group
+Note: Receipt generated automatically - payment will be processed separately
+Thank you for your payment!`,
+                                        amount: dbRegistrationFeePaid.registration_fee_amount,
+                                        payment_type: 'registration_fee',
+                                        group_name: 'Registration Fee',
+                                        created_at: new Date().toISOString()
+                                    });
+
+                                if (receiptError) {
+                                    console.warn('⚠️ Could not create receipt for registration fee:', receiptError);
+                                } else {
+                                    console.log('✅ Receipt generated successfully for registration fee from waiting list');
+                                    console.log('📝 Note: Payment record will be created when payment is processed to avoid duplication');
+                                }
+                            } catch (receiptError) {
+                                console.warn('⚠️ Receipt generation failed for registration fee:', receiptError);
+                            }
+                        } else if (student.registrationFeeAmount && student.registrationFeeAmount > 0) {
+                            // Handle unpaid registration fee - no payment record needed
+                            // The payments page will automatically show it as unpaid (500 - 0 = 500)
+                            console.log(`⚠️ Registration fee unpaid: $${student.registrationFeeAmount} - will appear as unpaid in payments`);
+                            // Note: No negative payment record is created for unpaid registration fees
+                            // This allows the payments page to show the correct remaining amount
+                        }
+
+                        // 4) Group fee is unpaid by default - no payment record needed
+                        // The payments page will automatically show it as unpaid
+                        if (selectedGroup.coursePrice && selectedGroup.coursePrice > 0) {
+                            console.log(`💰 Group fee unpaid: $${selectedGroup.coursePrice} - will appear as unpaid in payments`);
+                            // Note: No negative payment record is created for unpaid group fees
+                            // This allows the payments page to show the correct remaining amount
                         }
 
                         // 5) Remove from waiting list
@@ -1141,6 +1181,11 @@ export default function WaitingListPage() {
             }
 
             console.log(`Moved ${movedCount} students to group`);
+
+            // Summary of auto-receipt generation
+            console.log('📋 Auto-receipt generation summary:');
+            console.log(`   - Students processed: ${finalStudentSelections.length}`);
+            // Note: Registration fee status is processed during student creation/linking
 
             // Remove group from suggested groups
             setSuggestedGroups(prev => prev.filter(g => g.groupName !== selectedGroup.groupName));

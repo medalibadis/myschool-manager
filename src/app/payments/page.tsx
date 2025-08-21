@@ -98,6 +98,11 @@ export default function PaymentsPage() {
 
     // Refund and Debts state
     const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+
+    // Attendance Adjustment History state
+    const [attendanceAdjustments, setAttendanceAdjustments] = useState<Array<any>>([]);
+    const [isAttendanceHistoryModalOpen, setIsAttendanceHistoryModalOpen] = useState(false);
+    const [selectedStudentForAttendance, setSelectedStudentForAttendance] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
     const [isDebtsModalOpen, setIsDebtsModalOpen] = useState(false);
     const [refundList, setRefundList] = useState<Array<{
         studentId: string;
@@ -297,6 +302,18 @@ export default function PaymentsPage() {
         }
     };
 
+    const loadAttendanceAdjustmentHistory = async (studentId: string) => {
+        try {
+            const { attendancePaymentService } = await import('../../lib/attendance-payment-service');
+            const adjustments = await attendancePaymentService.getAttendanceAdjustmentHistory(studentId);
+            setAttendanceAdjustments(adjustments);
+            console.log('📊 Attendance adjustments loaded:', adjustments);
+        } catch (error) {
+            console.error('Error loading attendance adjustment history:', error);
+            setAttendanceAdjustments([]);
+        }
+    };
+
     // Function to refresh selected student data (balance and unpaid groups)
     const refreshSelectedStudentData = async () => {
         if (!selectedStudent) return;
@@ -422,10 +439,28 @@ export default function PaymentsPage() {
 
             if (paymentsError) throw paymentsError;
 
-            // Calculate total balance credits (extra payments)
-            const balanceCredits = payments?.filter((p: any) => p.payment_type === 'balance_addition') || [];
+            // Calculate total balance credits (extra payments and attendance adjustments)
+            // Balance credits: only include credits that are NOT tied to specific groups
+            const balanceCredits = payments?.filter((p: any) =>
+            (p.payment_type === 'balance_addition' ||
+                p.payment_type === 'balance_credit' ||
+                (p.payment_type === 'attendance_credit' && p.group_id === null))
+            ) || [];
             const totalCredits = balanceCredits.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
             console.log(`💰 Found ${balanceCredits.length} balance credit payments totaling $${totalCredits}`);
+            console.log(`🔍 Balance credit details:`, balanceCredits.map(p => ({
+                type: p.payment_type,
+                amount: p.amount,
+                group_id: p.group_id,
+                notes: p.notes
+            })));
+
+            console.log(`📋 ALL payments for student:`, payments?.map(p => ({
+                type: p.payment_type,
+                amount: p.amount,
+                group_id: p.group_id,
+                notes: p.notes?.substring(0, 50)
+            })));
 
             // Get student's groups
             let studentGroups: any[] = [];
@@ -497,7 +532,7 @@ export default function PaymentsPage() {
             console.log(`Found ${studentGroups?.length || 0} active groups for student ${studentId}:`, studentGroups);
 
             // Calculate balances
-            let totalBalance = 500; // Registration fee
+            let totalBalance = 0; // Start with 0, registration fee will be added separately
             let totalPaid = 0;
             const groupBalances: Array<{
                 groupId: number;
@@ -513,21 +548,37 @@ export default function PaymentsPage() {
                 p.payment_type === 'registration_fee' ||
                 (p.notes && p.notes.toLowerCase().includes('registration fee'))
             ) || [];
-            const registrationPaid = registrationPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+            const directRegistrationPaid = registrationPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+            // Apply balance credits to registration fee first (priority)
+            const registrationRemaining = Math.max(0, 500 - directRegistrationPaid);
+            const creditsAppliedToRegistration = Math.min(totalCredits, registrationRemaining);
+            const effectiveRegistrationPaid = directRegistrationPaid + creditsAppliedToRegistration;
+
+            console.log(`💳 Registration Fee Payment Breakdown:`);
+            console.log(`   - Direct payments: $${directRegistrationPaid}`);
+            console.log(`   - Credits applied: $${creditsAppliedToRegistration}`);
+            console.log(`   - Total paid: $${effectiveRegistrationPaid}`);
 
             groupBalances.push({
                 groupId: 0,
                 groupName: 'Registration Fee',
                 groupFees: 500,
-                amountPaid: registrationPaid,
-                remainingAmount: Math.max(0, 500 - registrationPaid),
+                amountPaid: effectiveRegistrationPaid,
+                remainingAmount: Math.max(0, 500 - effectiveRegistrationPaid),
                 isRegistrationFee: true,
             });
 
-            totalPaid += registrationPaid;
+            totalBalance += 500; // Add registration fee to total balance
+            totalPaid += effectiveRegistrationPaid;
+
+            // Calculate remaining credits after registration fee
+            const remainingCredits = Math.max(0, totalCredits - creditsAppliedToRegistration);
+            console.log(`💳 Credits Summary: Total=$${totalCredits}, Used for registration=$${creditsAppliedToRegistration}, Remaining=$${remainingCredits}`);
 
             // Group fees - automatically include all enrolled groups as unpaid until paid
             console.log('🚨 DEBUG: Processing student groups:', studentGroups);
+            let creditsUsedForGroups = 0;
             for (const sg of studentGroups || []) {
                 console.log('🚨 DEBUG: Processing student group record:', sg);
 
@@ -548,30 +599,35 @@ export default function PaymentsPage() {
 
                 console.log('🚨 DEBUG: Processing group:', group);
 
-                // Check if there are any payments for this group
+                // Check if there are any payments for this group (including attendance credits)
                 const groupPayments = payments?.filter(p =>
                     p.group_id === group.id &&
-                    p.payment_type === 'group_payment'
+                    (p.payment_type === 'group_payment' || p.payment_type === 'attendance_credit')
                 ) || [];
 
-                const groupPaid = groupPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                const directGroupPaid = groupPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-                // If no payments exist, the full group price is unpaid
-                // If partial payments exist, calculate remaining amount
-                const remainingAmount = Math.max(0, (group.price || 0) - groupPaid);
+                // Apply remaining balance credits to this group
+                const groupRemaining = Math.max(0, (group.price || 0) - directGroupPaid);
+                const availableCreditsForGroup = Math.max(0, remainingCredits - creditsUsedForGroups);
+                const creditsAppliedToGroup = Math.min(availableCreditsForGroup, groupRemaining);
+                creditsUsedForGroups += creditsAppliedToGroup;
 
-                console.log(`🚨 DEBUG: Group ${group.name}: Price=${group.price}, Paid=${groupPaid}, Remaining=${remainingAmount}`);
+                const effectiveGroupPaid = directGroupPaid + creditsAppliedToGroup;
+                const remainingAmount = Math.max(0, (group.price || 0) - effectiveGroupPaid);
+
+                console.log(`🚨 DEBUG: Group ${group.name}: Price=${group.price}, Direct Paid=${directGroupPaid}, Credits Applied=${creditsAppliedToGroup}, Total Paid=${effectiveGroupPaid} (from ${groupPayments.length} payments), Remaining=${remainingAmount}`);
 
                 groupBalances.push({
                     groupId: group.id,
                     groupName: group.name,
                     groupFees: group.price || 0,
-                    amountPaid: groupPaid,
+                    amountPaid: effectiveGroupPaid,
                     remainingAmount,
                 });
 
                 totalBalance += group.price || 0;
-                totalPaid += groupPaid;
+                totalPaid += effectiveGroupPaid;
             }
 
             // remainingBalance should represent what the student owes (negative) or has as credit (positive)
@@ -1525,7 +1581,9 @@ export default function PaymentsPage() {
                                                                 {receipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
                                                                     receipt.payment_type === 'group_payment' ? '👥 Group Fee' :
                                                                         receipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
-                                                                            receipt.payment_type}
+                                                                            receipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
+                                                                                receipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
+                                                                                    receipt.payment_type}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -2101,7 +2159,9 @@ export default function PaymentsPage() {
                                             {selectedReceipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
                                                 selectedReceipt.payment_type === 'group_payment' ? '👥 Group Fee' :
                                                     selectedReceipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
-                                                        selectedReceipt.payment_type}
+                                                        selectedReceipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
+                                                            selectedReceipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
+                                                                selectedReceipt.payment_type}
                                         </span>
                                     </div>
                                     {selectedReceipt.group_name && (
@@ -2232,8 +2292,22 @@ export default function PaymentsPage() {
                                     <div className="text-sm text-gray-600">Student</div>
                                     <div className="text-base font-medium text-gray-900">{historySelectedStudent.name}</div>
                                 </div>
-                                <div className="text-sm text-gray-600">
-                                    ID: <span className="font-mono">{historySelectedStudent.custom_id || historySelectedStudent.id.substring(0, 4) + '...'}</span>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-sm text-gray-600">
+                                        ID: <span className="font-mono">{historySelectedStudent.custom_id || historySelectedStudent.id.substring(0, 4) + '...'}</span>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                            setSelectedStudentForAttendance(historySelectedStudent);
+                                            loadAttendanceAdjustmentHistory(historySelectedStudent.id);
+                                            setIsAttendanceHistoryModalOpen(true);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-900 hover:bg-blue-100"
+                                    >
+                                        📊 Attendance Adjustments
+                                    </Button>
                                 </div>
                             </div>
 
@@ -2641,6 +2715,90 @@ export default function PaymentsPage() {
                             </div>
                         )}
                     </div>
+                </Modal>
+
+                {/* Attendance Adjustment History Modal */}
+                <Modal
+                    isOpen={isAttendanceHistoryModalOpen}
+                    onClose={() => {
+                        setIsAttendanceHistoryModalOpen(false);
+                        setSelectedStudentForAttendance(null);
+                        setAttendanceAdjustments([]);
+                    }}
+                    title={`Attendance Adjustments - ${selectedStudentForAttendance?.name || ''}`}
+                    maxWidth="2xl"
+                >
+                    {selectedStudentForAttendance && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg">
+                                <div>
+                                    <div className="text-sm text-blue-600">Student</div>
+                                    <div className="text-base font-medium text-blue-900">{selectedStudentForAttendance.name}</div>
+                                </div>
+                                <div className="text-sm text-blue-600">
+                                    ID: <span className="font-mono">{selectedStudentForAttendance.custom_id || selectedStudentForAttendance.id.substring(0, 4) + '...'}</span>
+                                </div>
+                            </div>
+
+                            {attendanceAdjustments.length > 0 ? (
+                                <div className="max-h-96 overflow-y-auto">
+                                    <div className="relative">
+                                        <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-200" />
+                                        <ul className="space-y-4">
+                                            {attendanceAdjustments.map((adjustment, index) => (
+                                                <li key={index} className="relative pl-12">
+                                                    <span className={`absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white ${adjustment.adjustmentType === 'refund' ? 'bg-green-500' : 'bg-blue-500'
+                                                        }`}></span>
+                                                    <div className="p-1">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="text-xs text-gray-500">{adjustment.sessionDate}</div>
+                                                            <div className={`text-sm font-semibold ${adjustment.adjustmentType === 'refund' ? 'text-green-600' : 'text-blue-600'
+                                                                }`}>
+                                                                {adjustment.adjustmentType === 'refund' ? '+' : '-'}{adjustment.sessionAmount.toFixed(2)}
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-0.5 text-sm text-gray-700">
+                                                            {adjustment.adjustmentType === 'refund' ? '💰 Refund' : '💳 Debt Reduction'}
+                                                        </div>
+                                                        <div className="mt-0.5 text-xs text-gray-500">
+                                                            Status: <span className="font-medium">{adjustment.attendanceStatus.toUpperCase()}</span>
+                                                        </div>
+                                                        {adjustment.notes && (
+                                                            <div className="mt-0.5 text-xs text-gray-500">{adjustment.notes}</div>
+                                                        )}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-8">
+                                    <div className="text-gray-400 text-4xl mb-2">📊</div>
+                                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Attendance Adjustments</h3>
+                                    <p className="text-gray-500">
+                                        This student has no attendance-based payment adjustments yet.
+                                    </p>
+                                    <p className="text-sm text-gray-400 mt-2">
+                                        Adjustments are created automatically when attendance status changes to justify/change/new.
+                                    </p>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setIsAttendanceHistoryModalOpen(false);
+                                        setSelectedStudentForAttendance(null);
+                                        setAttendanceAdjustments([]);
+                                    }}
+                                >
+                                    Close
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </Modal>
             </div>
         </AuthGuard>

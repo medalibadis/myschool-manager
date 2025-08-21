@@ -630,17 +630,29 @@ export default function PaymentsPage() {
                 totalPaid += effectiveGroupPaid;
             }
 
+            // Calculate total credits used (registration + groups)
+            const totalCreditsUsed = creditsAppliedToRegistration + creditsUsedForGroups;
+            const unusedCredits = Math.max(0, totalCredits - totalCreditsUsed);
+
+            console.log(`💳 Final Credits Breakdown:`);
+            console.log(`   - Total credits available: $${totalCredits}`);
+            console.log(`   - Used for registration: $${creditsAppliedToRegistration}`);
+            console.log(`   - Used for groups: $${creditsUsedForGroups}`);
+            console.log(`   - Unused credits: $${unusedCredits}`);
+
             // remainingBalance should represent what the student owes (negative) or has as credit (positive)
             // If totalPaid < totalBalance: student owes money (negative balance)
             // If totalPaid > totalBalance: student has credit (positive balance)
-            // Include balance credits in the total paid amount
-            const totalPaidWithCredits = totalPaid + totalCredits;
+            // Only add unused credits to avoid double counting (credits already applied are included in totalPaid)
+            const totalPaidWithCredits = totalPaid + unusedCredits;
             const remainingBalance = totalPaidWithCredits - totalBalance;
 
             console.log('🚨 DEBUG: Final balance calculation:', {
                 totalBalance,
                 totalPaid,
                 totalCredits,
+                totalCreditsUsed,
+                unusedCredits,
                 totalPaidWithCredits,
                 remainingBalance,
                 groupBalancesCount: groupBalances.length,

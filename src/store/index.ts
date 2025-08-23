@@ -66,28 +66,22 @@ interface MySchoolStore {
     depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string) => Promise<{ depositId: string; allocations: any[] }>;
 
     // Refund and Debts functionality
-    // getRefundList: () => Promise<Array<{
-    //     studentId: string;
-    //     studentName: string;
-    //     customId?: string;
-    //     balance: number;
-    //     groups: Array<{ id: number; name: string; status: string }>;
-    // }>>;
-    // getDebtsList: () => Promise<Array<{
-    //     studentId: string;
-    //     studentName: string;
-    //     customId?: string;
-    //     balance: number;
-    //     groups: Array<{ id: number; name: string; status: string }>;
-    // }>>;
-    // processRefund: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
-    // processDebtPayment: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
-    // refreshAllStudentsForDebtsAndRefunds: () => Promise<{
-    //     refundsCount: number;
-    //     debtsCount: number;
-    //     processedStudents: number;
-    //     errors: string[];
-    // }>;
+    getRefundList: () => Promise<Array<{
+        studentId: string;
+        studentName: string;
+        customId?: string;
+        balance: number;
+        groups: Array<{ id: number; name: string; status: string; stopReason?: string }>;
+    }>>;
+    getDebtsList: () => Promise<Array<{
+        studentId: string;
+        studentName: string;
+        customId?: string;
+        balance: number;
+        groups: Array<{ id: number; name: string; status: string }>;
+    }>>;
+    processRefund: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
+    processDebtPayment: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
 
     // New attendance-based payment calculations
     calculateAttendanceBasedPayments: () => Promise<{
@@ -765,12 +759,13 @@ Thank you for your payment!`,
     getRefundList: async () => {
         set({ loading: true, error: null });
         try {
-            // This will be implemented in the supabase service
-            // const refundList = await paymentService.getRefundList();
+            console.log('🔄 Store: Getting refund list...');
+            const refundList = await paymentService.getRefundList();
+            console.log(`✅ Store: Found ${refundList.length} students eligible for refunds`);
             set({ loading: false });
-            // return refundList;
-            return [];
+            return refundList;
         } catch (error) {
+            console.error('❌ Store: Error getting refund list:', error);
             set({ error: (error as Error).message, loading: false });
             throw error;
         }
@@ -779,12 +774,13 @@ Thank you for your payment!`,
     getDebtsList: async () => {
         set({ loading: true, error: null });
         try {
-            // This will be implemented in the supabase service
-            // const debtsList = await paymentService.getDebtsList();
+            console.log('🔄 Store: Getting debts list...');
+            const debtsList = await paymentService.getDebtsList();
+            console.log(`✅ Store: Found ${debtsList.length} students with debts`);
             set({ loading: false });
-            // return debtsList;
-            return [];
+            return debtsList;
         } catch (error) {
+            console.error('❌ Store: Error getting debts list:', error);
             set({ error: (error as Error).message, loading: false });
             throw error;
         }
@@ -793,11 +789,14 @@ Thank you for your payment!`,
     processRefund: async (studentId: string, amount: number, date: Date, notes?: string) => {
         set({ loading: true, error: null });
         try {
-            // await paymentService.processRefund(studentId, amount, date, notes);
+            console.log(`🔄 Store: Processing refund for student ${studentId}: $${amount}`);
+            await paymentService.processRefund(studentId, amount, date, notes);
+            console.log(`✅ Store: Refund processed successfully`);
             // Refresh payments after refund
             await get().fetchPayments();
             set({ loading: false });
         } catch (error) {
+            console.error('❌ Store: Error processing refund:', error);
             set({ error: (error as Error).message, loading: false });
             throw error;
         }
@@ -806,11 +805,14 @@ Thank you for your payment!`,
     processDebtPayment: async (studentId: string, amount: number, date: Date, notes?: string) => {
         set({ loading: true, error: null });
         try {
-            // await paymentService.processDebtPayment(studentId, amount, date, notes);
+            console.log(`🔄 Store: Processing debt payment for student ${studentId}: $${amount}`);
+            await paymentService.processDebtPayment(studentId, amount, date, notes);
+            console.log(`✅ Store: Debt payment processed successfully`);
             // Refresh payments after debt payment
             await get().fetchPayments();
             set({ loading: false });
         } catch (error) {
+            console.error('❌ Store: Error processing debt payment:', error);
             set({ error: (error as Error).message, loading: false });
             throw error;
         }

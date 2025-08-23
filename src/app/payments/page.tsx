@@ -52,6 +52,10 @@ export default function PaymentsPage() {
         fetchPayments,
         getStudentBalance,
         getRecentPayments,
+        getRefundList,
+        getDebtsList,
+        processRefund,
+        processDebtPayment,
         loading,
         error,
         depositAndAllocate,
@@ -109,7 +113,13 @@ export default function PaymentsPage() {
         studentName: string;
         customId?: string;
         balance: number;
-        groups: Array<{ id: number; name: string; status: string }>;
+        groups: Array<{ id: number; name: string; status: string; stopReason?: string }>;
+        isApprovedRequest?: boolean;
+        requestId?: string;
+        approvedAt?: string;
+        approvedBy?: string;
+        superadminNotes?: string;
+        adminReason?: string;
     }>>([]);
     const [debtsList, setDebtsList] = useState<Array<{
         studentId: string;
@@ -124,7 +134,13 @@ export default function PaymentsPage() {
         studentName: string;
         customId?: string;
         balance: number;
-        groups: Array<{ id: number; name: string; status: string }>;
+        groups: Array<{ id: number; name: string; status: string; stopReason?: string }>;
+        isApprovedRequest?: boolean;
+        requestId?: string;
+        approvedAt?: string;
+        approvedBy?: string;
+        superadminNotes?: string;
+        adminReason?: string;
     } | null>(null);
     const [selectedDebtStudent, setSelectedDebtStudent] = useState<{
         studentId: string;
@@ -248,14 +264,58 @@ export default function PaymentsPage() {
         }
     };
 
+    const loadApprovedRefundRequests = async () => {
+        try {
+            const { data: approvedRequests, error } = await supabase
+                .from('refund_requests')
+                .select('*')
+                .eq('status', 'approved'); // Only get approved (not processed) requests
+
+            if (error) throw error;
+
+            // Convert approved requests to refund list format
+            return (approvedRequests || []).map(request => ({
+                studentId: request.student_id,
+                studentName: request.student_name,
+                customId: request.student_custom_id,
+                balance: request.requested_amount,
+                groups: request.stopped_groups || [],
+                requestId: request.id,
+                approvedAt: request.approved_at,
+                approvedBy: request.approved_by,
+                superadminNotes: request.superadmin_notes,
+                adminReason: request.reason
+            }));
+        } catch (error) {
+            console.error('Error loading approved refund requests:', error);
+            return [];
+        }
+    };
+
     const loadRefundList = async () => {
         try {
-            console.log('Loading refund list...');
-            // const refunds = await getRefundList();
-            console.log('Refund list loaded: []');
-            setRefundList([]);
+            console.log('🔄 Loading refund list...');
+
+            // Load both eligible students and approved refund requests
+            const [refunds, approvedRequests] = await Promise.all([
+                getRefundList(),
+                loadApprovedRefundRequests()
+            ]);
+
+            // Combine both lists, ensuring no duplicates by student ID
+            const approvedStudentIds = new Set(approvedRequests.map(r => r.studentId));
+            const filteredRefunds = refunds.filter(r => !approvedStudentIds.has(r.studentId));
+
+            console.log(`✅ Refund list loaded: ${filteredRefunds.length} eligible students, ${approvedRequests.length} approved requests (${refunds.length - filteredRefunds.length} students filtered out due to pending approval)`);
+
+            const combinedList = [
+                ...filteredRefunds.map(r => ({ ...r, isApprovedRequest: false })),
+                ...approvedRequests.map(r => ({ ...r, isApprovedRequest: true }))
+            ];
+
+            setRefundList(combinedList);
         } catch (error) {
-            console.error('Error loading refund list:', error);
+            console.error('❌ Error loading refund list:', error);
             // Show more informative error message
             let errorMessage = 'Unknown error occurred';
             if (error instanceof Error) {
@@ -277,12 +337,12 @@ export default function PaymentsPage() {
 
     const loadDebtsList = async () => {
         try {
-            console.log('Loading debts list...');
-            // const debts = await getDebtsList();
-            console.log('Debts list loaded: []');
-            setDebtsList([]);
+            console.log('🔄 Loading debts list...');
+            const debts = await getDebtsList();
+            console.log(`✅ Debts list loaded: ${debts.length} students with debts`);
+            setDebtsList(debts);
         } catch (error) {
-            console.error('Error loading debts list:', error);
+            console.error('❌ Error loading debts list:', error);
             // Show more informative error message
             let errorMessage = 'Unknown error occurred';
             if (error instanceof Error) {
@@ -1342,104 +1402,241 @@ export default function PaymentsPage() {
         }
     };
 
-    // Handle refund processing (temporarily disabled)
-    const handleProcessRefund = async () => {
-        alert('Refund processing is temporarily disabled. This feature will be available soon.');
+    // Handle sending refund request to superadmin
+    const handleSendRefundRequest = async () => {
+        if (!selectedRefundStudent || !refundData.amount) {
+            alert('Please select a student and enter an amount');
         return;
+        }
 
-        // if (!selectedRefundStudent || !refundData.amount) return;
+        try {
+            console.log(`📤 Sending refund request for ${selectedRefundStudent.studentName}: $${refundData.amount}`);
 
-        // try {
-        //     await processRefund(
-        //         selectedRefundStudent.studentId,
-        //         parseFloat(refundData.amount),
-        //         new Date(refundData.date),
-        //         refundData.notes
-        //     );
+            // Create refund request record
+            console.log('📤 Attempting to insert refund request:', {
+                student_id: selectedRefundStudent.studentId,
+                student_name: selectedRefundStudent.studentName,
+                requested_amount: parseFloat(refundData.amount)
+            });
 
-        //     // Close modal and refresh lists
-        //     setIsRefundModalOpen(false);
-        //     setSelectedRefundStudent(null);
-        //     setRefundData({
-        //         amount: '',
-        //         notes: '',
-        //         date: new Date().toISOString().split('T')[0],
-        //     });
+            const { data: insertData, error: requestError } = await supabase
+                .from('refund_requests')
+                .insert({
+                    student_id: selectedRefundStudent.studentId,
+                    student_name: selectedRefundStudent.studentName,
+                    student_custom_id: selectedRefundStudent.customId || null,
+                    requested_amount: parseFloat(refundData.amount),
+                    reason: refundData.notes || 'Refund request for stopped student',
+                    stopped_groups: selectedRefundStudent.groups || [],
+                    admin_name: 'Dalila', // Using consistent admin name from your system
+                    status: 'pending'
+                })
+                .select();
 
-        //     // Add a small delay to ensure the refund is processed
-        //     await new Promise(resolve => setTimeout(resolve, 500));
+            if (requestError) {
+                throw requestError;
+            }
 
-        //     // Clear the current lists to force refresh
-        //     setRefundList([]);
+            // Close modal and reset form
+            setIsRefundModalOpen(false);
+            setSelectedRefundStudent(null);
+            setRefundData({
+                amount: '',
+                notes: '',
+                date: new Date().toISOString().split('T')[0],
+            });
 
-        //     // Refresh lists
-        //     await loadRefundList();
-        //     await loadRecentPayments();
+            // Show success message
+            alert(`✅ Refund request of $${refundData.amount} sent to superadmin for approval!\n\nThe superadmin will review this request and approve or reject it. Once approved, you can process the refund in the payments page.`);
 
-        //     // Refresh selected student data if it's the same student
-        //     if (selectedStudent && selectedStudent.id === selectedRefundStudent.studentId) {
-        //         await refreshSelectedStudentData();
-        //     }
+            // Refresh the refund list to remove this student (since request is now pending)
+            await loadRefundList();
 
-        //     // Show success message
-        //     alert(`Refund of $${refundData.amount} processed successfully for ${selectedRefundStudent.studentName}`);
-        // } catch (error) {
-        //     console.error('Error processing refund:', error);
-        // }
+        } catch (error) {
+            console.error('❌ Error sending refund request:', error);
+            alert('Failed to send refund request. Please try again.');
+        }
     };
 
-    // Handle debt payment processing (temporarily disabled)
-    const handleProcessDebtPayment = async () => {
-        alert('Debt payment processing is temporarily disabled. This feature will be available soon.');
+    // Handle processing approved refund
+    const handleProcessApprovedRefund = async () => {
+        if (!selectedRefundStudent || !refundData.amount) {
+            alert('Please select a student and enter an amount');
         return;
+        }
 
-        // if (!selectedDebtStudent || !debtData.amount) {
-        //     alert('Please select a student and enter an amount');
-        //     return;
-        // }
+        try {
+            console.log(`💰 Processing approved refund for ${selectedRefundStudent.studentName}: $${refundData.amount}`);
+            const refundAmount = parseFloat(refundData.amount);
 
-        // try {
-        //     // Ensure debt payment notes include "debt" for proper receipt labeling
-        //     const debtNotes = debtData.notes ?
-        //         `${debtData.notes} (debt payment)` :
-        //         'Debt payment received';
+            // Step 1: Create a refund payment record (reduces student's credit balance)
+            const refundNotes = `REFUND - Superadmin approved refund - ${refundData.notes || selectedRefundStudent.adminReason || 'Student stopped in all groups'}`;
 
-        //     await processDebtPayment(
-        //         selectedDebtStudent.studentId,
-        //         parseFloat(debtData.amount),
-        //         new Date(debtData.date),
-        //         debtNotes
-        //     );
+            console.log('📝 Creating refund payment:', {
+                student_id: selectedRefundStudent.studentId,
+                amount: -refundAmount, // Negative = money going out (refund)
+                date: refundData.date,
+                notes: refundNotes
+            });
 
-        //     // Close modal and refresh lists
-        //     setIsDebtsModalOpen(false);
-        //     setSelectedDebtStudent(null);
-        //     setDebtData({
-        //         amount: '',
-        //         notes: '',
-        //         date: new Date().toISOString().split('T')[0],
-        //     });
+            const { data: paymentData, error: paymentError } = await supabase
+                .from('payments')
+                .insert({
+                    student_id: selectedRefundStudent.studentId,
+                    group_id: null, // No specific group for refunds
+                    amount: -refundAmount, // NEGATIVE amount = refund (reduces student's balance)
+                    date: refundData.date,
+                    notes: refundNotes,
+                    admin_name: 'Dalila',
+                    payment_type: 'balance_addition' // Use balance_addition with negative amount for refunds
+                })
+                .select();
 
-        //     // Add a small delay to ensure the payment is processed
-        //     await new Promise(resolve => setTimeout(resolve, 500));
+            if (paymentError) {
+                throw new Error(`Failed to create refund payment: ${paymentError.message}`);
+            }
 
-        //     // Clear the current debts list to force refresh
-        //     setDebtList([]);
+            console.log('✅ Refund payment created:', paymentData);
 
-        //     // Refresh lists
-        //     await loadDebtsList();
-        //     await loadRecentPayments();
+            // Step 2: Generate receipt for the refund
+            const receiptText = `REFUND RECEIPT
+Student: ${selectedRefundStudent.studentName}
+${selectedRefundStudent.customId ? `Student ID: ${selectedRefundStudent.customId}` : ''}
+Refund Amount: $${refundAmount.toFixed(2)}
+Date: ${new Date(refundData.date).toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+Reason: ${selectedRefundStudent.adminReason || 'Student stopped in all groups'}
+Approved by: ${selectedRefundStudent.approvedBy || 'Superadmin'}
+${selectedRefundStudent.superadminNotes ? `Notes: ${selectedRefundStudent.superadminNotes}` : ''}
+Status: REFUND PROCESSED
+Thank you!`;
 
-        //     // Refresh selected student data if it's the same student
-        //     if (selectedStudent && selectedStudent.id === selectedDebtStudent.studentId) {
-        //         await refreshSelectedStudentData();
-        //     }
+            console.log('📄 Creating refund receipt...');
+            const { data: receiptData, error: receiptError } = await supabase
+                .from('receipts')
+                .insert({
+                    student_id: selectedRefundStudent.studentId,
+                    student_name: selectedRefundStudent.studentName,
+                    receipt_text: receiptText,
+                    amount: refundAmount,
+                    payment_type: 'refund',
+                    group_name: 'Refund',
+                    created_at: new Date().toISOString()
+                })
+                .select();
 
-        //     // Show success message
-        //     alert(`Debt payment of $${debtData.amount} processed successfully for ${selectedDebtStudent.studentName}`);
-        // } catch (error) {
-        //     console.error('Error processing debt payment:', error);
-        // }
+            if (receiptError) {
+                console.warn('⚠️ Could not create receipt:', receiptError);
+                // Continue anyway, the payment was processed
+            } else {
+                console.log('✅ Refund receipt generated successfully:', receiptData);
+            }
+
+            // Step 3: Mark the refund request as processed in the database
+            if (selectedRefundStudent.requestId) {
+                const { error: updateError } = await supabase
+                    .from('refund_requests')
+                    .update({
+                        status: 'processed',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', selectedRefundStudent.requestId);
+
+                if (updateError) {
+                    console.error('Warning: Failed to update request status:', updateError);
+                    // Continue anyway since the refund was processed
+                }
+            }
+
+            // Close modal and reset form
+            setIsRefundModalOpen(false);
+            setSelectedRefundStudent(null);
+            setRefundData({
+                amount: '',
+                notes: '',
+                date: new Date().toISOString().split('T')[0],
+            });
+
+            // Add a small delay to ensure the refund is processed
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Check the student's balance after refund
+            console.log('🔍 Checking student balance after refund...');
+            try {
+                const updatedBalance = await getStudentBalance(selectedRefundStudent.studentId);
+                console.log('📊 Updated balance after refund:', updatedBalance);
+            } catch (balanceError) {
+                console.error('Error checking updated balance:', balanceError);
+            }
+
+            // Refresh lists to remove student from refund list (balance should now be 0 or negative)
+            await loadRefundList();
+            await loadRecentPayments();
+
+            // Refresh selected student data if applicable
+            if (selectedStudent && selectedStudent.id === selectedRefundStudent.studentId) {
+                await refreshSelectedStudentData();
+            }
+
+            // Show success message
+            alert(`✅ Refund of $${refundAmount.toFixed(2)} processed successfully for ${selectedRefundStudent.studentName}!\n\n📄 Receipt generated\n💰 Student balance updated\n🔄 Student removed from refund list`);
+
+        } catch (error) {
+            console.error('❌ Error processing approved refund:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            alert(`Failed to process approved refund: ${errorMessage}. Please try again.`);
+        }
+    };
+
+    // Handle debt payment processing
+    const handleProcessDebtPayment = async () => {
+        if (!selectedDebtStudent || !debtData.amount) {
+            alert('Please select a student and enter an amount');
+            return;
+        }
+
+        try {
+            console.log(`🔄 Processing debt payment for ${selectedDebtStudent.studentName}: $${debtData.amount}`);
+
+            // Ensure debt payment notes include "debt" for proper receipt labeling
+            const debtNotes = debtData.notes ?
+                `${debtData.notes} (debt payment)` :
+                'Debt payment received';
+
+            await processDebtPayment(
+                selectedDebtStudent.studentId,
+                parseFloat(debtData.amount),
+                new Date(debtData.date),
+                debtNotes
+            );
+
+            // Close modal and refresh lists
+            setIsDebtsModalOpen(false);
+            setSelectedDebtStudent(null);
+            setDebtData({
+                amount: '',
+                notes: '',
+                date: new Date().toISOString().split('T')[0],
+            });
+
+            // Add a small delay to ensure the payment is processed
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Refresh lists
+            await loadDebtsList();
+            await loadRecentPayments();
+
+            // Refresh selected student data if applicable
+            if (selectedStudent && selectedStudent.id === selectedDebtStudent.studentId) {
+                await refreshSelectedStudentData();
+            }
+
+            // Show success message
+            alert(`Debt payment of $${debtData.amount} processed successfully for ${selectedDebtStudent.studentName}`);
+        } catch (error) {
+            console.error('❌ Error processing debt payment:', error);
+            alert('Failed to process debt payment. Please try again.');
+        }
     };
 
     // Handle showing receipt details
@@ -1595,7 +1792,7 @@ export default function PaymentsPage() {
                                                                         receipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
                                                                             receipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
                                                                                 receipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                                                    receipt.payment_type}
+                                                                            receipt.payment_type}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -2173,7 +2370,7 @@ export default function PaymentsPage() {
                                                     selectedReceipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
                                                         selectedReceipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
                                                             selectedReceipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                                selectedReceipt.payment_type}
+                                                        selectedReceipt.payment_type}
                                         </span>
                                     </div>
                                     {selectedReceipt.group_name && (
@@ -2406,9 +2603,9 @@ export default function PaymentsPage() {
 
                             {refundList.length > 0 ? (
                                 <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {refundList.map((student) => (
+                                    {refundList.map((student, index) => (
                                         <div
-                                            key={student.studentId}
+                                            key={`${student.studentId}-${student.isApprovedRequest ? 'approved' : 'eligible'}-${index}`}
                                             className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRefundStudent?.studentId === student.studentId
                                                 ? 'border-orange-500 bg-orange-50'
                                                 : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50'
@@ -2421,6 +2618,8 @@ export default function PaymentsPage() {
                                                 }));
                                             }}
                                         >
+                                            <div className="space-y-3">
+                                                {/* Student Info Header */}
                                             <div className="flex items-center justify-between">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-3">
@@ -2432,17 +2631,72 @@ export default function PaymentsPage() {
                                                             <div className="text-sm text-gray-500">
                                                                 ID: {student.customId || student.studentId.substring(0, 8) + '...'}
                                                             </div>
-                                                            <div className="text-sm text-gray-600">
-                                                                Status: No active group enrollments
+                                                                <div className="text-sm font-medium">
+                                                                    {student.isApprovedRequest ? (
+                                                                        <span className="text-green-600">✅ Approved for refund</span>
+                                                                    ) : (
+                                                                        <span className="text-red-600">⏹️ Stopped in all groups</span>
+                                                                    )}
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div className="text-right">
                                                     <div className="text-lg font-bold text-green-600">
-                                                        +{student.balance.toFixed(2)}
+                                                            +${student.balance.toFixed(2)}
                                                     </div>
                                                     <div className="text-sm text-gray-500">Available for refund</div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Stopped Groups with Reasons OR Approval Info */}
+                                                <div className="bg-white p-3 rounded border border-gray-100">
+                                                    {student.isApprovedRequest ? (
+                                                        <>
+                                                            <div className="text-sm font-medium text-green-700 mb-2">
+                                                                ✅ Superadmin Approved Refund:
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <div className="text-sm">
+                                                                    <div className="font-medium text-gray-900">
+                                                                        Approved by: {student.approvedBy}
+                                                                    </div>
+                                                                    <div className="text-gray-600">
+                                                                        Approved on: {student.approvedAt && new Date(student.approvedAt).toLocaleString()}
+                                                                    </div>
+                                                                    {student.superadminNotes && (
+                                                                        <div className="text-gray-600 italic mt-1">
+                                                                            Notes: "{student.superadminNotes}"
+                                                                        </div>
+                                                                    )}
+                                                                    {student.adminReason && (
+                                                                        <div className="text-gray-600 mt-1">
+                                                                            Original reason: "{student.adminReason}"
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className="text-sm font-medium text-gray-700 mb-2">
+                                                                Stopped Groups & Reasons:
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                {student.groups.map((group, groupIndex) => (
+                                                                    <div key={`${group.id}-${groupIndex}-${student.studentId}`} className="flex items-start gap-2 text-sm">
+                                                                        <div className="w-2 h-2 bg-red-400 rounded-full mt-1.5 flex-shrink-0"></div>
+                                                                        <div className="flex-1">
+                                                                            <div className="font-medium text-gray-900">{group.name}</div>
+                                                                            <div className="text-gray-600 italic">
+                                                                                Reason: "{group.stopReason || 'No reason provided'}"
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -2461,9 +2715,12 @@ export default function PaymentsPage() {
 
                         {/* Refund Form */}
                         {selectedRefundStudent && (
-                            <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
-                                <h3 className="text-lg font-medium text-orange-900 mb-4">
-                                    Process Refund for {selectedRefundStudent.studentName}
+                            <div className={`p-4 rounded-lg border ${selectedRefundStudent.isApprovedRequest ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}`}>
+                                <h3 className={`text-lg font-medium mb-4 ${selectedRefundStudent.isApprovedRequest ? 'text-green-900' : 'text-orange-900'}`}>
+                                    {selectedRefundStudent.isApprovedRequest ?
+                                        `💰 Process Approved Refund for ${selectedRefundStudent.studentName}` :
+                                        `📤 Send Refund Request for ${selectedRefundStudent.studentName}`
+                                    }
                                 </h3>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2524,11 +2781,14 @@ export default function PaymentsPage() {
                                         Cancel
                                     </Button>
                                     <Button
-                                        onClick={handleProcessRefund}
+                                        onClick={selectedRefundStudent?.isApprovedRequest ? handleProcessApprovedRefund : handleSendRefundRequest}
                                         disabled={!refundData.amount || parseFloat(refundData.amount) <= 0}
-                                        className="bg-red-600 hover:bg-red-700"
+                                        className={selectedRefundStudent?.isApprovedRequest ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
                                     >
-                                        Process Refund
+                                        {selectedRefundStudent?.isApprovedRequest ?
+                                            "💰 Process Approved Refund" :
+                                            "📤 Send Refund Request to Superadmin"
+                                        }
                                     </Button>
                                 </div>
                             </div>

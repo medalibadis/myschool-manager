@@ -1968,8 +1968,8 @@ export const paymentService = {
     // ✅ SIMPLE SOLUTION: Only count actual payments made by the student
     // This ensures group fees appear as unpaid until actual payment is made
     const actualPayments = payments.filter(p => {
-      // Only count payments that represent actual money received
-      return p.amount > 0 && p.notes && p.notes.trim() !== '';
+      // Count payments that represent actual money transactions (positive = money in, negative = refunds out)
+      return p.notes && p.notes.trim() !== '';
     });
 
     console.log(`✅ SIMPLE SOLUTION: Found ${payments.length} total payments, ${actualPayments.length} are actual payments`);
@@ -2676,7 +2676,7 @@ export const paymentService = {
     studentName: string;
     customId?: string;
     balance: number;
-    groups: Array<{ id: number; name: string; status: string }>;
+    groups: Array<{ id: number; name: string; status: string; stopReason?: string }>;
   }>> {
     try {
       console.log('Starting getRefundList function...');
@@ -2687,6 +2687,7 @@ export const paymentService = {
         .select(`
           student_id,
           status,
+          notes,
           groups!inner(
             id,
             name
@@ -2760,6 +2761,24 @@ export const paymentService = {
           if (balance.remainingBalance > 0) {
             const student = enrollments[0]?.students;
             if (student) {
+              // Check if student already has a pending refund request
+              const { data: existingRequest, error: requestError } = await supabase
+                .from('refund_requests')
+                .select('id')
+                .eq('student_id', studentId)
+                .eq('status', 'pending')
+                .limit(1);
+
+              if (requestError) {
+                console.error(`Error checking refund requests for student ${studentId}:`, requestError);
+                // Continue anyway, don't fail the whole operation
+              }
+
+              if (existingRequest && existingRequest.length > 0) {
+                console.log(`Student ${student.name} already has a pending refund request, skipping`);
+                continue;
+              }
+
               refundList.push({
                 studentId: studentId,
                 studentName: student.name,
@@ -2768,7 +2787,8 @@ export const paymentService = {
                 groups: enrollments.map(e => ({
                   id: e.groups.id,
                   name: e.groups.name,
-                  status: e.status
+                  status: e.status,
+                  stopReason: e.notes
                 }))
               });
 

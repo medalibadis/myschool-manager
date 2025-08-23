@@ -71,7 +71,7 @@ export default function StudentsPage() {
         fetchTeachers();
     }, [fetchGroups, fetchTeachers]);
 
-    // Get all students from all groups
+    // Get all students from all groups with their actual status
     const allStudents = useMemo(() => {
         const studentsMap = new Map<string, Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }>();
 
@@ -87,6 +87,9 @@ export default function StudentsPage() {
                     // Use a combination of name and phone for deduplication since IDs might be different
                     const studentKey = `${student.name}-${student.phone}`;
 
+                    // Get the actual status from student_groups table if available
+                    const actualStatus = (student as any).groupStatus || 'active';
+
                     if (studentsMap.has(studentKey)) {
                         // Student already exists, add this group to their groups array
                         const existingStudent = studentsMap.get(studentKey);
@@ -95,7 +98,7 @@ export default function StudentsPage() {
                         const groupExists = existingStudent?.groups?.some((g: { id: string | number }) => g.id === group.id);
 
                         if (!groupExists && existingStudent) {
-                            console.log(`Student ${student.name} already exists, adding group ${group.name}`);
+                            console.log(`Student ${student.name} already exists, adding group ${group.name} with status: ${actualStatus}`);
                             existingStudent.groups.push({
                                 id: group.id,
                                 name: group.name,
@@ -105,14 +108,14 @@ export default function StudentsPage() {
                                 teacherId: group.teacherId || '',
                                 startTime: group.startTime,
                                 endTime: group.endTime,
-                                status: 'active', // Default status for existing students
+                                status: actualStatus,
                             });
                         } else {
                             console.log(`Student ${student.name} already has group ${group.name}, skipping`);
                         }
                     } else {
                         // New student, create entry
-                        console.log(`Creating new student entry for ${student.name}`);
+                        console.log(`Creating new student entry for ${student.name} with status: ${actualStatus}`);
                         studentsMap.set(studentKey, {
                             ...student,
                             groups: [{
@@ -124,7 +127,7 @@ export default function StudentsPage() {
                                 teacherId: group.teacherId || '',
                                 startTime: group.startTime,
                                 endTime: group.endTime,
-                                status: 'active', // Default status for new students
+                                status: actualStatus,
                             }]
                         });
                     }

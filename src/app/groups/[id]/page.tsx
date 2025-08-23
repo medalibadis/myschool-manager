@@ -31,6 +31,71 @@ import { formatTimeSimple } from '../../../utils/timeUtils';
 import { getAttendanceClasses, getAttendanceDisplayLetter, getAttendanceTitle } from '../../../utils/attendanceUtils';
 import { supabase } from '../../../lib/supabase';
 
+// Component to check and display student status in the group
+const StudentStatusBadge = ({ studentId, groupId }: { studentId: string; groupId: number }) => {
+    const [status, setStatus] = React.useState<'active' | 'stopped' | 'loading'>('loading');
+    const [stopReason, setStopReason] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        const checkStudentStatus = async () => {
+            try {
+                // Check student_groups table for status
+                const { data: studentGroup, error } = await supabase
+                    .from('student_groups')
+                    .select('status, notes')
+                    .eq('student_id', studentId)
+                    .eq('group_id', groupId)
+                    .single();
+
+                if (error && error.code !== 'PGRST116') {
+                    console.error('Error checking student status:', error);
+                    setStatus('active'); // Default to active if error
+                    return;
+                }
+
+                if (studentGroup) {
+                    setStatus(studentGroup.status as 'active' | 'stopped');
+                    if (studentGroup.status === 'stopped' && studentGroup.notes) {
+                        setStopReason(studentGroup.notes);
+                    }
+                } else {
+                    setStatus('active'); // Default to active if no record found
+                }
+            } catch (error) {
+                console.error('Error checking student status:', error);
+                setStatus('active');
+            }
+        };
+
+        checkStudentStatus();
+    }, [studentId, groupId]);
+
+    if (status === 'loading') {
+        return <span className="text-xs text-gray-400">Loading...</span>;
+    }
+
+    if (status === 'stopped') {
+        return (
+            <div className="flex items-center">
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    ⏹️ Stopped
+                </span>
+                {stopReason && (
+                    <span className="ml-2 text-xs text-gray-500" title={stopReason}>
+                        (Reason: {stopReason.length > 20 ? stopReason.substring(0, 20) + '...' : stopReason})
+                    </span>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            ✅ Active
+        </span>
+    );
+};
+
 // PaymentStatusCell component - FIXED VERSION
 const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId: number }) => {
     const [isPending, setIsPending] = React.useState(true);
@@ -663,6 +728,9 @@ export default function GroupDetailPage() {
                                                             Address
                                                         </th>
                                                         <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
+                                                            Status
+                                                        </th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
                                                             Actions
                                                         </th>
                                                     </tr>
@@ -701,6 +769,9 @@ export default function GroupDetailPage() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {student.address || 'No address'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <StudentStatusBadge studentId={student.id} groupId={groupId} />
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                                 <div className="flex items-center space-x-2">

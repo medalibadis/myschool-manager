@@ -122,6 +122,12 @@ export default function AttendancePage() {
         comment: ''
     });
 
+    // Stop status popup state
+    const [showStopModal, setShowStopModal] = useState(false);
+    const [stopRequests, setStopRequests] = useState<Array<{ studentId: string, studentName: string, groupId: number, groupName: string }>>([]);
+    const [stopReasons, setStopReasons] = useState<{ [key: string]: string }>({});
+    const [pendingUpdates, setPendingUpdates] = useState<Array<{ sessionId: string; studentId: string; status: AttendanceStatus }>>([]);
+
 
 
     // Reschedule modal state
@@ -226,14 +232,207 @@ export default function AttendancePage() {
             });
         });
         if (updates.length === 0) return;
+
+        // Check for 'stop' status updates
+        const stopUpdates = updates.filter(update => update.status === 'stop');
+
+        if (stopUpdates.length > 0) {
+            // Prepare stop requests for the popup
+            const stopRequestsData = stopUpdates.map(update => {
+                const student = selectedGroup.students?.find(s => s.id === update.studentId);
+                return {
+                    studentId: update.studentId,
+                    studentName: student?.name || 'Unknown Student',
+                    groupId: selectedGroup.id,
+                    groupName: selectedGroup.name
+                };
+            });
+
+            setStopRequests(stopRequestsData);
+            setPendingUpdates(updates);
+            setStopReasons({}); // Reset reasons
+            setShowStopModal(true);
+            return; // Don't save yet, wait for stop reasons
+        }
+
+        // No stop status, proceed with normal save
+        await processSaveChanges(updates);
+    };
+
+    const processSaveChanges = async (updates: Array<{ sessionId: string; studentId: string; status: AttendanceStatus }>, showAlert: boolean = true) => {
+        if (!selectedGroup) return;
         try {
             await updateAttendanceBulk(selectedGroup.id, updates);
             setAttendanceMap({});
+            if (showAlert) {
             alert('Attendance changes saved. Refunds (if any) have been aggregated per student.');
+            }
         } catch (e) {
             console.error('Saving attendance changes failed:', e);
+            if (showAlert) {
             alert('Failed to save attendance changes.');
+            }
+            throw e; // Re-throw the error so caller can handle it
         }
+    };
+
+    const handleStopModalSubmit = async () => {
+        // Validate that all stop requests have reasons
+        const missingReasons = stopRequests.filter(req => !stopReasons[req.studentId]?.trim());
+        if (missingReasons.length > 0) {
+            alert('Please provide a reason for all students being stopped.');
+            return;
+        }
+
+        try {
+            let allSuccessful = true;
+            const failedStudents: string[] = [];
+            let criticalError = false;
+
+            // Process ALL attendance changes first (this will update attendance table and student_groups status)
+            if (pendingUpdates.length > 0) {
+                try {
+                    console.log(`💾 Saving attendance changes for ${pendingUpdates.length} updates:`, pendingUpdates);
+                    await processSaveChanges(pendingUpdates, false); // Don't show alert - we'll show our own
+                    console.log(`✅ All attendance changes processed successfully`);
+                } catch (attendanceError) {
+                    console.error('❌ Failed to save attendance changes:', attendanceError);
+                    const stopStudents = stopRequests.map(r => r.studentName);
+                    failedStudents.push(...stopStudents);
+                    allSuccessful = false;
+                    criticalError = true; // Mark as critical since main operation failed
+                }
+            }
+
+            console.log(`📊 After attendance processing: allSuccessful=${allSuccessful}, criticalError=${criticalError}, failedStudents=${failedStudents.length}`);
+
+            // Then, add stop reasons to student_groups.notes for tracking (only if main operation succeeded)
+            console.log(`📝 Starting stop reason processing...`);
+            if (!criticalError) {
+                for (const request of stopRequests) {
+                    try {
+                        console.log(`📝 Adding stop reason for student: ${request.studentName}`);
+                        await updateStudentGroupNotes(request.studentId, request.groupId, stopReasons[request.studentId]);
+
+                        // Also log to stop_reasons table for historical tracking
+                        await logStopReason(request.studentId, request.groupId, stopReasons[request.studentId]);
+                        console.log(`✅ Stop reason recorded for student: ${request.studentName}`);
+                    } catch (reasonError) {
+                        console.error(`❌ Failed to record reason for student ${request.studentName}:`, reasonError);
+                        // Don't fail the whole operation for this
+                    }
+                }
+            }
+
+            // Clear attendance map since we processed everything
+            setAttendanceMap({});
+
+            // Try to refresh groups data
+            try {
+                await fetchGroups();
+            } catch (refreshError) {
+                console.error('Failed to refresh groups data:', refreshError);
+                // Don't fail the whole operation for this
+            }
+
+            // Check if any students are now fully stopped and trigger refund/debt list refresh
+            try {
+                console.log('🔍 Checking for students who may need refund/debt processing...');
+                // Note: The actual refund/debt lists will be refreshed when user visits payments page
+                console.log('📊 Refund/debt list refresh will be triggered when payments page is visited');
+            } catch (error) {
+                console.error('Could not check refund/debt status:', error);
+                // This is not critical, continue
+            }
+
+            // Close modal and reset state (always close on any success)
+            if (allSuccessful || !criticalError) {
+                console.log(`🔄 Closing stop modal - operation completed (allSuccessful: ${allSuccessful}, criticalError: ${criticalError})`);
+                setShowStopModal(false);
+                setStopRequests([]);
+                setStopReasons({});
+                setPendingUpdates([]);
+            } else {
+                console.log(`⚠️ Keeping modal open due to critical error`);
+            }
+
+            // Show appropriate success/error message
+            if (allSuccessful) {
+                alert('Students stopped successfully. Reasons have been recorded.');
+            } else if (criticalError && failedStudents.length === stopRequests.length) {
+                alert('Failed to stop all students. Please check your internet connection and try again.');
+                // Modal stays open for critical errors so user can retry
+            } else {
+                alert(`Partially successful. Failed to stop: ${failedStudents.join(', ')}. Please check these students manually.`);
+                // Modal will still close since it's not a critical error
+            }
+
+        } catch (error) {
+            console.error('Error processing stop requests:', error);
+            alert('Failed to process stop requests. Please check your internet connection and try again.');
+            // Don't close modal on unexpected errors so user can retry
+        }
+    };
+
+    const updateStudentGroupNotes = async (studentId: string, groupId: number, notes: string) => {
+        console.log(`📝 Updating student_groups notes: ${studentId} in group ${groupId}`);
+
+        try {
+            // Update the notes field in student_groups table
+            const { error: updateError } = await supabase
+                .from('student_groups')
+                .update({
+                    notes: notes
+                })
+                .eq('student_id', studentId)
+                .eq('group_id', groupId);
+
+            if (updateError) {
+                console.error('Failed to update student group notes:', updateError);
+                throw new Error(`Failed to update notes: ${updateError.message}`);
+            }
+
+            console.log(`✅ Student group notes updated successfully`);
+
+        } catch (error) {
+            console.error('Error updating student group notes:', error);
+            throw error;
+        }
+    };
+
+    const logStopReason = async (studentId: string, groupId: number, reason: string) => {
+        console.log(`📋 Logging stop reason for student ${studentId} in group ${groupId}: ${reason}`);
+
+        try {
+            // Log to stop_reasons table for historical tracking
+            const { error: logError } = await supabase
+                .from('stop_reasons')
+                .insert({
+                    student_id: studentId,
+                    group_id: groupId,
+                    reason: reason,
+                    admin_name: 'Dalila', // Default admin name to match rest of codebase
+                    created_at: new Date().toISOString()
+                });
+
+            if (logError) {
+                console.error('Failed to log stop reason:', logError);
+                // Don't throw error here - this is for historical tracking only
+            } else {
+                console.log(`✅ Stop reason logged successfully`);
+            }
+
+        } catch (error) {
+            console.error('Error logging stop reason:', error);
+            // Don't throw error - this is optional logging
+        }
+    };
+
+    const handleStopModalCancel = () => {
+        setShowStopModal(false);
+        setStopRequests([]);
+        setStopReasons({});
+        setPendingUpdates([]);
     };
 
     const renderAttendanceCircleForSession = (sessionId: string, studentId: string) => {
@@ -957,6 +1156,77 @@ export default function AttendancePage() {
                         disabled={!rescheduleDate || sessionsToReschedule.length === 0}
                     >
                         Confirm Reschedule
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Stop Status Modal */}
+            <Modal
+                isOpen={showStopModal}
+                onClose={handleStopModalCancel}
+                title="⚠️ Stop Student(s) Confirmation"
+                maxWidth="lg"
+            >
+                <div className="space-y-6">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-start">
+                            <ExclamationTriangleIcon className="w-5 h-5 text-yellow-600 mt-0.5 mr-2 flex-shrink-0" />
+                            <div>
+                                <p className="text-yellow-800 font-medium">
+                                    You are about to stop the following student(s) from this group:
+                                </p>
+                                <p className="text-yellow-700 text-sm mt-1">
+                                    This will mark them as inactive in the group and they will no longer appear in future attendance sheets.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {stopRequests.map((request, index) => (
+                        <div key={request.studentId} className="border border-gray-200 rounded-lg p-4">
+                            <div className="grid grid-cols-2 gap-4 mb-3">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Student Name</label>
+                                    <p className="text-gray-900 font-semibold">{request.studentName}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Group</label>
+                                    <p className="text-gray-900">{request.groupName}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Reason for Stopping *
+                                </label>
+                                <textarea
+                                    value={stopReasons[request.studentId] || ''}
+                                    onChange={(e) => setStopReasons(prev => ({
+                                        ...prev,
+                                        [request.studentId]: e.target.value
+                                    }))}
+                                    placeholder="Please provide a reason for stopping this student..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    rows={3}
+                                    required
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+                    <Button
+                        onClick={handleStopModalCancel}
+                        variant="outline"
+                        className="px-4 py-2"
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleStopModalSubmit}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2"
+                    >
+                        Confirm Stop
                     </Button>
                 </div>
             </Modal>

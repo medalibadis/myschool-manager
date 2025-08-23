@@ -16,8 +16,353 @@ import {
     TrashIcon,
     PencilIcon,
     EyeIcon,
-    EyeSlashIcon
+    EyeSlashIcon,
+    CurrencyDollarIcon,
+    CheckCircleIcon,
+    XCircleIcon,
+    ClockIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../lib/supabase';
+
+// Refund Requests Section Component
+function RefundRequestsSection() {
+    const [refundRequests, setRefundRequests] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedRequest, setSelectedRequest] = useState<any>(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [superadminNotes, setSuperadminNotes] = useState('');
+
+    useEffect(() => {
+        fetchRefundRequests();
+    }, []);
+
+    const fetchRefundRequests = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('refund_requests')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            setRefundRequests(data || []);
+        } catch (error) {
+            console.error('Error fetching refund requests:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleApproveRequest = async (requestId: string) => {
+        try {
+            const { error } = await supabase
+                .from('refund_requests')
+                .update({
+                    status: 'approved',
+                    approved_at: new Date().toISOString(),
+                    approved_by: 'Superadmin',
+                    superadmin_notes: superadminNotes || 'Approved by superadmin',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', requestId);
+
+            if (error) throw error;
+
+            alert('✅ Refund request approved! Admin can now process the refund in payments page.');
+            await fetchRefundRequests();
+            setShowDetailsModal(false);
+            setSelectedRequest(null);
+            setSuperadminNotes('');
+        } catch (error) {
+            console.error('Error approving request:', error);
+            alert('Failed to approve request. Please try again.');
+        }
+    };
+
+    const handleRejectRequest = async (requestId: string) => {
+        if (!superadminNotes.trim()) {
+            alert('Please provide a reason for rejecting this request.');
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('refund_requests')
+                .update({
+                    status: 'rejected',
+                    approved_by: 'Superadmin',
+                    superadmin_notes: superadminNotes,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', requestId);
+
+            if (error) throw error;
+
+            alert('❌ Refund request rejected.');
+            await fetchRefundRequests();
+            setShowDetailsModal(false);
+            setSelectedRequest(null);
+            setSuperadminNotes('');
+        } catch (error) {
+            console.error('Error rejecting request:', error);
+            alert('Failed to reject request. Please try again.');
+        }
+    };
+
+    const openDetailsModal = (request: any) => {
+        setSelectedRequest(request);
+        setSuperadminNotes(request.superadmin_notes || '');
+        setShowDetailsModal(true);
+    };
+
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'pending':
+                return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                    <ClockIcon className="w-3 h-3 mr-1" />
+                    Pending
+                </span>;
+            case 'approved':
+                return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <CheckCircleIcon className="w-3 h-3 mr-1" />
+                    Approved
+                </span>;
+            case 'rejected':
+                return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    <XCircleIcon className="w-3 h-3 mr-1" />
+                    Rejected
+                </span>;
+            default:
+                return <span className="text-gray-500">{status}</span>;
+        }
+    };
+
+    if (loading) {
+        return (
+            <Card className="p-6">
+                <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading refund requests...</p>
+                </div>
+            </Card>
+        );
+    }
+
+    return (
+        <>
+            <Card className="p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <CurrencyDollarIcon className="h-6 w-6 text-orange-600" />
+                    Refund Requests ({refundRequests.filter(r => r.status === 'pending').length} pending)
+                </h2>
+
+                {refundRequests.length === 0 ? (
+                    <div className="text-center py-8">
+                        <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No refund requests</h3>
+                        <p className="text-gray-500">No refund requests have been submitted yet.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Student
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Amount
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Reason
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Status
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Submitted
+                                    </th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {refundRequests.map((request) => (
+                                    <tr key={request.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div>
+                                                <div className="text-sm font-medium text-gray-900">
+                                                    {request.student_name}
+                                                </div>
+                                                <div className="text-sm text-gray-500">
+                                                    ID: {request.student_custom_id || request.student_id.substring(0, 8) + '...'}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-bold text-green-600">
+                                                ${request.requested_amount.toFixed(2)}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="text-sm text-gray-900 max-w-xs truncate">
+                                                {request.reason}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {getStatusBadge(request.status)}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {new Date(request.created_at).toLocaleDateString()}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => openDetailsModal(request)}
+                                            >
+                                                View Details
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </Card>
+
+            {/* Refund Request Details Modal */}
+            <Modal
+                isOpen={showDetailsModal}
+                onClose={() => {
+                    setShowDetailsModal(false);
+                    setSelectedRequest(null);
+                    setSuperadminNotes('');
+                }}
+                title="Refund Request Details"
+            >
+                {selectedRequest && (
+                    <div className="space-y-6">
+                        {/* Student Info */}
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                            <h3 className="text-lg font-medium text-gray-900 mb-3">Student Information</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Name:</span>
+                                    <p className="text-sm text-gray-900">{selectedRequest.student_name}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Student ID:</span>
+                                    <p className="text-sm text-gray-900">
+                                        {selectedRequest.student_custom_id || selectedRequest.student_id}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Requested Amount:</span>
+                                    <p className="text-lg font-bold text-green-600">${selectedRequest.requested_amount.toFixed(2)}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Status:</span>
+                                    <div className="mt-1">{getStatusBadge(selectedRequest.status)}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Stopped Groups */}
+                        <div className="bg-red-50 p-4 rounded-lg">
+                            <h3 className="text-lg font-medium text-red-900 mb-3">Stopped Groups & Reasons</h3>
+                            <div className="space-y-3">
+                                {selectedRequest.stopped_groups?.map((group: any, index: number) => (
+                                    <div key={group.id || index} className="bg-white p-3 rounded border">
+                                        <div className="font-medium text-gray-900">{group.name}</div>
+                                        <div className="text-sm text-gray-600 italic mt-1">
+                                            Stop Reason: "{group.stopReason || 'No reason provided'}"
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Request Details */}
+                        <div className="bg-blue-50 p-4 rounded-lg">
+                            <h3 className="text-lg font-medium text-blue-900 mb-3">Request Details</h3>
+                            <div className="space-y-2">
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Reason:</span>
+                                    <p className="text-sm text-gray-900">{selectedRequest.reason}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Submitted by:</span>
+                                    <p className="text-sm text-gray-900">{selectedRequest.admin_name}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-gray-700">Submitted on:</span>
+                                    <p className="text-sm text-gray-900">
+                                        {new Date(selectedRequest.created_at).toLocaleString()}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Superadmin Notes */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Superadmin Notes {selectedRequest.status === 'pending' && <span className="text-red-500">*</span>}
+                            </label>
+                            <textarea
+                                value={superadminNotes}
+                                onChange={(e) => setSuperadminNotes(e.target.value)}
+                                placeholder={selectedRequest.status === 'pending'
+                                    ? "Add notes about your decision..."
+                                    : "Notes from superadmin decision"}
+                                rows={3}
+                                disabled={selectedRequest.status !== 'pending'}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500 resize-none disabled:bg-gray-100"
+                            />
+                        </div>
+
+                        {/* Actions */}
+                        {selectedRequest.status === 'pending' && (
+                            <div className="flex justify-end gap-3 pt-4 border-t">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setShowDetailsModal(false);
+                                        setSuperadminNotes('');
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={() => handleRejectRequest(selectedRequest.id)}
+                                    className="bg-red-600 hover:bg-red-700"
+                                >
+                                    ❌ Reject Request
+                                </Button>
+                                <Button
+                                    onClick={() => handleApproveRequest(selectedRequest.id)}
+                                    className="bg-green-600 hover:bg-green-700"
+                                >
+                                    ✅ Approve Request
+                                </Button>
+                            </div>
+                        )}
+
+                        {selectedRequest.status !== 'pending' && (
+                            <div className="pt-4 border-t">
+                                <div className="text-center text-gray-500">
+                                    This request has been {selectedRequest.status} by {selectedRequest.approved_by} on{' '}
+                                    {selectedRequest.approved_at && new Date(selectedRequest.approved_at).toLocaleString()}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
+        </>
+    );
+}
 
 export default function SuperuserDashboard() {
     const { user, isSuperuser } = useAuth();
@@ -228,6 +573,11 @@ export default function SuperuserDashboard() {
                 {/* Admin Credentials Board */}
                 <div className="mt-6">
                     <AdminCredentialsBoard admins={admins} />
+                </div>
+
+                {/* Refund Requests Section */}
+                <div className="mt-6">
+                    <RefundRequestsSection />
                 </div>
             </div>
 

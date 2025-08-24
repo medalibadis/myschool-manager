@@ -511,15 +511,9 @@ Thank you for your payment!`,
     getStudentBalance: async (studentId: string) => {
         set({ loading: true, error: null });
         try {
-            // const balance = await paymentService.getStudentBalance(studentId);
+            const balance = await paymentService.getStudentBalance(studentId);
             set({ loading: false });
-            // return balance;
-            return {
-                totalBalance: 0,
-                totalPaid: 0,
-                remainingBalance: 0,
-                groupBalances: []
-            };
+            return balance;
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
             throw error;

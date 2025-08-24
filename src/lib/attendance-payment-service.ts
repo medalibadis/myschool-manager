@@ -6,15 +6,18 @@ export interface AttendancePaymentAdjustment {
     sessionId: string;
     sessionDate: string;
     attendanceStatus: string;
-    sessionAmount: number;
-    adjustmentType: 'refund' | 'debt_reduction';
+    sessionAmount?: number;
+    adjustmentAmount?: number;
+    adjustmentType?: 'refund' | 'debt_reduction';
+    paymentType?: string;
     notes: string;
+    attendedSessions?: number;
+    stoppedSessions?: number;
 }
 
 export const attendancePaymentService = {
     /**
-     * Process attendance-based payment adjustments
-     * Called when attendance status changes to justify/change/new
+     * Process attendance adjustment when status changes affect payment
      */
     async processAttendanceAdjustment(
         sessionId: string,
@@ -22,26 +25,34 @@ export const attendancePaymentService = {
         newStatus: string
     ): Promise<AttendancePaymentAdjustment | null> {
         try {
-            // Only process specific attendance statuses
-            if (!['justified', 'change', 'new'].includes(newStatus)) {
+            console.log(`🛑 Processing attendance adjustment for session ${sessionId}, student ${studentId}, status: ${newStatus}`);
+
+            // For stop status, use special stop logic
+            if (newStatus === 'stop') {
+                return await this.processStopAdjustment(sessionId, studentId);
+            }
+
+            // Check if this status requires financial adjustment
+            if (!['justified', 'new', 'change'].includes(newStatus)) {
+                console.log(`ℹ️ Status '${newStatus}' does not require financial adjustment`);
                 return null;
             }
 
-            console.log(`🔄 Processing attendance adjustment for session ${sessionId}, student ${studentId}, status: ${newStatus}`);
+            console.log(`✅ Status '${newStatus}' requires financial adjustment. Starting payment processing...`);
 
             // Get session and group details
             const { data: sessionData, error: sessionError } = await supabase
                 .from('sessions')
                 .select(`
-          id,
-          date,
-          group_id,
-          groups!inner(
-            id,
-            name,
-            total_sessions
-          )
-        `)
+                    id,
+                    date,
+                    group_id,
+                    groups!inner(
+                        id,
+                        name,
+                        total_sessions
+                    )
+                `)
                 .eq('id', sessionId)
                 .single();
 
@@ -50,194 +61,105 @@ export const attendancePaymentService = {
                 return null;
             }
 
-            console.log('📋 Raw session data:', JSON.stringify(sessionData, null, 2));
+            const group = Array.isArray(sessionData.groups) ? sessionData.groups[0] : sessionData.groups;
+            const groupId = group.id;
+            const groupName = group.name;
+            const totalSessions = group.total_sessions;
+            const sessionDate = sessionData.date;
 
-            // Check if groups data exists and is properly structured
-            if (!sessionData.groups) {
-                console.error('❌ No groups data found in session response');
-                return null;
-            }
+            console.log(`📍 Session details: ${groupName} (${groupId}), Date: ${sessionDate}, Total sessions: ${totalSessions}`);
 
-            const groupsArray = Array.isArray(sessionData.groups) ? sessionData.groups : [sessionData.groups];
-            if (groupsArray.length === 0) {
-                console.error('❌ Groups array is empty');
-                return null;
-            }
-
-            const group = groupsArray[0] as { id: number; name: string; total_sessions: number };
-
-            // Validate group data
-            if (!group || typeof group.total_sessions === 'undefined') {
-                console.error('❌ Invalid group data:', group);
-                return null;
-            }
-
-            // Get student's price per session from students table
-            const { data: studentData, error: studentError } = await supabase
-                .from('students')
-                .select('price_per_session')
-                .eq('id', studentId)
-                .single();
-
-            if (studentError || !studentData) {
-                console.error('Error fetching student data:', studentError);
-                return null;
-            }
-
-            // Calculate session amount based on group price / total sessions
-            // First, get the group price from the database
-            console.log(`🔍 Querying student_groups for student ${studentId} and group ${group.id}`);
-            const { data: groupData, error: groupError } = await supabase
+            // Get group pricing from student_groups table
+            const { data: studentGroupData, error: studentGroupError } = await supabase
                 .from('student_groups')
                 .select(`
                     groups!inner(
-                        id,
-                        name,
-                        price,
-                        total_sessions
+                        price
                     )
                 `)
                 .eq('student_id', studentId)
-                .eq('group_id', group.id)
+                .eq('group_id', groupId)
                 .single();
 
-            console.log('📋 Student-group query result:', { groupData, groupError });
-
-            let sessionAmount = 0;
-            let groupPrice = 0;
-
-            if (groupData && groupData.groups && typeof groupData.groups === 'object') {
-                const groupInfo = Array.isArray(groupData.groups) ? groupData.groups[0] : groupData.groups;
-                if (groupInfo.price && groupInfo.total_sessions) {
-                    groupPrice = Number(groupInfo.price);
-                    sessionAmount = groupPrice / Number(groupInfo.total_sessions);
-                    console.log(`💰 Using group-based calculation: Group price $${groupPrice} ÷ ${groupInfo.total_sessions} sessions = $${sessionAmount} per session`);
-                }
-            }
-
-            // If student_groups query failed, try getting group price directly
-            if (sessionAmount === 0) {
-                console.log(`🔄 Trying direct group query for group ${group.id}`);
-                const { data: directGroupData, error: directGroupError } = await supabase
-                    .from('groups')
-                    .select('id, name, price, total_sessions')
-                    .eq('id', group.id)
-                    .single();
-
-                if (directGroupData && directGroupData.price && directGroupData.total_sessions) {
-                    groupPrice = Number(directGroupData.price);
-                    sessionAmount = groupPrice / Number(directGroupData.total_sessions);
-                    console.log(`💰 Using direct group query: Group price $${groupPrice} ÷ ${directGroupData.total_sessions} sessions = $${sessionAmount} per session`);
-                }
-            }
-
-            // Final fallback to student's price per session if group price not available
-            if (sessionAmount === 0) {
-                sessionAmount = Number(studentData.price_per_session) || 0;
-                groupPrice = sessionAmount * group.total_sessions;
-                console.log(`💰 Using student-based fallback: $${sessionAmount} per session × ${group.total_sessions} sessions = $${groupPrice} total`);
-            }
-
-            if (sessionAmount === 0) {
-                console.warn(`⚠️ Cannot calculate session amount. Student ${studentId} has no price_per_session and group has no price set.`);
+            if (studentGroupError || !studentGroupData) {
+                console.error('Error fetching student group data:', studentGroupError);
                 return null;
             }
 
-            console.log(`📊 Session details: Group ${group.name}, Sessions: ${group.total_sessions}, Student Session Amount: $${sessionAmount}`);
+            const groupPriceData = Array.isArray(studentGroupData.groups) ? studentGroupData.groups[0] : studentGroupData.groups;
+            const groupPrice = groupPriceData.price;
+            const sessionAmount = groupPrice / totalSessions;
 
-            // Check if student has paid for this group (including attendance credits)
+            console.log(`💰 Group price: ${groupPrice}, Session amount: ${sessionAmount}`);
+
+            // Check if group is already fully paid
             const { data: payments, error: paymentsError } = await supabase
                 .from('payments')
-                .select('amount, payment_type')
+                .select('amount')
                 .eq('student_id', studentId)
-                .eq('group_id', group.id)
-                .in('payment_type', ['group_payment', 'attendance_credit']);
+                .eq('group_id', groupId);
 
             if (paymentsError) {
-                console.error('Error checking payments:', paymentsError);
+                console.error('Error fetching payments:', paymentsError);
                 return null;
             }
 
-            const totalPaid = payments?.reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0;
+            const totalPaid = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
             const isGroupPaid = totalPaid >= groupPrice;
 
-            console.log(`💰 Payment status: Total paid: $${totalPaid}, Group price: $${groupPrice}, Is paid: ${isGroupPaid}`);
-            console.log(`🔍 Payment details:`, payments?.map(p => ({ type: p.payment_type, amount: p.amount })));
+            console.log(`💳 Payment status: Total paid: ${totalPaid}, Group price: ${groupPrice}, Is fully paid: ${isGroupPaid}`);
 
-            let adjustment: AttendancePaymentAdjustment;
-
-            // Create a payment record to reflect the attendance adjustment
-            const adjustmentNote = `Attendance adjustment: ${newStatus} session on ${sessionData.date}`;
+            let paymentType: string;
+            let paymentAmount: number;
+            let paymentNotes: string;
 
             if (isGroupPaid) {
-                // Group is paid - create a credit balance that can be used for other groups
-                console.log(`✅ Group is fully paid. Creating credit balance of $${sessionAmount}`);
-
-                const { data: creditPayment, error: creditError } = await supabase
-                    .from('payments')
-                    .insert({
-                        student_id: studentId,
-                        group_id: null, // Credit not tied to specific group
-                        amount: sessionAmount,
-                        date: new Date().toISOString().split('T')[0],
-                        payment_type: 'balance_credit',
-                        notes: adjustmentNote,
-                        admin_name: 'System - Attendance Adjustment'
-                    })
-                    .select()
-                    .single();
-
-                if (creditError) {
-                    console.error('Error creating credit payment:', creditError);
-                    return null;
-                }
-
-                adjustment = {
-                    studentId,
-                    groupId: group.id,
-                    sessionId,
-                    sessionDate: sessionData.date,
-                    attendanceStatus: newStatus,
-                    sessionAmount,
-                    adjustmentType: 'refund',
-                    notes: `Credit balance created: $${sessionAmount}`
-                };
+                // Group is fully paid - add session amount to student balance
+                paymentType = 'balance_credit';
+                paymentAmount = sessionAmount;
+                paymentNotes = `Attendance adjustment: ${newStatus} status for session on ${sessionDate} - added to positive balance`;
+                console.log(`💳 Group fully paid. Adding ${sessionAmount} to student balance for ${newStatus} status`);
             } else {
-                // Group is not paid - reduce the debt for this group
-                console.log(`💳 Group is not fully paid. Reducing debt by $${sessionAmount}`);
-
-                const { data: debtReduction, error: debtError } = await supabase
-                    .from('payments')
-                    .insert({
-                        student_id: studentId,
-                        group_id: group.id,
-                        amount: sessionAmount,
-                        date: new Date().toISOString().split('T')[0],
-                        payment_type: 'attendance_credit',
-                        notes: adjustmentNote,
-                        admin_name: 'System - Attendance Adjustment'
-                    })
-                    .select()
-                    .single();
-
-                if (debtError) {
-                    console.error('Error creating debt reduction payment:', debtError);
-                    return null;
-                }
-
-                adjustment = {
-                    studentId,
-                    groupId: group.id,
-                    sessionId,
-                    sessionDate: sessionData.date,
-                    attendanceStatus: newStatus,
-                    sessionAmount,
-                    adjustmentType: 'debt_reduction',
-                    notes: `Group debt reduced by: $${sessionAmount}`
-                };
+                // Group not fully paid - reduce debt by session amount
+                paymentType = 'attendance_credit';
+                paymentAmount = sessionAmount;
+                paymentNotes = `Attendance adjustment: ${newStatus} status for session on ${sessionDate} - reduces unpaid group fee`;
+                console.log(`💳 Group not fully paid. Reducing debt by ${sessionAmount} for ${newStatus} status`);
             }
 
-            return adjustment;
+            // Create the payment record
+            const { data: payment, error: paymentError } = await supabase
+                .from('payments')
+                .insert({
+                    student_id: studentId,
+                    group_id: groupId,
+                    amount: paymentAmount,
+                    payment_type: paymentType,
+                    date: new Date().toISOString().split('T')[0],
+                    notes: paymentNotes,
+                    admin_name: 'System'
+                })
+                .select()
+                .single();
+
+            if (paymentError) {
+                console.error('Error creating payment adjustment:', paymentError);
+                return null;
+            }
+
+            console.log(`✅ Payment adjustment created: ${paymentType} of ${paymentAmount} for ${newStatus} status`);
+
+            return {
+                studentId,
+                groupId,
+                sessionId,
+                sessionDate,
+                attendanceStatus: newStatus,
+                sessionAmount,
+                adjustmentType: isGroupPaid ? 'refund' : 'debt_reduction',
+                notes: paymentNotes
+            };
+
         } catch (error) {
             console.error('Error processing attendance adjustment:', error);
             return null;
@@ -245,209 +167,181 @@ export const attendancePaymentService = {
     },
 
     /**
-     * Process refund for paid groups
+     * Process stop adjustment with comprehensive balance recalculation
      */
-    async processRefund(
-        studentId: string,
-        groupId: number,
-        sessionId: string,
-        sessionDate: string,
-        status: string,
-        sessionAmount: number
-    ): Promise<AttendancePaymentAdjustment> {
+    async processStopAdjustment(sessionId: string, studentId: string): Promise<AttendancePaymentAdjustment | null> {
         try {
-            console.log(`💸 Processing refund for paid group: $${sessionAmount}`);
+            console.log(`🛑 Processing STOP adjustment for session ${sessionId}, student ${studentId}`);
 
-            // Create refund payment record
-            const { data: refundPayment, error: paymentError } = await supabase
-                .from('payments')
-                .insert({
-                    student_id: studentId,
-                    group_id: groupId,
-                    amount: sessionAmount, // Positive amount (credit to balance)
-                    date: new Date().toISOString().split('T')[0],
-                    notes: `Attendance refund: ${status} status for session on ${sessionDate}`,
-                    admin_name: 'System',
-                    payment_type: 'balance_addition',
-                    discount: 0,
-                    original_amount: sessionAmount
-                })
-                .select()
+            // Get session details
+            const { data: sessionData, error: sessionError } = await supabase
+                .from('sessions')
+                .select('date, group_id')
+                .eq('id', sessionId)
                 .single();
 
-            if (paymentError) {
-                console.error('Error creating refund payment:', paymentError);
-                throw paymentError;
+            if (sessionError || !sessionData) {
+                console.error('Error fetching session for stop adjustment:', sessionError);
+                return null;
             }
 
-            // Create receipt for the refund
-            const { error: receiptError } = await supabase
-                .from('receipts')
-                .insert({
-                    payment_id: refundPayment.id,
-                    student_id: studentId,
-                    student_name: '', // Will be filled by trigger or query
-                    receipt_text: `ATTENDANCE REFUND RECEIPT
-Session Date: ${sessionDate}
-Status: ${status.toUpperCase()}
-Refund Amount: $${sessionAmount}
-Reason: Student attendance status changed to ${status}
-This amount has been added to your balance as credit.
-Generated automatically by the system.`,
-                    amount: sessionAmount,
-                    payment_type: 'attendance_refund',
-                    group_name: '', // Will be filled by trigger or query
-                    created_at: new Date().toISOString()
-                });
+            const { date: stopDate, group_id: groupId } = sessionData;
+            console.log(`📊 Stop analysis: Group ${groupId}, Stop date: ${stopDate}`);
 
-            if (receiptError) {
-                console.warn('Could not create refund receipt:', receiptError);
-            }
-
-            console.log(`✅ Refund processed successfully: $${sessionAmount} added to balance`);
-
-            return {
-                studentId,
-                groupId,
-                sessionId,
-                sessionDate,
-                attendanceStatus: status,
-                sessionAmount,
-                adjustmentType: 'refund',
-                notes: `Refunded $${sessionAmount} for ${status} status - added to positive balance`
-            };
-        } catch (error) {
-            console.error('Error processing refund:', error);
-            throw error;
-        }
-    },
-
-    /**
-     * Process debt reduction for unpaid groups
-     */
-    async processDebtReduction(
-        studentId: string,
-        groupId: number,
-        sessionId: string,
-        sessionDate: string,
-        status: string,
-        sessionAmount: number
-    ): Promise<AttendancePaymentAdjustment> {
-        try {
-            console.log(`💳 Processing debt reduction for unpaid group: $${sessionAmount}`);
-
-            // Create negative payment record (reduces debt)
-            const { data: debtReduction, error: paymentError } = await supabase
-                .from('payments')
-                .insert({
-                    student_id: studentId,
-                    group_id: groupId,
-                    amount: -sessionAmount, // Negative amount (reduces debt)
-                    date: new Date().toISOString().split('T')[0],
-                    notes: `Attendance adjustment: ${status} status for session on ${sessionDate} - reduces unpaid group fee`,
-                    admin_name: 'System',
-                    payment_type: 'group_payment',
-                    discount: 0,
-                    original_amount: sessionAmount
-                })
-                .select()
+            // Get group details
+            const { data: groupData, error: groupError } = await supabase
+                .from('groups')
+                .select('total_sessions')
+                .eq('id', groupId)
                 .single();
 
-            if (paymentError) {
-                console.error('Error creating debt reduction payment:', paymentError);
-                throw paymentError;
+            if (groupError || !groupData) {
+                console.error('Error fetching group for stop adjustment:', groupError);
+                return null;
             }
 
-            // Create receipt for the debt reduction
-            const { error: receiptError } = await supabase
-                .from('receipts')
-                .insert({
-                    payment_id: debtReduction.id,
-                    student_id: studentId,
-                    student_name: '', // Will be filled by trigger or query
-                    receipt_text: `ATTENDANCE ADJUSTMENT RECEIPT
-Session Date: ${sessionDate}
-Status: ${status.toUpperCase()}
-Reduction Amount: $${sessionAmount}
-Reason: Student attendance status changed to ${status}
-This amount has been deducted from your unpaid group fee.
-Generated automatically by the system.`,
-                    amount: sessionAmount,
-                    payment_type: 'attendance_adjustment',
-                    group_name: '', // Will be filled by trigger or query
-                    created_at: new Date().toISOString()
-                });
+            const totalSessions = groupData.total_sessions;
 
-            if (receiptError) {
-                console.warn('Could not create debt reduction receipt:', receiptError);
+            // Get all sessions for this group
+            const { data: allSessions, error: sessionsError } = await supabase
+                .from('sessions')
+                .select('id, date')
+                .eq('group_id', groupId)
+                .order('date', { ascending: true });
+
+            if (sessionsError || !allSessions) {
+                console.error('Error fetching all sessions for stop calculation:', sessionsError);
+                return null;
             }
 
-            console.log(`✅ Debt reduction processed successfully: $${sessionAmount} deducted from unpaid fee`);
-
-            return {
-                studentId,
-                groupId,
-                sessionId,
-                sessionDate,
-                attendanceStatus: status,
-                sessionAmount,
-                adjustmentType: 'debt_reduction',
-                notes: `Reduced unpaid fee by $${sessionAmount} for ${status} status`
-            };
-        } catch (error) {
-            console.error('Error processing debt reduction:', error);
-            throw error;
-        }
-    },
-
-    /**
-     * Get attendance adjustment history for a student
-     */
-    async getAttendanceAdjustmentHistory(studentId: string): Promise<AttendancePaymentAdjustment[]> {
-        try {
-            const { data: payments, error } = await supabase
-                .from('payments')
-                .select(`
-          id,
-          amount,
-          notes,
-          date,
-          group_id,
-          payment_type
-        `)
+            // 🎯 YOUR SIMPLE LOGIC: Count only obligatory vs free sessions
+            // Get attendance records to determine which sessions are obligatory
+            const { data: attendanceRecords, error: attendanceError } = await supabase
+                .from('attendance')
+                .select('session_id, status')
                 .eq('student_id', studentId)
-                .in('payment_type', ['balance_addition', 'group_payment'])
-                .ilike('notes', '%Attendance%')
-                .order('date', { ascending: false });
+                .in('session_id', allSessions.map(s => s.id));
 
-            if (error) {
-                console.error('Error fetching attendance adjustment history:', error);
-                return [];
+            if (attendanceError) {
+                console.error('Error fetching attendance records:', attendanceError);
+                return null;
             }
 
-            return payments?.map(payment => ({
-                studentId,
-                groupId: payment.group_id || 0,
-                sessionId: '', // Not stored in payments table
-                sessionDate: payment.date,
-                attendanceStatus: this.extractStatusFromNotes(payment.notes),
-                sessionAmount: Math.abs(payment.amount),
-                adjustmentType: payment.payment_type === 'balance_addition' ? 'refund' : 'debt_reduction',
-                notes: payment.notes
-            })) || [];
-        } catch (error) {
-            console.error('Error getting attendance adjustment history:', error);
-            return [];
-        }
-    },
+            // Count by payment obligation
+            let obligatorySessions = 0; // present, absent, too_late = MUST PAY
+            let freeSessions = 0; // justified, change, new, stop = NOT COUNTED
 
-    /**
-     * Extract attendance status from payment notes
-     */
-    extractStatusFromNotes(notes: string): string {
-        if (notes.includes('justify')) return 'justified';
-        if (notes.includes('change')) return 'change';
-        if (notes.includes('new')) return 'new';
-        return 'unknown';
+            for (const session of allSessions) {
+                const attendance = attendanceRecords?.find(a => a.session_id === session.id);
+                const status = attendance?.status || 'default';
+
+                if (['present', 'absent', 'too_late'].includes(status)) {
+                    obligatorySessions++; // MUST PAY
+                } else {
+                    freeSessions++; // NOT COUNTED
+                }
+            }
+
+            console.log(`📈 Session breakdown: Total=${totalSessions}, Obligatory=${obligatorySessions}, Free=${freeSessions}`);
+
+            // Get group price and calculate per-session amount
+            const { data: studentGroupData, error: studentGroupError } = await supabase
+                .from('student_groups')
+                .select(`
+                    groups!inner(
+                        price
+                    )
+                `)
+                .eq('student_id', studentId)
+                .eq('group_id', groupId)
+                .single();
+
+            if (studentGroupError || !studentGroupData) {
+                console.error('Error fetching group pricing:', studentGroupError);
+                return null;
+            }
+
+            const groupPriceInfo = Array.isArray(studentGroupData.groups) ? studentGroupData.groups[0] : studentGroupData.groups;
+            const fullGroupPrice = groupPriceInfo.price;
+            const pricePerSession = fullGroupPrice / totalSessions;
+
+            // Calculate based on simple logic
+            const actualGroupFee = obligatorySessions * pricePerSession; // Only charge for obligatory sessions
+            const freeAmount = freeSessions * pricePerSession; // Amount not charged
+
+            console.log(`💰 Simple calculation: Must pay=${actualGroupFee}, Free=${freeAmount}, Full=${fullGroupPrice}`);
+
+            // Check current payment status for this group
+            const { data: payments, error: paymentsError } = await supabase
+                .from('payments')
+                .select('*')
+                .eq('student_id', studentId)
+                .eq('group_id', groupId);
+
+            if (paymentsError) {
+                console.error('Error fetching payments for stop calculation:', paymentsError);
+                return null;
+            }
+
+            const totalPaid = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
+
+            console.log(`🔍 Payment status: Paid=${totalPaid}, Should pay=${actualGroupFee}`);
+
+            let paymentType: string;
+            let paymentAmount: number;
+            let paymentNotes: string;
+
+            if (totalPaid > actualGroupFee) {
+                // Student OVERPAID - refund the excess
+                paymentType = 'balance_credit';
+                paymentAmount = totalPaid - actualGroupFee;
+                paymentNotes = `Stop refund: Overpaid ${paymentAmount} DA (paid ${totalPaid}, should pay ${actualGroupFee} for ${obligatorySessions} obligatory sessions)`;
+                console.log(`💳 Student OVERPAID. Refunding excess ${paymentAmount} DA`);
+            } else {
+                // Student owes money or paid exactly right - reduce debt by free sessions amount
+                const freeAmount = freeSessions * pricePerSession;
+                paymentType = 'attendance_credit';
+                paymentAmount = freeAmount;
+                paymentNotes = `Stop credit: Reducing debt by ${freeAmount} DA for ${freeSessions} free sessions (stopped)`;
+                console.log(`💳 Student debt reduced by ${freeAmount} DA for ${freeSessions} free sessions`);
+            }
+
+            // Create the payment record
+            const { error: insertError } = await supabase
+                .from('payments')
+                .insert({
+                    student_id: studentId,
+                    group_id: groupId,
+                    amount: paymentAmount,
+                    payment_type: paymentType,
+                    date: stopDate,  // ✅ FIX: Add the missing date field
+                    notes: paymentNotes,
+                    admin_name: 'System'
+                });
+
+            if (insertError) {
+                console.error('Error creating stop payment adjustment:', insertError);
+                return null;
+            }
+
+            console.log(`✅ Stop adjustment created: ${paymentType} of ${paymentAmount} DA`);
+
+            return {
+                studentId,
+                groupId,
+                sessionId,
+                sessionDate: stopDate,
+                attendanceStatus: 'stop',
+                adjustmentAmount: paymentAmount,
+                paymentType,
+                notes: paymentNotes,
+                attendedSessions: obligatorySessions,
+                stoppedSessions: freeSessions
+            };
+
+        } catch (error) {
+            console.error('Error in processStopAdjustment:', error);
+            return null;
+        }
     }
 };

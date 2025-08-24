@@ -211,7 +211,7 @@ export default function PaymentsPage() {
         } else {
             setUnpaidGroups([]);
         }
-    }, [selectedStudent]);
+    }, [selectedStudent?.id]); // ✅ FIX: Only depend on student ID to prevent infinite loop
 
     const loadRecentPayments = async () => {
         try {
@@ -364,10 +364,9 @@ export default function PaymentsPage() {
 
     const loadAttendanceAdjustmentHistory = async (studentId: string) => {
         try {
-            const { attendancePaymentService } = await import('../../lib/attendance-payment-service');
-            const adjustments = await attendancePaymentService.getAttendanceAdjustmentHistory(studentId);
-            setAttendanceAdjustments(adjustments);
-            console.log('📊 Attendance adjustments loaded:', adjustments);
+            // Temporarily disabled - method not available in simplified service
+            setAttendanceAdjustments([]);
+            console.log('📊 Attendance adjustments: feature temporarily disabled');
         } catch (error) {
             console.error('Error loading attendance adjustment history:', error);
             setAttendanceAdjustments([]);
@@ -381,8 +380,8 @@ export default function PaymentsPage() {
         console.log('Refreshing data for student:', selectedStudent.id, selectedStudent.name);
 
         try {
-            // Refresh student balance using our direct calculation method
-            const balance = await calculateStudentBalanceDirectly(selectedStudent.id);
+            // Refresh student balance using store method (includes retrospective logic for stopped students)
+            const balance = await getStudentBalance(selectedStudent.id);
 
             console.log('Balance calculation result:', {
                 totalBalance: balance.totalBalance,
@@ -839,7 +838,7 @@ export default function PaymentsPage() {
                                         groups: [],
                                         totalBalance: 0,
                                         totalPaid: 0,
-                                        remainingBalance: 0,
+                                        remainingBalance: 0, // Will be calculated below
                                         defaultDiscount: student.defaultDiscount || 0,
                                     });
                                 }
@@ -892,8 +891,8 @@ export default function PaymentsPage() {
                                 continue;
                             }
 
-                            // Calculate student balance using direct database queries
-                            const balance = await calculateStudentBalanceDirectly(student.id);
+                            // Calculate student balance using store method (includes retrospective logic)
+                            const balance = await getStudentBalance(student.id);
                             student.totalBalance = balance.totalBalance;
                             student.totalPaid = balance.totalPaid;
                             student.remainingBalance = balance.remainingBalance;
@@ -1406,7 +1405,7 @@ export default function PaymentsPage() {
     const handleSendRefundRequest = async () => {
         if (!selectedRefundStudent || !refundData.amount) {
             alert('Please select a student and enter an amount');
-        return;
+            return;
         }
 
         try {
@@ -1462,7 +1461,7 @@ export default function PaymentsPage() {
     const handleProcessApprovedRefund = async () => {
         if (!selectedRefundStudent || !refundData.amount) {
             alert('Please select a student and enter an amount');
-        return;
+            return;
         }
 
         try {
@@ -1792,7 +1791,7 @@ Thank you!`;
                                                                         receipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
                                                                             receipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
                                                                                 receipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                                            receipt.payment_type}
+                                                                                    receipt.payment_type}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -2370,7 +2369,7 @@ Thank you!`;
                                                     selectedReceipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
                                                         selectedReceipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
                                                             selectedReceipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                        selectedReceipt.payment_type}
+                                                                selectedReceipt.payment_type}
                                         </span>
                                     </div>
                                     {selectedReceipt.group_name && (
@@ -2620,32 +2619,32 @@ Thank you!`;
                                         >
                                             <div className="space-y-3">
                                                 {/* Student Info Header */}
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                                                            <UserIcon className="h-5 w-5 text-orange-600" />
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-medium text-gray-900">{student.studentName}</div>
-                                                            <div className="text-sm text-gray-500">
-                                                                ID: {student.customId || student.studentId.substring(0, 8) + '...'}
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                                                                <UserIcon className="h-5 w-5 text-orange-600" />
                                                             </div>
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">{student.studentName}</div>
+                                                                <div className="text-sm text-gray-500">
+                                                                    ID: {student.customId || student.studentId.substring(0, 8) + '...'}
+                                                                </div>
                                                                 <div className="text-sm font-medium">
                                                                     {student.isApprovedRequest ? (
                                                                         <span className="text-green-600">✅ Approved for refund</span>
                                                                     ) : (
                                                                         <span className="text-red-600">⏹️ Stopped in all groups</span>
                                                                     )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-lg font-bold text-green-600">
+                                                    <div className="text-right">
+                                                        <div className="text-lg font-bold text-green-600">
                                                             +${student.balance.toFixed(2)}
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">Available for refund</div>
+                                                        </div>
+                                                        <div className="text-sm text-gray-500">Available for refund</div>
                                                     </div>
                                                 </div>
 

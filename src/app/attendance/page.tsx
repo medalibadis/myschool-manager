@@ -263,6 +263,16 @@ export default function AttendancePage() {
         if (!selectedGroup) return;
         try {
             await updateAttendanceBulk(selectedGroup.id, updates);
+
+            // Check for stop status updates and auto-stop future sessions
+            const stopUpdates = updates.filter(update => update.status === 'stop');
+            if (stopUpdates.length > 0) {
+                console.log(`🔄 Auto-stopping future sessions for ${stopUpdates.length} students...`);
+                for (const stopUpdate of stopUpdates) {
+                    await autoStopFutureSessions(stopUpdate.studentId, selectedGroup.id, stopUpdate.sessionId);
+                }
+            }
+
             setAttendanceMap({});
             if (showAlert) {
             alert('Attendance changes saved. Refunds (if any) have been aggregated per student.');
@@ -273,6 +283,78 @@ export default function AttendancePage() {
             alert('Failed to save attendance changes.');
             }
             throw e; // Re-throw the error so caller can handle it
+        }
+    };
+
+    const autoStopFutureSessions = async (studentId: string, groupId: number, currentSessionId: string) => {
+        try {
+            console.log(`🚫 Auto-stopping future sessions for student ${studentId} in group ${groupId} after session ${currentSessionId}`);
+
+            // Get the current session date first
+            const { data: currentSession, error: currentSessionError } = await supabase
+                .from('sessions')
+                .select('date')
+                .eq('id', currentSessionId)
+                .maybeSingle();
+
+            if (currentSessionError) {
+                console.error('Error fetching current session:', currentSessionError);
+                return;
+            }
+
+            if (!currentSession) {
+                console.error('Current session not found');
+                return;
+            }
+
+            console.log(`📅 Current session date: ${currentSession.date}`);
+
+            // Find all future sessions for this group after the current session
+            const { data: futureSessions, error: futureSessionsError } = await supabase
+                .from('sessions')
+                .select('id, date')
+                .eq('group_id', groupId)
+                .gt('date', currentSession.date)
+                .order('date', { ascending: true });
+
+            if (futureSessionsError) {
+                console.error('Error fetching future sessions:', futureSessionsError);
+                return;
+            }
+
+            if (!futureSessions || futureSessions.length === 0) {
+                console.log('📭 No future sessions found to auto-stop');
+                return;
+            }
+
+            console.log(`📋 Found ${futureSessions.length} future sessions to auto-stop:`, futureSessions.map(s => s.date));
+
+            // Create attendance records for all future sessions with "stop" status
+            const futureAttendanceRecords = futureSessions.map(session => ({
+                session_id: session.id,
+                student_id: studentId,
+                status: 'stop',
+                notes: 'Auto-stopped after manual stop'
+            }));
+
+            // Insert all future attendance records
+            const { error: insertError } = await supabase
+                .from('attendance')
+                .upsert(futureAttendanceRecords, {
+                    onConflict: 'session_id,student_id',
+                    ignoreDuplicates: false
+                });
+
+            if (insertError) {
+                console.error('Error auto-stopping future sessions:', insertError);
+                return;
+            }
+
+            console.log(`✅ Successfully auto-stopped ${futureSessions.length} future sessions for student ${studentId}`);
+
+        } catch (error) {
+            console.error('Error in autoStopFutureSessions:', error);
+            // Don't throw - this is a nice-to-have feature that shouldn't break the main stop flow
         }
     };
 

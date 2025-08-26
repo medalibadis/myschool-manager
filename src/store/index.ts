@@ -81,7 +81,7 @@ interface MySchoolStore {
         groups: Array<{ id: number; name: string; status: string }>;
     }>>;
     processRefund: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
-    processDebtPayment: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>;
+    // processDebtPayment: (studentId: string, amount: number, date: Date, notes?: string) => Promise<void>; - REMOVED
 
     // New attendance-based payment calculations
     calculateAttendanceBasedPayments: () => Promise<{
@@ -346,6 +346,9 @@ Thank you for your payment!`,
     removeStudentFromGroup: async (groupId, studentId) => {
         set({ loading: true, error: null });
         try {
+            // 🔄 CROSS-GROUP REFUND: Handle refund before removing student
+            await paymentService.handleCrossGroupRefund(studentId, groupId);
+
             await studentService.delete(groupId, studentId);
             set((state) => ({
                 groups: state.groups.map((g) =>
@@ -536,13 +539,13 @@ Thank you for your payment!`,
     depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string) => {
         set({ loading: true, error: null });
         try {
-            // const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila' });
+            console.log(`🏪 STORE: depositAndAllocate called with:`, { studentId, amount, date, notes });
+            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila' });
+            console.log(`🏪 STORE: depositAndAllocate result:`, result);
             // Refresh payments list
-            // TEMPORARILY DISABLED: This was causing blocking issues
-            // const payments = await paymentService.getAll();
+            const payments = await paymentService.getAll();
             set({ loading: false });
-            // return result; // { depositId, allocations }
-            return { depositId: '', allocations: [] };
+            return result; // { depositId, allocations }
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
             throw error;
@@ -796,21 +799,7 @@ Thank you for your payment!`,
         }
     },
 
-    processDebtPayment: async (studentId: string, amount: number, date: Date, notes?: string) => {
-        set({ loading: true, error: null });
-        try {
-            console.log(`🔄 Store: Processing debt payment for student ${studentId}: $${amount}`);
-            await paymentService.processDebtPayment(studentId, amount, date, notes);
-            console.log(`✅ Store: Debt payment processed successfully`);
-            // Refresh payments after debt payment
-            await get().fetchPayments();
-            set({ loading: false });
-        } catch (error) {
-            console.error('❌ Store: Error processing debt payment:', error);
-            set({ error: (error as Error).message, loading: false });
-            throw error;
-        }
-    },
+    // processDebtPayment function - REMOVED
 
     refreshAllStudentsForDebtsAndRefunds: async () => {
         set({ loading: true, error: null });

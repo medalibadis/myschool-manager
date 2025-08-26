@@ -151,7 +151,7 @@ export interface Payment {
     adminName?: string; // Admin who processed the payment
     discount?: number; // Discount applied to this payment
     originalAmount?: number; // Original amount before discount
-    paymentType?: 'group_payment' | 'balance_addition' | 'registration_fee'; // Type of payment
+    paymentType?: 'group_payment' | 'balance_addition' | 'registration_fee' | 'refund' | 'debt_reduction' | 'debt_payment'; // Type of payment - updated for cross-group refunds
 }
 
 // New interface for student balance

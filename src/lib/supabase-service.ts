@@ -1016,6 +1016,10 @@ export const studentService = {
   },
 
   async delete(groupId: number, studentId: string): Promise<void> {
+    // 🔄 CROSS-GROUP REFUND: Handle refund before removing student
+    // Note: We need to call the main service's handleCrossGroupRefund function
+    // This will be handled by the calling code in the store
+
     // Remove the student from the group using the junction table
     const { error } = await supabase
       .from('student_groups')
@@ -1398,11 +1402,16 @@ export const sessionService = {
         throw new Error(`Failed to mark student as stopped: ${upsertError.message}`);
       } else {
         console.log('Successfully marked student as stopped:', upsertData);
+
+        // 🔄 CROSS-GROUP REFUND LOGIC: Check if student has other active groups
+        await paymentService.handleCrossGroupRefund(studentId, groupId);
       }
     } catch (error) {
       console.error('Error in markStudentAsStoppedInGroup:', error);
     }
   },
+
+
 
   // Update debts and refunds lists automatically
   async updateDebtsAndRefundsLists(): Promise<void> {
@@ -2200,23 +2209,69 @@ export const paymentService = {
       console.log(`  ✅ Added group to groupBalances: ${group.name} (ID: ${groupIdVal})`);
     }
 
-    // STEP 3: Calculate credits (additional amounts deposited)
+    // STEP 3: Calculate credits (additional amounts deposited) and refunds
     const balanceAdditions = payments.filter(p => {
       if (p.group_id !== null) return false; // Not a balance addition
       const notes = String(p.notes || '').toLowerCase();
       if (notes.includes('registration fee')) return false; // Not a credit
-      if (notes.includes('refund')) return false; // Not a credit
       if (notes.includes('debt')) return false; // Not a credit
-      return true; // Pure deposits only
+      return true; // Pure deposits and refunds
     });
 
-    totalCredits = balanceAdditions.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    // Calculate total credits (positive amounts) and refunds (negative amounts)
+    totalCredits = balanceAdditions.reduce((sum, p) => {
+      const amount = Number(p.amount || 0);
+      const notes = String(p.notes || '').toLowerCase();
+
+      if (p.payment_type === 'refund' || notes.includes('refund')) {
+        // Refunds are negative amounts that reduce the balance
+        console.log(`💸 Refund found: ${amount} DA (${p.notes}) - Type: ${p.payment_type}`);
+        return sum + amount; // amount is already negative, so this subtracts
+      } else {
+        // Regular deposits are positive amounts
+        console.log(`💰 Deposit found: ${amount} DA (${p.notes}) - Type: ${p.payment_type}`);
+        if (notes.includes('cross-group refund credit')) {
+          console.log(`🔄 Cross-group refund credit included in balance calculation: ${amount} DA`);
+        }
+        return sum + amount;
+      }
+    }, 0);
 
     // STEP 4: Calculate final balance
     // remainingBalance = credits - total unpaid
     // If positive: student has credit balance (additional amount)
     // If negative: student owes money (sum of unpaid groups)
-    const totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
+    let totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
+
+    // 🆕 Handle debt reduction payments - convert to unpaid group fees if student has active groups
+    const debtReductionPayments = payments.filter(p => p.payment_type === 'debt_reduction');
+    const totalDebtReduction = debtReductionPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    if (totalDebtReduction > 0) {
+      console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
+      debtReductionPayments.forEach((p, index) => {
+        console.log(`  Debt Reduction ${index + 1}: Amount=${p.amount} DA, Notes=${p.notes}`);
+      });
+
+      // 🔄 CONVERSION LOGIC: If student has active groups, convert debt reduction to unpaid group fees
+      if (groupBalances.length > 0) {
+        console.log(`🔄 Student has ${groupBalances.length} active groups - converting debt reduction to unpaid group fees`);
+
+        // Find the first active group with unpaid amount and apply the debt reduction
+        const activeGroupWithDebt = groupBalances.find(gb => gb.remainingAmount > 0);
+        if (activeGroupWithDebt) {
+          const conversionAmount = Math.min(totalDebtReduction, activeGroupWithDebt.remainingAmount);
+          activeGroupWithDebt.remainingAmount -= conversionAmount;
+          console.log(`🔄 Converted ${conversionAmount} DA debt reduction to unpaid fee for group: ${activeGroupWithDebt.groupName}`);
+          console.log(`🔄 Group ${activeGroupWithDebt.groupName} remaining amount: ${activeGroupWithDebt.remainingAmount} DA`);
+
+          // Recalculate total unpaid after conversion
+          totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
+        }
+      }
+    }
+
+    // Calculate final balance: credits - total unpaid (debt reduction converted to unpaid fees if applicable)
     const remainingBalance = totalCredits - totalUnpaid;
 
     // IMPORTANT: The remainingBalance should represent what the student actually owes
@@ -2227,6 +2282,7 @@ export const paymentService = {
     console.log(`  Total fees charged: ${totalBalance}`);
     console.log(`  Total amount paid: ${totalPaid}`);
     console.log(`  Total credits/deposits: ${totalCredits}`);
+    console.log(`  Total debt reduction: ${totalDebtReduction} ${groupBalances.length > 0 ? '(converted to unpaid group fees)' : '(applied as debt reduction)'}`);
     console.log(`  Total unpaid amounts: ${totalUnpaid}`);
     console.log(`  Final balance: ${remainingBalance} (negative = owes money, positive = has credit)`);
 
@@ -2396,6 +2452,8 @@ export const paymentService = {
   async depositAndAllocate(params: { studentId: string; amount: number; date: Date; notes?: string; adminName?: string; }): Promise<{ depositId: string; allocations: Payment[] }> {
     const { studentId, amount, date, notes, adminName } = params;
 
+    console.log(`🚀 DEPOSIT AND ALLOCATE CALLED:`, { studentId, amount, date, notes, adminName });
+
     if (amount <= 0) {
       throw new Error('Deposit amount must be greater than zero');
     }
@@ -2405,6 +2463,22 @@ export const paymentService = {
     // Get current student balance to see what's unpaid
     const currentBalance = await this.getStudentBalance(studentId);
     console.log('Current balance:', currentBalance);
+
+    // 🆕 DEBUG: Show detailed balance structure for stopped students
+    if (currentBalance.remainingBalance < 0) {
+      console.log(`🛑 STOPPED STUDENT DEBUG:`);
+      console.log(`   - Total Balance: ${currentBalance.totalBalance} DA`);
+      console.log(`   - Total Paid: ${currentBalance.totalPaid} DA`);
+      console.log(`   - Remaining Balance: ${currentBalance.remainingBalance} DA`);
+      console.log(`   - Group Balances:`, currentBalance.groupBalances.map(g => ({
+        groupId: g.groupId,
+        groupName: g.groupName,
+        groupFees: g.groupFees,
+        amountPaid: g.amountPaid,
+        remainingAmount: g.remainingAmount,
+        isRegistrationFee: g.isRegistrationFee
+      })));
+    }
 
     let available = amount;
     const allocations: Payment[] = [];
@@ -2451,31 +2525,157 @@ export const paymentService = {
         originalAmount: regPay.original_amount || regPay.amount,
       });
 
-      available -= toPay;
-      console.log(`Registration fee paid: ${toPay}, remaining available: ${available}`);
+      available -= discountedAmount;
+      console.log(`Registration fee paid: ${discountedAmount}, remaining available: ${available}`);
     }
 
     // PRIORITY 2: Group Fees (oldest first)
-    const unpaidGroups = currentBalance.groupBalances
+    // For debt payments, we want to pay off groups with outstanding balances
+    let unpaidGroups = currentBalance.groupBalances
       .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
       .sort((a, b) => {
-        // Sort by start date (oldest first)
+        // Sort by remaining amount (highest debt first) for debt payments
+        if (notes?.includes('debt payment') || notes?.includes('Debt payment')) {
+          return b.remainingAmount - a.remainingAmount; // Highest debt first
+        }
+        // Sort by start date (oldest first) for regular payments
         const da = a.startDate ? new Date(a.startDate).getTime() : 0;
         const db = b.startDate ? new Date(b.startDate).getTime() : 0;
         return da - db;
       });
 
+    // 🆕 SPECIAL HANDLING FOR STOPPED STUDENTS WITH DEBT
+    // If this is a stopped student and they have debt, prioritize debt payment
+    console.log(`🔍 CHECKING DEBT CONDITIONS: remainingBalance=${currentBalance.remainingBalance}, unpaidGroups.length=${unpaidGroups.length}`);
+
+    if (currentBalance.remainingBalance < 0) {
+      console.log(`🛑 Stopped student with debt detected: ${currentBalance.remainingBalance} DA`);
+      console.log(`🔍 Looking for groups with debt in groupBalances...`);
+
+      // For stopped students, look for groups that have debt (negative remainingAmount or unpaid fees)
+      unpaidGroups = currentBalance.groupBalances
+        .filter(gb => !gb.isRegistrationFee && (gb.remainingAmount > 0 || gb.groupFees > gb.amountPaid))
+        .sort((a, b) => {
+          // Calculate actual debt for each group
+          const groupDebt = Math.max(0, a.groupFees - a.amountPaid);
+          const groupBDebt = Math.max(0, b.groupFees - b.amountPaid);
+          return groupBDebt - groupDebt; // Highest debt first
+        });
+
+      console.log(`📋 Found ${unpaidGroups.length} groups with debt for stopped student`);
+      unpaidGroups.forEach(g => {
+        const debt = Math.max(0, g.groupFees - g.amountPaid);
+        console.log(`   - ${g.groupName}: Fee=${g.groupFees}, Paid=${g.amountPaid}, Debt=${debt}`);
+      });
+
+      // 🆕 If no unpaid groups found, create a debt reduction payment
+      if (unpaidGroups.length === 0) {
+        console.log(`🛑 No specific groups with debt found, creating debt reduction payment`);
+        console.log(`💰 Student has overall debt of ${Math.abs(currentBalance.remainingBalance)} DA`);
+        console.log(`💵 Available amount for debt reduction: ${available} DA`);
+
+        // Create a debt reduction payment that will be applied to reduce the overall debt
+        const debtAmount = Math.min(available, Math.abs(currentBalance.remainingBalance));
+
+        console.log(`🔢 Calculated debt amount: ${debtAmount} DA (min of ${available} and ${Math.abs(currentBalance.remainingBalance)})`);
+
+        if (debtAmount > 0) {
+          console.log(`💳 Creating debt reduction payment of ${debtAmount} DA`);
+          console.log(`📝 Payment details: studentId=${studentId}, date=${date.toISOString().split('T')[0]}, adminName=${adminName || 'Dalila'}`);
+
+          // Create a special payment type for debt reduction
+          const { data: debtPay, error: debtErr } = await supabase
+            .from('payments')
+            .insert({
+              student_id: studentId,
+              group_id: null, // No specific group
+              amount: debtAmount,
+              date: date.toISOString().split('T')[0],
+              notes: `Debt reduction payment - reducing overall debt from ${Math.abs(currentBalance.remainingBalance)} DA`,
+              admin_name: adminName || 'Dalila',
+              discount: 0,
+              original_amount: debtAmount,
+              payment_type: 'debt_reduction'
+            })
+            .select()
+            .single();
+
+          if (debtErr) {
+            throw new Error(`Failed to create debt reduction payment: ${debtErr.message}`);
+          }
+
+          // 🆕 Generate receipt for debt reduction payment
+          try {
+            const { data: receiptData, error: receiptError } = await supabase
+              .from('receipts')
+              .insert({
+                student_id: studentId,
+                student_name: (await supabase.from('students').select('name').eq('id', studentId).single()).data?.name || 'Unknown Student',
+                payment_id: debtPay.id,
+                amount: debtAmount,
+                payment_type: 'debt_reduction',
+                group_name: 'Debt Reduction',
+                notes: `Debt reduction payment - reducing overall debt from ${Math.abs(currentBalance.remainingBalance)} DA`,
+                created_at: new Date().toISOString()
+              });
+
+            if (receiptError) {
+              console.warn('⚠️ Could not create receipt for debt reduction payment:', receiptError);
+            } else {
+              console.log('✅ Receipt generated successfully for debt reduction payment');
+            }
+          } catch (receiptError) {
+            console.warn('⚠️ Receipt generation failed for debt reduction payment:', receiptError);
+          }
+
+          allocations.push({
+            id: debtPay.id,
+            studentId: debtPay.student_id,
+            groupId: debtPay.group_id,
+            amount: debtPay.amount,
+            date: new Date(debtPay.date),
+            notes: debtPay.notes,
+            adminName: debtPay.admin_name,
+            discount: debtPay.discount || 0,
+            originalAmount: debtPay.original_amount || debtPay.amount,
+          });
+
+          available -= debtAmount;
+          console.log(`✅ Debt reduction payment created: ${debtAmount} DA, remaining available: ${available} DA`);
+          console.log(`📊 Payment ID: ${debtPay.id}, Student ID: ${debtPay.student_id}`);
+        } else {
+          console.log(`⚠️ Debt amount is 0 or negative, skipping debt reduction payment`);
+        }
+      } else {
+        console.log(`📋 Found ${unpaidGroups.length} unpaid groups, processing regular allocation instead of debt reduction`);
+      }
+    } else {
+      console.log(`✅ No debt detected or debt reduction not needed. remainingBalance=${currentBalance.remainingBalance}`);
+    }
+
     console.log(`Unpaid groups to process: ${unpaidGroups.length}`);
+    console.log(`📋 Groups to pay:`, unpaidGroups.map(g => ({
+      groupId: g.groupId,
+      groupName: g.groupName,
+      remainingAmount: g.remainingAmount
+    })));
+    console.log(`💰 Available amount before processing groups: ${available} DA`);
 
     for (const group of unpaidGroups) {
-      if (available <= 0) break;
+      console.log(`🔄 Processing group ${group.groupName}, available: ${available} DA`);
+      if (available <= 0) {
+        console.log(`❌ No more money available, stopping group processing`);
+        break;
+      }
 
       const toPay = Math.min(available, group.remainingAmount);
       const defaultDiscount = group.discount || 0;
       const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
       const remainingAfter = group.remainingAmount - toPay;
 
-      console.log(`Paying group ${group.groupName}: ${toPay} (discounted: ${discountedAmount})`);
+      console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DA (discounted: ${discountedAmount} DA)`);
+      console.log(`   - Remaining before: ${group.remainingAmount} DA`);
+      console.log(`   - Remaining after: ${remainingAfter} DA`);
 
       // Create group payment
       const { data: groupPay, error: groupErr } = await supabase
@@ -2512,8 +2712,8 @@ export const paymentService = {
         originalAmount: groupPay.original_amount || groupPay.amount,
       });
 
-      available -= toPay;
-      console.log(`Group ${group.groupName} paid: ${toPay}, remaining available: ${available}`);
+      available -= discountedAmount;
+      console.log(`Group ${group.groupName} paid: ${discountedAmount}, remaining available: ${available}`);
     }
 
     // PRIORITY 3: Any remaining amount becomes balance credit
@@ -2546,7 +2746,12 @@ export const paymentService = {
     }
 
     console.log(`Payment allocation complete. Allocations: ${allocations.length}, Balance credit: ${available}`);
+    console.log(`📊 Final allocation summary:`);
+    allocations.forEach((allocation, index) => {
+      console.log(`  ${index + 1}. Group ${allocation.groupId}: ${allocation.amount} DA - ${allocation.notes}`);
+    });
 
+    console.log(`🎯 RETURNING RESULT:`, { depositId, allocations: allocations.length });
     return { depositId, allocations };
   },
 
@@ -2971,7 +3176,7 @@ export const paymentService = {
         date,
         notes: notes || 'Refund processed',
         adminName: 'Dalila',
-        paymentType: 'balance_addition', // Using balance_addition type for refunds
+        paymentType: 'refund' as any, // Using specific refund type
         originalAmount: amount,
         discount: 0
       };
@@ -2983,28 +3188,7 @@ export const paymentService = {
     }
   },
 
-  async processDebtPayment(studentId: string, amount: number, date: Date, notes?: string): Promise<void> {
-    try {
-      // Use the existing allocation logic to properly distribute the debt payment
-      const { depositId, allocations } = await this.depositAndAllocate({
-        studentId,
-        amount,
-        date,
-        notes: notes || 'Debt payment received',
-        adminName: 'Dalila'
-      });
-
-      console.log(`Debt payment processed: ${amount} allocated to ${allocations.length} groups`);
-      console.log('Allocations created:', allocations.map(a => ({
-        groupId: a.groupId,
-        amount: a.amount,
-        notes: a.notes
-      })));
-    } catch (error) {
-      console.error('Error processing debt payment:', error);
-      throw error;
-    }
-  },
+  // processDebtPayment function - REMOVED
 
   // New comprehensive function to handle attendance-based payment calculations
   async calculateAttendanceBasedPayments(): Promise<{
@@ -3482,6 +3666,26 @@ export const paymentService = {
     }
   },
 
+  // Helper method to check if student has any active groups
+  async hasActiveGroups(studentId: string): Promise<boolean> {
+    try {
+      const { data: studentGroups, error } = await supabase
+        .from('student_groups')
+        .select('status')
+        .eq('student_id', studentId);
+
+      if (error || !studentGroups || studentGroups.length === 0) {
+        return false;
+      }
+
+      // Student has active groups if ANY group has 'active' status
+      return studentGroups.some(group => group.status === 'active');
+    } catch (error) {
+      console.error('Error checking if student has active groups:', error);
+      return false;
+    }
+  },
+
   // Helper method to check if student has attendance but no active groups (removed from groups)
   async hasAttendanceButNoActiveGroups(studentId: string): Promise<boolean> {
     try {
@@ -3734,12 +3938,18 @@ export const paymentService = {
         console.log(`📈 Group ${groupInfo.name}: Total=${totalSessions}, Obligatory=${obligatorySessions}, Free=${freeSessions}`);
         console.log(`💰 Fee breakdown: Must pay=${actualGroupFee} DA, Free=${freeAmount} DA, Full=${fullGroupPrice} DA`);
 
-        // Get actual money payments for this group (exclude registration fee and attendance adjustments)
+        // Get actual money payments for this group (exclude only registration fee)
+        // Include group_payment, attendance_credit, and balance_addition as valid payments
         const groupPayments = allPayments.filter(p =>
           p.group_id === groupId &&
-          p.payment_type !== 'registration_fee' &&
-          p.payment_type !== 'attendance_credit'
+          p.payment_type !== 'registration_fee'
         );
+
+        console.log(`🔍 Group ${groupId} payment filtering:`);
+        console.log(`  - All payments for this group:`, allPayments.filter(p => p.group_id === groupId));
+        console.log(`  - Filtered group payments:`, groupPayments);
+        console.log(`  - Payment types found:`, allPayments.filter(p => p.group_id === groupId).map(p => p.payment_type));
+
         const groupPaid = groupPayments.reduce((sum, p) => sum + p.amount, 0);
 
         console.log(`💰 Group ${groupId} payments detailed:`);
@@ -3780,13 +3990,23 @@ export const paymentService = {
         });
       }
 
-      // For stopped students: Balance = What they owe for sessions (negative = debt)
+      // 🆕 Calculate debt reduction payments (payments that reduce overall debt)
+      const debtReductionPayments = allPayments.filter(p => p.payment_type === 'debt_reduction');
+      const totalDebtReduction = debtReductionPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
+      debtReductionPayments.forEach((p, index) => {
+        console.log(`  Debt Reduction ${index + 1}: Amount=${p.amount} DA, Date=${p.date}, Notes=${p.notes}`);
+      });
+
+      // For stopped students: Balance = What they owe for sessions (negative = debt) - debt reduction payments
       // Registration fee is separate and doesn't reduce session debt
-      const remainingBalance = -totalBalance;
+      const remainingBalance = -totalBalance + totalDebtReduction;
 
       console.log(`💰 Stopped student balance calculation:
         Total fair balance: ${totalBalance}
         Total paid: ${totalPaid}
+        Debt reduction payments: ${totalDebtReduction}
         Remaining balance: ${remainingBalance}`);
 
       return {
@@ -3799,6 +4019,194 @@ export const paymentService = {
     } catch (error) {
       console.error('Error calculating stopped student balance:', error);
       throw error;
+    }
+  },
+
+  // Handle cross-group refund when student stops from one group but has active groups
+  async handleCrossGroupRefund(studentId: string, stoppedGroupId: number): Promise<void> {
+    try {
+      console.log(`🔄 CROSS-GROUP REFUND: Processing for student ${studentId}, stopped from group ${stoppedGroupId}`);
+
+      // 1. Check if student has other active groups
+      const { data: allStudentGroups, error: groupsError } = await supabase
+        .from('student_groups')
+        .select(`
+          group_id,
+          status,
+          groups!inner(
+            id,
+            name,
+            price
+          )
+        `)
+        .eq('student_id', studentId);
+
+      if (groupsError) {
+        console.error('Error fetching student groups for cross-group refund:', groupsError);
+        return;
+      }
+
+      if (!allStudentGroups || allStudentGroups.length === 0) {
+        console.log('🔄 No student groups found, skipping cross-group refund');
+        return;
+      }
+
+      // 2. Check if student has any active groups (excluding the stopped one)
+      const activeGroups = allStudentGroups.filter(sg =>
+        sg.status === 'active' && sg.group_id !== stoppedGroupId
+      );
+
+      if (activeGroups.length === 0) {
+        console.log('🔄 No active groups found, student will be processed for regular refund/debt');
+        return;
+      }
+
+      console.log(`🔄 Found ${activeGroups.length} active groups for cross-group refund processing`);
+
+      // 3. Calculate refund amount from the stopped group
+      const { data: stoppedGroupPayments, error: paymentsError } = await supabase
+        .from('payments')
+        .select('amount, original_amount, payment_type')
+        .eq('student_id', studentId)
+        .eq('group_id', stoppedGroupId)
+        .in('payment_type', ['group_payment', 'attendance_credit']);
+
+      if (paymentsError) {
+        console.error('Error fetching payments for stopped group:', paymentsError);
+        return;
+      }
+
+      const totalPaidToStoppedGroup = stoppedGroupPayments?.reduce((sum, p) =>
+        sum + Number(p.original_amount || p.amount || 0), 0) || 0;
+
+      if (totalPaidToStoppedGroup <= 0) {
+        console.log('🔄 No payments found for stopped group, no refund needed');
+        return;
+      }
+
+      console.log(`🔄 Total paid to stopped group ${stoppedGroupId}: ${totalPaidToStoppedGroup} DA`);
+
+      // 4. Find active group with unpaid fees
+      let refundAmount = totalPaidToStoppedGroup;
+
+      for (const activeGroup of activeGroups) {
+        if (refundAmount <= 0) break;
+
+        const groupId = activeGroup.group_id;
+        const groupName = (activeGroup.groups as any).name;
+        const groupPrice = Number((activeGroup.groups as any).price || 0);
+
+        // Get payments for this active group
+        const { data: activeGroupPayments, error: activePaymentsError } = await supabase
+          .from('payments')
+          .select('amount, original_amount, payment_type')
+          .eq('student_id', studentId)
+          .eq('group_id', groupId)
+          .in('payment_type', ['group_payment', 'attendance_credit']);
+
+        if (activePaymentsError) {
+          console.error(`Error fetching payments for active group ${groupId}:`, activePaymentsError);
+          continue;
+        }
+
+        const totalPaidToActiveGroup = activeGroupPayments?.reduce((sum, p) =>
+          sum + Number(p.original_amount || p.amount || 0), 0) || 0;
+
+        const unpaidAmount = Math.max(0, groupPrice - totalPaidToActiveGroup);
+
+        if (unpaidAmount > 0) {
+          const transferAmount = Math.min(refundAmount, unpaidAmount);
+
+          console.log(`🔄 Transferring ${transferAmount} DA from stopped group to active group ${groupId} (${groupName})`);
+          console.log(`   - Group price: ${groupPrice} DA`);
+          console.log(`   - Already paid: ${totalPaidToActiveGroup} DA`);
+          console.log(`   - Unpaid amount: ${unpaidAmount} DA`);
+          console.log(`   - Transfer amount: ${transferAmount} DA`);
+
+          // 5. Create cross-group transfer payment
+          const { data: transferPayment, error: transferError } = await supabase
+            .from('payments')
+            .insert({
+              student_id: studentId,
+              group_id: groupId,
+              amount: transferAmount,
+              date: new Date().toISOString().split('T')[0],
+              notes: `Cross-group refund: Transferred from stopped group ${stoppedGroupId} to active group ${groupId}`,
+              admin_name: 'System',
+              discount: 0,
+              original_amount: transferAmount,
+              payment_type: 'group_payment'
+            })
+            .select()
+            .single();
+
+          if (transferError) {
+            console.error('Error creating cross-group transfer payment:', transferError);
+            continue;
+          }
+
+          console.log(`✅ Cross-group transfer payment created: ${transferPayment.id}`);
+
+          // 6. Create corresponding negative payment for the stopped group
+          const { data: refundPayment, error: refundError } = await supabase
+            .from('payments')
+            .insert({
+              student_id: studentId,
+              group_id: stoppedGroupId,
+              amount: -transferAmount,
+              date: new Date().toISOString().split('T')[0],
+              notes: `Cross-group refund: Refunded from group ${stoppedGroupId} and transferred to group ${groupId}`,
+              admin_name: 'System',
+              discount: 0,
+              original_amount: transferAmount,
+              payment_type: 'refund'
+            })
+            .select()
+            .single();
+
+          if (refundError) {
+            console.error('Error creating cross-group refund payment:', refundError);
+            continue;
+          }
+
+          console.log(`✅ Cross-group refund payment created: ${refundPayment.id}`);
+
+          refundAmount -= transferAmount;
+        }
+      }
+
+      if (refundAmount > 0) {
+        console.log(`🔄 Remaining refund amount ${refundAmount} DA - creating balance credit`);
+
+        // Create a balance credit payment for the remaining refund amount
+        const { data: creditPayment, error: creditError } = await supabase
+          .from('payments')
+          .insert({
+            student_id: studentId,
+            group_id: null, // No specific group for balance credits
+            amount: refundAmount,
+            date: new Date().toISOString().split('T')[0],
+            notes: `Cross-group refund credit: Remaining amount from stopped group ${stoppedGroupId} after covering active group fees`,
+            admin_name: 'System',
+            discount: 0,
+            original_amount: refundAmount,
+            payment_type: 'balance_addition'
+          })
+          .select()
+          .single();
+
+        if (creditError) {
+          console.error('Error creating balance credit payment:', creditError);
+        } else {
+          console.log(`✅ Balance credit payment created: ${creditPayment.id} for ${refundAmount} DA`);
+          console.log(`💰 Student will now have ${refundAmount} DA credit balance available`);
+        }
+      }
+
+      console.log(`🔄 Cross-group refund processing completed`);
+
+    } catch (error) {
+      console.error('Error in handleCrossGroupRefund:', error);
     }
   },
 };

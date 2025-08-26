@@ -55,7 +55,7 @@ export default function PaymentsPage() {
         getRefundList,
         getDebtsList,
         processRefund,
-        processDebtPayment,
+        // processDebtPayment, - REMOVED
         loading,
         error,
         depositAndAllocate,
@@ -87,6 +87,7 @@ export default function PaymentsPage() {
             remainingAfterPayment: number;
             receipt?: string;
             paymentId?: string;
+            notes?: string;
         }>;
         totalPaid: number;
         remainingCredit: number;
@@ -108,6 +109,8 @@ export default function PaymentsPage() {
     const [isAttendanceHistoryModalOpen, setIsAttendanceHistoryModalOpen] = useState(false);
     const [selectedStudentForAttendance, setSelectedStudentForAttendance] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
     const [isDebtsModalOpen, setIsDebtsModalOpen] = useState(false);
+    const [debtsSearchTerm, setDebtsSearchTerm] = useState('');
+    const [refundsSearchTerm, setRefundsSearchTerm] = useState('');
     const [refundList, setRefundList] = useState<Array<{
         studentId: string;
         studentName: string;
@@ -142,19 +145,7 @@ export default function PaymentsPage() {
         superadminNotes?: string;
         adminReason?: string;
     } | null>(null);
-    const [selectedDebtStudent, setSelectedDebtStudent] = useState<{
-        studentId: string;
-        studentName: string;
-        customId?: string;
-        balance: number;
-        groups: Array<{ id: number; name: string; status: string }>;
-    } | null>(null);
     const [refundData, setRefundData] = useState({
-        amount: '',
-        notes: '',
-        date: new Date().toISOString().split('T')[0],
-    });
-    const [debtData, setDebtData] = useState({
         amount: '',
         notes: '',
         date: new Date().toISOString().split('T')[0],
@@ -462,6 +453,12 @@ export default function PaymentsPage() {
 
         if (groupName) {
             receiptText += `For: ${groupName}\n`;
+        }
+
+        // Special handling for debt reduction payments
+        if (paymentType === 'debt_reduction') {
+            receiptText += `Purpose: Debt Reduction Payment\n`;
+            receiptText += `This payment reduces your overall debt balance.\n`;
         }
 
         if (remainingAmount && remainingAmount > 0) {
@@ -980,15 +977,16 @@ export default function PaymentsPage() {
         }
     };
 
-    // Handle payment submission with receipt generation
+    // Handle adding payment
     const handleAddPayment = async () => {
-        if (!selectedStudent || !selectedStudent.id || !paymentData.amount) {
-            alert('Please fill in all required fields');
+        if (!selectedStudent || !paymentData.amount) {
+            alert('Please select a student and enter an amount');
             return;
         }
 
         try {
             const depositAmount = Math.abs(parseFloat(paymentData.amount));
+
             console.log('Processing payment:', {
                 studentId: selectedStudent.id,
                 amount: depositAmount,
@@ -996,358 +994,34 @@ export default function PaymentsPage() {
                 notes: paymentData.notes
             });
 
-            // Get current student balance to calculate allocation
+            // Use the backend service to properly allocate payments and reduce debt
             console.log('🔍 Student ID format check:', {
                 studentId: selectedStudent.id,
                 studentIdType: typeof selectedStudent.id,
                 studentIdLength: selectedStudent.id?.length
             });
 
-            const currentBalance = await calculateStudentBalanceDirectly(selectedStudent.id);
-            console.log('Current balance before payment:', currentBalance);
+            // Call the backend service to properly allocate payments and reduce debt
+            const result = await depositAndAllocate(
+                selectedStudent.id,
+                depositAmount,
+                new Date(paymentData.date),
+                paymentData.notes || ''
+            );
 
-            // Allocate payment to unpaid groups (oldest first)
-            let remainingPayment = depositAmount;
-            const allocations: Array<{
-                groupId: number;
-                groupName: string;
-                amountAllocated: number;
-                wasFullyPaid: boolean;
-                remainingAfterPayment: number;
-                receipt?: string;
-                paymentId?: string;
-            }> = [];
-
-            // Priority 1: Registration Fee (if unpaid)
-            if (currentBalance.groupBalances.some(gb => gb.isRegistrationFee && gb.remainingAmount > 0)) {
-                const regFee = currentBalance.groupBalances.find(gb => gb.isRegistrationFee);
-                if (regFee && regFee.remainingAmount > 0) {
-                    const amountToPay = Math.min(remainingPayment, regFee.remainingAmount);
-                    const wasFullyPaid = amountToPay >= regFee.remainingAmount;
-                    const remainingAfterPayment = Math.max(0, regFee.remainingAmount - amountToPay);
-
-                    // Create payment record in database
-                    const { data: paymentRecord, error: paymentError } = await supabase
-                        .from('payments')
-                        .insert({
-                            student_id: selectedStudent.id, // This should be a UUID from the database
-                            group_id: null, // Registration fee has no group
-                            amount: amountToPay,
-                            date: paymentData.date,
-                            notes: paymentData.notes || 'Registration fee payment',
-                            payment_type: 'registration_fee',
-                            admin_name: 'Admin'
-                        })
-                        .select()
-                        .single();
-
-                    if (paymentError) {
-                        console.error('Error creating registration fee payment:', paymentError);
-                        throw new Error(`Failed to create registration fee payment: ${paymentError.message}`);
-                    }
-
-                    // Update unpaid_balances for registration fee
-                    try {
-                        if (wasFullyPaid) {
-                            // Remove from unpaid_balances if fully paid
-                            const { error: deleteError } = await supabase
-                                .from('unpaid_balances')
-                                .delete()
-                                .eq('student_id', selectedStudent.id)
-                                .eq('group_id', 0); // Registration fee
-
-                            if (deleteError) {
-                                console.warn('Error removing registration fee from unpaid_balances:', deleteError);
-                            } else {
-                                console.log('✅ Removed registration fee from unpaid_balances');
-                            }
-                        } else {
-                            // Update remaining amount
-                            const { error: updateError } = await supabase
-                                .from('unpaid_balances')
-                                .update({ amount: remainingAfterPayment })
-                                .eq('student_id', selectedStudent.id)
-                                .eq('group_id', 0);
-
-                            if (updateError) {
-                                console.warn('Error updating registration fee in unpaid_balances:', updateError);
-                            } else {
-                                console.log('✅ Updated registration fee in unpaid_balances');
-                            }
-                        }
-                    } catch (unpaidBalanceError) {
-                        console.warn('⚠️ unpaid_balances table operation failed:', unpaidBalanceError);
-                        console.log('This might mean the table doesn\'t exist yet - continuing with payment creation...');
-                    }
-
-                    // Generate receipt for registration fee payment
-                    const receipt = generateReceipt(
-                        selectedStudent.name,
-                        amountToPay,
-                        'Registration Fee Payment',
-                        'Registration Fee',
-                        remainingAfterPayment > 0 ? remainingAfterPayment : undefined,
-                        remainingPayment > regFee.remainingAmount ? remainingPayment - regFee.remainingAmount : undefined
-                    );
-
-                    // Store receipt in database
-                    console.log('📄 Attempting to store receipt in database...');
-                    console.log('📄 Receipt data:', {
-                        payment_id: paymentRecord.id,
-                        student_id: selectedStudent.id,
-                        student_name: selectedStudent.name,
-                        receipt_text: receipt.substring(0, 100) + '...',
-                        amount: amountToPay,
-                        payment_type: 'registration_fee',
-                        group_name: 'Registration Fee'
-                    });
-
-                    const { error: receiptError } = await supabase
-                        .from('receipts')
-                        .insert({
-                            payment_id: paymentRecord.id,
-                            student_id: selectedStudent.id,
-                            student_name: selectedStudent.name,
-                            receipt_text: receipt,
-                            amount: amountToPay,
-                            payment_type: 'registration_fee',
-                            group_name: 'Registration Fee',
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (receiptError) {
-                        console.error('❌ Error storing receipt:', receiptError);
-                        console.error('❌ Error details:', {
-                            message: receiptError.message,
-                            details: receiptError.details,
-                            hint: receiptError.hint
-                        });
-                    } else {
-                        console.log('✅ Receipt stored in database successfully');
-                    }
-
-                    allocations.push({
-                        groupId: 0,
-                        groupName: 'Registration Fee',
-                        amountAllocated: amountToPay,
-                        wasFullyPaid,
-                        remainingAfterPayment,
-                        receipt,
-                        paymentId: paymentRecord.id
-                    });
-
-                    remainingPayment -= amountToPay;
-                    console.log(`✅ Created registration fee payment: $${amountToPay}. Remaining payment: ${remainingPayment}`);
-                }
-            }
-
-
-
-            // Priority 2: Group fees (oldest first)
-            const unpaidGroups = currentBalance.groupBalances
-                .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
-                .sort((a, b) => a.groupId - b.groupId); // Oldest first
-
-            for (const group of unpaidGroups) {
-                if (remainingPayment <= 0) break;
-
-                const amountToPay = Math.min(remainingPayment, group.remainingAmount);
-                const wasFullyPaid = amountToPay >= group.remainingAmount;
-                const remainingAfterPayment = Math.max(0, group.remainingAmount - amountToPay);
-
-                // Create payment record in database
-                const { data: paymentRecord, error: paymentError } = await supabase
-                    .from('payments')
-                    .insert({
-                        student_id: selectedStudent.id,
-                        group_id: group.groupId,
-                        amount: amountToPay,
-                        date: paymentData.date,
-                        notes: paymentData.notes || `Group payment: ${group.groupName}`,
-                        payment_type: 'group_payment',
-                        admin_name: 'Admin'
-                    })
-                    .select()
-                    .single();
-
-                if (paymentError) {
-                    console.error('Error creating group payment:', paymentError);
-                    throw new Error(`Failed to create group payment: ${paymentError.message}`);
-                }
-
-                // Update unpaid_balances for group
-                try {
-                    if (wasFullyPaid) {
-                        // Remove from unpaid_balances if fully paid
-                        const { error: deleteError } = await supabase
-                            .from('unpaid_balances')
-                            .delete()
-                            .eq('student_id', selectedStudent.id)
-                            .eq('group_id', group.groupId);
-
-                        if (deleteError) {
-                            console.warn(`Error removing ${group.groupName} from unpaid_balances:`, deleteError);
-                        } else {
-                            console.log(`✅ Removed ${group.groupName} from unpaid balances - FULLY PAID`);
-                        }
-                    } else {
-                        // Update remaining amount
-                        const { error: updateError } = await supabase
-                            .from('unpaid_balances')
-                            .update({ amount: remainingAfterPayment })
-                            .eq('student_id', selectedStudent.id)
-                            .eq('group_id', group.groupId);
-
-                        if (updateError) {
-                            console.warn(`Error updating ${group.groupName} in unpaid_balances:`, updateError);
-                        } else {
-                            console.log(`✅ Updated ${group.groupName} unpaid balance to ${remainingAfterPayment}`);
-                        }
-                    }
-                } catch (unpaidBalanceError) {
-                    console.warn(`⚠️ unpaid_balances table operation failed for ${group.groupName}:`, unpaidBalanceError);
-                    console.log('This might mean the table doesn\'t exist yet - continuing with payment creation...');
-                }
-
-                // Generate receipt for group payment
-                const receipt = generateReceipt(
-                    selectedStudent.name,
-                    amountToPay,
-                    'Group Fee Payment',
-                    group.groupName,
-                    remainingAfterPayment > 0 ? remainingAfterPayment : undefined,
-                    remainingPayment > group.remainingAmount ? remainingPayment - group.remainingAmount : undefined
-                );
-
-                // Store receipt in database
-                console.log(`📄 Attempting to store group receipt for ${group.groupName}...`);
-                console.log(`📄 Group receipt data:`, {
-                    payment_id: paymentRecord.id,
-                    student_id: selectedStudent.id,
-                    student_name: selectedStudent.name,
-                    receipt_text: receipt.substring(0, 100) + '...',
-                    amount: amountToPay,
-                    payment_type: 'group_payment',
-                    group_name: group.groupName
-                });
-
-                const { error: receiptError } = await supabase
-                    .from('receipts')
-                    .insert({
-                        payment_id: paymentRecord.id,
-                        student_id: selectedStudent.id,
-                        student_name: selectedStudent.name,
-                        receipt_text: receipt,
-                        amount: amountToPay,
-                        payment_type: 'group_payment',
-                        group_name: group.groupName,
-                        created_at: new Date().toISOString()
-                    });
-
-                if (receiptError) {
-                    console.error(`❌ Error storing group receipt for ${group.groupName}:`, receiptError);
-                    console.error('❌ Error details:', {
-                        message: receiptError.message,
-                        details: receiptError.details,
-                        hint: receiptError.hint
-                    });
-                } else {
-                    console.log(`✅ Group receipt for ${group.groupName} stored in database successfully`);
-                }
-
-                allocations.push({
-                    groupId: group.groupId,
-                    groupName: group.groupName,
-                    amountAllocated: amountToPay,
-                    wasFullyPaid,
-                    remainingAfterPayment,
-                    receipt,
-                    paymentId: paymentRecord.id
-                });
-
-                remainingPayment -= amountToPay;
-                console.log(`✅ Created group payment: $${amountToPay} for ${group.groupName}. Remaining payment: ${remainingPayment}`);
-            }
-
-            // If there's remaining payment, it becomes credit
-            if (remainingPayment > 0) {
-                console.log(`💰 Remaining payment ${remainingPayment} becomes credit`);
-                console.log(`💰 This will be added to student's balance as credit (positive balance)`);
-
-                // Create a balance credit payment record
-                const { data: creditRecord, error: creditError } = await supabase
-                    .from('payments')
-                    .insert({
-                        student_id: selectedStudent.id,
-                        group_id: null, // Credit has no specific group
-                        amount: remainingPayment,
-                        date: paymentData.date,
-                        notes: `Balance credit - ${paymentData.notes || 'Extra payment'}`,
-                        payment_type: 'balance_addition',
-                        admin_name: 'Admin'
-                    })
-                    .select()
-                    .single();
-
-                if (creditError) {
-                    console.warn('❌ Error creating credit record:', creditError);
-                } else {
-                    console.log(`✅ Created balance credit record: $${remainingPayment}`);
-
-                    // Also store receipt for the credit
-                    const creditReceipt = generateReceipt(
-                        selectedStudent.name,
-                        remainingPayment,
-                        'Balance Credit',
-                        undefined,
-                        undefined,
-                        undefined
-                    );
-
-                    const { error: creditReceiptError } = await supabase
-                        .from('receipts')
-                        .insert({
-                            payment_id: creditRecord.id,
-                            student_id: selectedStudent.id,
-                            student_name: selectedStudent.name,
-                            receipt_text: creditReceipt,
-                            amount: remainingPayment,
-                            payment_type: 'balance_addition',
-                            group_name: 'Balance Credit',
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (creditReceiptError) {
-                        console.warn('❌ Error storing credit receipt:', creditReceiptError);
-                    } else {
-                        console.log('✅ Credit receipt stored in database');
-                    }
-
-                    // Add to allocations array for display
-                    allocations.push({
-                        groupId: -1, // Special ID for balance credit
-                        groupName: 'Balance Credit',
-                        amountAllocated: remainingPayment,
-                        wasFullyPaid: true,
-                        remainingAfterPayment: 0,
-                        receipt: creditReceipt,
-                        paymentId: creditRecord.id
-                    });
-
-                    console.log(`✅ Added $${remainingPayment} as balance credit to allocations`);
-                }
-            }
-
-            // Create the result object
-            const result = {
-                depositId: `deposit_${Date.now()}`,
-                allocations,
+            // Convert backend result to expected format
+            const formattedResult = {
+                depositId: result.depositId || `deposit_${Date.now()}`,
+                allocations: result.allocations || [],
                 totalPaid: depositAmount,
-                remainingCredit: remainingPayment,
-                receipts: allocations.map(a => a.receipt).filter((r): r is string => Boolean(r))
+                remainingCredit: 0,
+                receipts: []
             };
 
-            console.log('Payment allocation result:', result);
+            console.log('Payment allocation result from backend:', result);
+
+            // Use the result from the backend service
+            console.log('Using result from backend service:', result);
 
             // Refresh student data to show updated balance and unpaid groups
             console.log('💾 Refreshing student data after payment...');
@@ -1376,7 +1050,7 @@ export default function PaymentsPage() {
             await fetchPayments();
 
             // Show allocation summary with receipts
-            setAllocationResult(result);
+            setAllocationResult(formattedResult);
             setIsAllocationModalOpen(true);
 
             console.log('✅ Payment process completed successfully!');
@@ -1587,56 +1261,21 @@ Thank you!`;
         }
     };
 
-    // Handle debt payment processing
-    const handleProcessDebtPayment = async () => {
-        if (!selectedDebtStudent || !debtData.amount) {
-            alert('Please select a student and enter an amount');
-            return;
-        }
-
+    // Refresh debt list after payments
+    const refreshDebtsList = async () => {
         try {
-            console.log(`🔄 Processing debt payment for ${selectedDebtStudent.studentName}: $${debtData.amount}`);
-
-            // Ensure debt payment notes include "debt" for proper receipt labeling
-            const debtNotes = debtData.notes ?
-                `${debtData.notes} (debt payment)` :
-                'Debt payment received';
-
-            await processDebtPayment(
-                selectedDebtStudent.studentId,
-                parseFloat(debtData.amount),
-                new Date(debtData.date),
-                debtNotes
-            );
-
-            // Close modal and refresh lists
-            setIsDebtsModalOpen(false);
-            setSelectedDebtStudent(null);
-            setDebtData({
-                amount: '',
-                notes: '',
-                date: new Date().toISOString().split('T')[0],
-            });
-
-            // Add a small delay to ensure the payment is processed
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Refresh lists
             await loadDebtsList();
-            await loadRecentPayments();
-
-            // Refresh selected student data if applicable
-            if (selectedStudent && selectedStudent.id === selectedDebtStudent.studentId) {
-                await refreshSelectedStudentData();
-            }
-
-            // Show success message
-            alert(`Debt payment of $${debtData.amount} processed successfully for ${selectedDebtStudent.studentName}`);
         } catch (error) {
-            console.error('❌ Error processing debt payment:', error);
-            alert('Failed to process debt payment. Please try again.');
+            console.error('Error refreshing debts list:', error);
         }
     };
+
+    // Refresh debt list when payments change
+    useEffect(() => {
+        if (recentPayments.length > 0) {
+            refreshDebtsList();
+        }
+    }, [recentPayments]);
 
     // Handle showing receipt details
     const handleShowReceipt = (payment: any) => {
@@ -1791,7 +1430,9 @@ Thank you!`;
                                                                         receipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
                                                                             receipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
                                                                                 receipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                                                    receipt.payment_type}
+                                                                                    receipt.payment_type === 'debt_reduction' ? '💳 Debt Reduction' :
+                                                                                        receipt.payment_type === 'refund' ? '💸 Refund' :
+                                                                                            receipt.payment_type}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1884,36 +1525,58 @@ Thank you!`;
                                         <h3 className="text-lg font-semibold text-green-800 mb-3">
                                             Students Eligible for Refunds
                                         </h3>
+
+                                        {/* Search input for refunds */}
+                                        <div className="mb-4">
+                                            <div className="relative">
+                                                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search by name or ID..."
+                                                    value={refundsSearchTerm}
+                                                    onChange={(e) => setRefundsSearchTerm(e.target.value)}
+                                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                                />
+                                            </div>
+                                        </div>
+
                                         <div className="space-y-2">
-                                            {refundList.length > 0 ? (
-                                                refundList.map((refund) => (
-                                                    <div key={refund.studentId} className="bg-white p-3 rounded border border-green-200">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <div className="font-medium text-green-900">
-                                                                    {refund.studentName}
+                                            {(() => {
+                                                const filteredRefunds = refundList.filter(refund =>
+                                                    refund.studentName.toLowerCase().includes(refundsSearchTerm.toLowerCase()) ||
+                                                    (refund.customId && refund.customId.toLowerCase().includes(refundsSearchTerm.toLowerCase()))
+                                                );
+
+                                                return filteredRefunds.length > 0 ? (
+                                                    filteredRefunds.map((refund) => (
+                                                        <div key={refund.studentId} className="bg-white p-3 rounded border border-green-200">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <div className="font-medium text-green-900">
+                                                                        {refund.studentName}
+                                                                    </div>
+                                                                    <div className="text-sm text-green-700">
+                                                                        {refund.customId || 'No ID'}
+                                                                    </div>
+                                                                    <div className="text-xs text-green-600">
+                                                                        Groups: {refund.groups.map((g: { id: number; name: string; status: string }) => g.name).join(', ')}
+                                                                    </div>
                                                                 </div>
-                                                                <div className="text-sm text-green-700">
-                                                                    {refund.customId || 'No ID'}
+                                                                <div className="text-right">
+                                                                    <div className="text-lg font-bold text-green-800">
+                                                                        ${refund.balance.toFixed(2)}
+                                                                    </div>
+                                                                    <div className="text-xs text-green-600">Refund Amount</div>
                                                                 </div>
-                                                                <div className="text-xs text-green-600">
-                                                                    Groups: {refund.groups.map((g: { id: number; name: string; status: string }) => g.name).join(', ')}
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <div className="text-lg font-bold text-green-800">
-                                                                    ${refund.balance.toFixed(2)}
-                                                                </div>
-                                                                <div className="text-xs text-green-600">Refund Amount</div>
                                                             </div>
                                                         </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="text-green-600 text-center py-4">
+                                                        {refundsSearchTerm ? `No students found matching "${refundsSearchTerm}"` : 'No students eligible for refunds'}
                                                     </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-green-600 text-center py-4">
-                                                    No students eligible for refunds
-                                                </div>
-                                            )}
+                                                )
+                                            })()}
                                         </div>
                                     </div>
 
@@ -1922,36 +1585,58 @@ Thank you!`;
                                         <h3 className="text-lg font-semibold text-red-800 mb-3">
                                             Students with Outstanding Debts
                                         </h3>
+
+                                        {/* Search input for debts */}
+                                        <div className="mb-4">
+                                            <div className="relative">
+                                                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search by name or ID..."
+                                                    value={debtsSearchTerm}
+                                                    onChange={(e) => setDebtsSearchTerm(e.target.value)}
+                                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                                />
+                                            </div>
+                                        </div>
+
                                         <div className="space-y-2">
-                                            {debtsList.length > 0 ? (
-                                                debtsList.map((debt) => (
-                                                    <div key={debt.studentId} className="bg-white p-3 rounded border border-red-200">
-                                                        <div className="flex justify-between items-start">
-                                                            <div>
-                                                                <div className="font-medium text-red-900">
-                                                                    {debt.studentName}
+                                            {(() => {
+                                                const filteredDebts = debtsList.filter(debt =>
+                                                    debt.studentName.toLowerCase().includes(debtsSearchTerm.toLowerCase()) ||
+                                                    (debt.customId && debt.customId.toLowerCase().includes(debtsSearchTerm.toLowerCase()))
+                                                );
+
+                                                return filteredDebts.length > 0 ? (
+                                                    filteredDebts.map((debt) => (
+                                                        <div key={debt.studentId} className="bg-white p-3 rounded border border-red-200">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <div className="font-medium text-red-900">
+                                                                        {debt.studentName}
+                                                                    </div>
+                                                                    <div className="text-sm text-red-700">
+                                                                        {debt.customId || 'No ID'}
+                                                                    </div>
+                                                                    <div className="text-xs text-red-600">
+                                                                        Groups: {debt.groups.map((g: { id: number; name: string; status: string }) => g.name).join(', ')}
+                                                                    </div>
                                                                 </div>
-                                                                <div className="text-sm text-red-700">
-                                                                    {debt.customId || 'No ID'}
+                                                                <div className="text-right">
+                                                                    <div className="text-lg font-bold text-red-800">
+                                                                        ${debt.balance.toFixed(2)}
+                                                                    </div>
+                                                                    <div className="text-xs text-red-600">Debt Amount</div>
                                                                 </div>
-                                                                <div className="text-xs text-red-600">
-                                                                    Groups: {debt.groups.map((g: { id: number; name: string; status: string }) => g.name).join(', ')}
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <div className="text-lg font-bold text-red-800">
-                                                                    ${debt.balance.toFixed(2)}
-                                                                </div>
-                                                                <div className="text-xs text-red-600">Debt Amount</div>
                                                             </div>
                                                         </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="text-red-600 text-center py-4">
+                                                        {debtsSearchTerm ? `No students found matching "${debtsSearchTerm}"` : 'No students with outstanding debts'}
                                                     </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-red-600 text-center py-4">
-                                                    No students with outstanding debts
-                                                </div>
-                                            )}
+                                                )
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
@@ -2257,11 +1942,11 @@ Thank you!`;
                                                     </div>
                                                     <div className="text-right">
                                                         <div className="font-bold text-green-600">
-                                                            +${a.amountAllocated.toFixed(2)}
+                                                            +${(a.amountAllocated || 0).toFixed(2)}
                                                         </div>
                                                         {a.remainingAfterPayment > 0 && (
                                                             <div className="text-xs text-red-600">
-                                                                Remaining: ${a.remainingAfterPayment.toFixed(2)}
+                                                                Remaining: ${(a.remainingAfterPayment || 0).toFixed(2)}
                                                             </div>
                                                         )}
                                                     </div>
@@ -2283,13 +1968,28 @@ Thank you!`;
                                         </p>
                                     </div>
 
+                                    {/* Debt Reduction Information */}
+                                    {allocationResult.allocations.some(a => a.notes?.includes('Debt reduction payment')) && (
+                                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-blue-600">💳</span>
+                                                <span className="text-sm text-blue-700">
+                                                    <strong>Debt Reduction Payment:</strong> Successfully processed
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-blue-600 mt-1">
+                                                This payment has reduced the student's overall debt balance.
+                                            </p>
+                                        </div>
+                                    )}
+
                                     {/* Credit Information */}
                                     {allocationResult.remainingCredit > 0 && (
                                         <div className="bg-green-50 p-3 rounded-lg border border-green-200">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-green-600">💰</span>
                                                 <span className="text-sm text-green-700">
-                                                    <strong>Credit Balance:</strong> ${allocationResult.remainingCredit.toFixed(2)}
+                                                    <strong>Credit Balance:</strong> ${(allocationResult.remainingCredit || 0).toFixed(2)}
                                                 </span>
                                             </div>
                                             <p className="text-xs text-green-600 mt-1">
@@ -2583,6 +2283,7 @@ Thank you!`;
                     onClose={() => {
                         setIsRefundModalOpen(false);
                         setSelectedRefundStudent(null);
+                        setRefundsSearchTerm(''); // Clear search when modal closes
                         setRefundData({
                             amount: '',
                             notes: '',
@@ -2600,116 +2301,139 @@ Thank you!`;
                                 Students with positive balance who are no longer studying in any active groups
                             </p>
 
-                            {refundList.length > 0 ? (
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {refundList.map((student, index) => (
-                                        <div
-                                            key={`${student.studentId}-${student.isApprovedRequest ? 'approved' : 'eligible'}-${index}`}
-                                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRefundStudent?.studentId === student.studentId
-                                                ? 'border-orange-500 bg-orange-50'
-                                                : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50'
-                                                }`}
-                                            onClick={() => {
-                                                setSelectedRefundStudent(student);
-                                                setRefundData(prev => ({
-                                                    ...prev,
-                                                    amount: student.balance.toString(),
-                                                }));
-                                            }}
-                                        >
-                                            <div className="space-y-3">
-                                                {/* Student Info Header */}
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                                                                <UserIcon className="h-5 w-5 text-orange-600" />
-                                                            </div>
-                                                            <div>
-                                                                <div className="font-medium text-gray-900">{student.studentName}</div>
-                                                                <div className="text-sm text-gray-500">
-                                                                    ID: {student.customId || student.studentId.substring(0, 8) + '...'}
-                                                                </div>
-                                                                <div className="text-sm font-medium">
-                                                                    {student.isApprovedRequest ? (
-                                                                        <span className="text-green-600">✅ Approved for refund</span>
-                                                                    ) : (
-                                                                        <span className="text-red-600">⏹️ Stopped in all groups</span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-lg font-bold text-green-600">
-                                                            +${student.balance.toFixed(2)}
-                                                        </div>
-                                                        <div className="text-sm text-gray-500">Available for refund</div>
-                                                    </div>
-                                                </div>
+                            {/* Search input for main refunds list */}
+                            <div className="mb-4">
+                                <div className="relative">
+                                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search refunds by name or ID..."
+                                        value={refundsSearchTerm}
+                                        onChange={(e) => setRefundsSearchTerm(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                    />
+                                </div>
+                            </div>
 
-                                                {/* Stopped Groups with Reasons OR Approval Info */}
-                                                <div className="bg-white p-3 rounded border border-gray-100">
-                                                    {student.isApprovedRequest ? (
-                                                        <>
-                                                            <div className="text-sm font-medium text-green-700 mb-2">
-                                                                ✅ Superadmin Approved Refund:
-                                                            </div>
-                                                            <div className="space-y-2">
-                                                                <div className="text-sm">
-                                                                    <div className="font-medium text-gray-900">
-                                                                        Approved by: {student.approvedBy}
+                            {(() => {
+                                const filteredRefunds = refundList.filter(student =>
+                                    student.studentName.toLowerCase().includes(refundsSearchTerm.toLowerCase()) ||
+                                    (student.customId && student.customId.toLowerCase().includes(refundsSearchTerm.toLowerCase()))
+                                );
+
+                                return filteredRefunds.length > 0 ? (
+                                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                                        {filteredRefunds.map((student, index) => (
+                                            <div
+                                                key={`${student.studentId}-${student.isApprovedRequest ? 'approved' : 'eligible'}-${index}`}
+                                                className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedRefundStudent?.studentId === student.studentId
+                                                    ? 'border-orange-500 bg-orange-50'
+                                                    : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50'
+                                                    }`}
+                                                onClick={() => {
+                                                    setSelectedRefundStudent(student);
+                                                    setRefundData(prev => ({
+                                                        ...prev,
+                                                        amount: student.balance.toString(),
+                                                    }));
+                                                }}
+                                            >
+                                                <div className="space-y-3">
+                                                    {/* Student Info Header */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                                                                    <UserIcon className="h-5 w-5 text-orange-600" />
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-medium text-gray-900">{student.studentName}</div>
+                                                                    <div className="text-sm text-gray-500">
+                                                                        ID: {student.customId || student.studentId.substring(0, 8) + '...'}
                                                                     </div>
-                                                                    <div className="text-gray-600">
-                                                                        Approved on: {student.approvedAt && new Date(student.approvedAt).toLocaleString()}
+                                                                    <div className="text-sm font-medium">
+                                                                        {student.isApprovedRequest ? (
+                                                                            <span className="text-green-600">✅ Approved for refund</span>
+                                                                        ) : (
+                                                                            <span className="text-red-600">⏹️ Stopped in all groups</span>
+                                                                        )}
                                                                     </div>
-                                                                    {student.superadminNotes && (
-                                                                        <div className="text-gray-600 italic mt-1">
-                                                                            Notes: "{student.superadminNotes}"
-                                                                        </div>
-                                                                    )}
-                                                                    {student.adminReason && (
-                                                                        <div className="text-gray-600 mt-1">
-                                                                            Original reason: "{student.adminReason}"
-                                                                        </div>
-                                                                    )}
                                                                 </div>
                                                             </div>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <div className="text-sm font-medium text-gray-700 mb-2">
-                                                                Stopped Groups & Reasons:
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-lg font-bold text-green-600">
+                                                                +${student.balance.toFixed(2)}
                                                             </div>
-                                                            <div className="space-y-2">
-                                                                {student.groups.map((group, groupIndex) => (
-                                                                    <div key={`${group.id}-${groupIndex}-${student.studentId}`} className="flex items-start gap-2 text-sm">
-                                                                        <div className="w-2 h-2 bg-red-400 rounded-full mt-1.5 flex-shrink-0"></div>
-                                                                        <div className="flex-1">
-                                                                            <div className="font-medium text-gray-900">{group.name}</div>
-                                                                            <div className="text-gray-600 italic">
-                                                                                Reason: "{group.stopReason || 'No reason provided'}"
+                                                            <div className="text-sm text-gray-500">Available for refund</div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Stopped Groups with Reasons OR Approval Info */}
+                                                    <div className="bg-white p-3 rounded border border-gray-100">
+                                                        {student.isApprovedRequest ? (
+                                                            <>
+                                                                <div className="text-sm font-medium text-green-700 mb-2">
+                                                                    ✅ Superadmin Approved Refund:
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <div className="text-sm">
+                                                                        <div className="font-medium text-gray-900">
+                                                                            Approved by: {student.approvedBy}
+                                                                        </div>
+                                                                        <div className="text-gray-600">
+                                                                            Approved on: {student.approvedAt && new Date(student.approvedAt).toLocaleString()}
+                                                                        </div>
+                                                                        {student.superadminNotes && (
+                                                                            <div className="text-gray-600 italic mt-1">
+                                                                                Notes: "{student.superadminNotes}"
+                                                                            </div>
+                                                                        )}
+                                                                        {student.adminReason && (
+                                                                            <div className="text-gray-600 mt-1">
+                                                                                Original reason: "{student.adminReason}"
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <div className="text-sm font-medium text-gray-700 mb-2">
+                                                                    Stopped Groups & Reasons:
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    {student.groups.map((group, groupIndex) => (
+                                                                        <div key={`${group.id}-${groupIndex}-${student.studentId}`} className="flex items-start gap-2 text-sm">
+                                                                            <div className="w-2 h-2 bg-red-400 rounded-full mt-1.5 flex-shrink-0"></div>
+                                                                            <div className="flex-1">
+                                                                                <div className="font-medium text-gray-900">{group.name}</div>
+                                                                                <div className="text-gray-600 italic">
+                                                                                    Reason: "{group.stopReason || 'No reason provided'}"
+                                                                                </div>
                                                                             </div>
                                                                         </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                                    ))}
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8">
-                                    <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                    <h3 className="text-lg font-medium text-gray-900 mb-2">No refunds available</h3>
-                                    <p className="text-gray-500">
-                                        No students are currently eligible for refunds.
-                                    </p>
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8">
+                                        <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                                            {refundsSearchTerm ? `No students found matching "${refundsSearchTerm}"` : 'No refunds available'}
+                                        </h3>
+                                        <p className="text-gray-500">
+                                            {refundsSearchTerm ? 'Try adjusting your search terms.' : 'No students are currently eligible for refunds.'}
+                                        </p>
+                                    </div>
+                                )
+                            })()}
                         </div>
 
                         {/* Refund Form */}
@@ -2819,12 +2543,7 @@ Thank you!`;
                     isOpen={isDebtsModalOpen}
                     onClose={() => {
                         setIsDebtsModalOpen(false);
-                        setSelectedDebtStudent(null);
-                        setDebtData({
-                            amount: '',
-                            notes: '',
-                            date: new Date().toISOString().split('T')[0],
-                        });
+                        setDebtsSearchTerm(''); // Clear search when modal closes
                     }}
                     title="Debts Management"
                     maxWidth="2xl"
@@ -2837,149 +2556,112 @@ Thank you!`;
                                 Students with negative balance who are no longer studying in any active groups
                             </p>
 
-                            {debtsList.length > 0 ? (
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {debtsList.map((student) => (
-                                        <div
-                                            key={student.studentId}
-                                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedDebtStudent?.studentId === student.studentId
-                                                ? 'border-red-500 bg-red-50'
-                                                : 'border-gray-200 hover:border-red-300 hover:bg-red-50'
-                                                }`}
-                                            onClick={() => {
-                                                setSelectedDebtStudent(student);
-                                                setDebtData(prev => ({
-                                                    ...prev,
-                                                    amount: Math.abs(student.balance).toString(),
-                                                }));
-                                            }}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                                                            <UserIcon className="h-5 w-5 text-red-600" />
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-medium text-gray-900">{student.studentName}</div>
-                                                            <div className="text-sm text-gray-500">
-                                                                ID: {student.customId || student.studentId.substring(0, 8) + '...'}
-                                                            </div>
-                                                            <div className="text-sm text-gray-600">
-                                                                Status: No active group enrollments
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-lg font-bold text-red-600">
-                                                        {student.balance.toFixed(2)}
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">Outstanding debt</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8">
-                                    <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                    <h3 className="text-lg font-medium text-gray-900 mb-2">No debts found</h3>
-                                    <p className="text-gray-500">
-                                        No students currently have outstanding debts.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Debt Payment Form */}
-                        {selectedDebtStudent && (
-                            <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                                <h3 className="text-lg font-medium text-red-900 mb-4">
-                                    Process Debt Payment for {selectedDebtStudent.studentName}
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Payment Amount *
-                                        </label>
-                                        <Input
-                                            type="number"
-                                            value={debtData.amount}
-                                            onChange={(e) => setDebtData(prev => ({ ...prev, amount: e.target.value }))}
-                                            placeholder="Enter payment amount"
-                                            className="w-full"
-                                        />
-                                        <p className="text-sm text-gray-500 mt-1">
-                                            Outstanding debt: {Math.abs(selectedDebtStudent.balance).toFixed(2)}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Payment Date
-                                        </label>
-                                        <Input
-                                            type="date"
-                                            value={debtData.date}
-                                            onChange={(e) => setDebtData(prev => ({ ...prev, date: e.target.value }))}
-                                            className="w-1/2"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="mt-4">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Notes
-                                    </label>
-                                    <textarea
-                                        value={debtData.notes}
-                                        onChange={(e) => setDebtData(prev => ({ ...prev, notes: e.target.value }))}
-                                        placeholder="Enter payment details and notes..."
-                                        rows={3}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+                            {/* Search input for main debts list */}
+                            <div className="mb-4">
+                                <div className="relative">
+                                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search debts by name or ID..."
+                                        value={debtsSearchTerm}
+                                        onChange={(e) => setDebtsSearchTerm(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                                     />
                                 </div>
+                            </div>
 
-                                <div className="mt-6 flex justify-end gap-3">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => {
-                                            setSelectedDebtStudent(null);
-                                            setDebtData({
-                                                amount: '',
-                                                notes: '',
-                                                date: new Date().toISOString().split('T')[0],
-                                            });
-                                        }}
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        onClick={handleProcessDebtPayment}
-                                        disabled={!debtData.amount || parseFloat(debtData.amount) <= 0}
-                                        className="bg-green-600 hover:bg-green-700"
-                                    >
-                                        Process Payment
-                                    </Button>
+                            {(() => {
+                                const filteredDebts = debtsList.filter(student =>
+                                    student.studentName.toLowerCase().includes(debtsSearchTerm.toLowerCase()) ||
+                                    (student.customId && student.customId.toLowerCase().includes(debtsSearchTerm.toLowerCase()))
+                                );
+
+                                return filteredDebts.length > 0 ? (
+                                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                                        {filteredDebts.map((student) => (
+                                            <div
+                                                key={student.studentId}
+                                                className="p-4 border rounded-lg transition-colors border-gray-200 bg-red-50"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                                                <UserIcon className="h-5 w-5 text-red-600" />
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">{student.studentName}</div>
+                                                                <div className="text-sm text-gray-500">
+                                                                    ID: {student.customId || student.studentId.substring(0, 8) + '...'}
+                                                                </div>
+                                                                <div className="text-sm text-gray-600">
+                                                                    Status: No active group enrollments
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-lg font-bold text-red-600">
+                                                            {student.balance.toFixed(2)}
+                                                        </div>
+                                                        <div className="text-sm text-gray-500">Outstanding debt</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8">
+                                        <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                                            {debtsSearchTerm ? `No students found matching "${debtsSearchTerm}"` : 'No debts found'}
+                                        </h3>
+                                        <p className="text-gray-500">
+                                            {debtsSearchTerm ? 'Try adjusting your search terms.' : 'No students currently have outstanding debts.'}
+                                        </p>
+                                    </div>
+                                )
+                            })()}
+                        </div>
+
+                        {/* Debt Payment Form - REMOVED */}
+
+                        {/* Instructions */}
+                        {debtsList.length > 0 && (
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                <div className="flex items-start space-x-3">
+                                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h4 className="font-medium text-blue-900 mb-2">How to collect debts:</h4>
+                                        <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                                            <li>Go to <strong>Add Payment</strong> page</li>
+                                            <li>Search for the student by name</li>
+                                            <li>Add a deposit payment for the debt amount</li>
+                                            <li>The system will automatically allocate it to unpaid balances</li>
+                                            <li>Student will disappear from this list once balance is 0</li>
+                                        </ol>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
                         {/* Summary */}
                         {debtsList.length > 0 && (
-                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                                <h4 className="font-medium text-blue-900 mb-2">Debts Summary</h4>
+                            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                                <h4 className="font-medium text-green-900 mb-2">Debts Summary</h4>
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
-                                        <span className="text-blue-700">Total Students:</span>
-                                        <span className="ml-2 font-medium text-blue-900">{debtsList.length}</span>
+                                        <span className="text-green-700">Total Students:</span>
+                                        <span className="ml-2 font-medium text-green-900">{debtsList.length}</span>
                                     </div>
                                     <div>
-                                        <span className="text-blue-700">Total Amount:</span>
-                                        <span className="ml-2 font-medium text-blue-900">
-                                            {debtsList.reduce((sum, s) => sum + s.balance, 0).toFixed(2)}
+                                        <span className="text-green-700">Total Amount:</span>
+                                        <span className="ml-2 font-medium text-green-900">
+                                            {Math.abs(debtsList.reduce((sum, s) => sum + s.balance, 0)).toFixed(2)} DA
                                         </span>
                                     </div>
                                 </div>

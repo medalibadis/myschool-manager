@@ -1,5 +1,21 @@
 -- Enhanced Payment System Database Schema
 -- This script adds all necessary tables and columns for the comprehensive payment system
+-- SAFE TO RUN MULTIPLE TIMES - includes proper checks and DROP statements
+
+-- Check if this migration has already been applied
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'schema_migrations'
+    ) AND EXISTS (
+        SELECT 1 FROM schema_migrations 
+        WHERE version = '2024-01-01-enhanced-payment-system'
+    ) THEN
+        RAISE NOTICE 'Migration 2024-01-01-enhanced-payment-system has already been applied. Skipping...';
+        RETURN;
+    END IF;
+END $$;
 
 -- 1. Create student_groups junction table for many-to-many relationship
 CREATE TABLE IF NOT EXISTS student_groups (
@@ -50,7 +66,7 @@ CREATE TABLE IF NOT EXISTS attendance (
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_name VARCHAR(255) DEFAULT 'Admin';
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS discount DECIMAL(5,2) DEFAULT 0.00;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS original_amount DECIMAL(10,2);
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'group_payment' CHECK (payment_type IN ('registration_fee', 'group_payment', 'balance_addition', 'refund', 'debt_payment'));
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'group_payment' CHECK (payment_type IN ('registration_fee', 'group_payment', 'balance_addition', 'refund', 'debt_payment', 'debt_reduction'));
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL;
 
 -- 7. Create stop_reasons table for tracking why students stopped
@@ -259,6 +275,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop existing trigger if it exists to avoid conflicts
+DROP TRIGGER IF EXISTS attendance_change_trigger ON attendance;
+
 CREATE TRIGGER attendance_change_trigger
     AFTER INSERT OR UPDATE ON attendance
     FOR EACH ROW
@@ -273,6 +292,15 @@ ALTER TABLE call_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE unpaid_balances ENABLE ROW LEVEL SECURITY;
 
 -- 17. Create policies for new tables (public access for now)
+-- Drop existing policies first to avoid conflicts
+DROP POLICY IF EXISTS "Allow public access" ON student_groups;
+DROP POLICY IF EXISTS "Allow public access" ON attendance;
+DROP POLICY IF EXISTS "Allow public access" ON stop_reasons;
+DROP POLICY IF EXISTS "Allow public access" ON refund_requests;
+DROP POLICY IF EXISTS "Allow public access" ON call_logs;
+DROP POLICY IF EXISTS "Allow public access" ON unpaid_balances;
+
+-- Create new policies
 CREATE POLICY "Allow public access" ON student_groups FOR ALL USING (true);
 CREATE POLICY "Allow public access" ON attendance FOR ALL USING (true);
 CREATE POLICY "Allow public access" ON stop_reasons FOR ALL USING (true);
@@ -280,7 +308,7 @@ CREATE POLICY "Allow public access" ON refund_requests FOR ALL USING (true);
 CREATE POLICY "Allow public access" ON call_logs FOR ALL USING (true);
 CREATE POLICY "Allow public access" ON unpaid_balances FOR ALL USING (true);
 
--- 18. Insert sample data for testing
+-- 18. Insert sample data for testing (only if table is empty)
 INSERT INTO student_groups (student_id, group_id, status)
 SELECT s.id, g.id, 'active'
 FROM students s
@@ -289,6 +317,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM student_groups sg 
     WHERE sg.student_id = s.id AND sg.group_id = g.id
 )
+AND NOT EXISTS (SELECT 1 FROM student_groups LIMIT 1) -- Only insert if table is empty
 LIMIT 100;
 
 -- 19. Create migration completion log (optional)
@@ -299,13 +328,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     description TEXT
 );
 
--- Insert migration record
-INSERT INTO schema_migrations (version, applied_at, description) 
-VALUES (
-    '2024-01-01-enhanced-payment-system', 
-    NOW(), 
-    'Enhanced payment system with comprehensive features including student groups, attendance tracking, refunds, debts, and call logs'
-) ON CONFLICT (version) DO NOTHING;
+-- Migration record will be inserted at the end after successful completion
 
 -- 20. Final verification queries
 SELECT 'Schema update completed successfully!' as status;
@@ -315,3 +338,11 @@ SELECT COUNT(*) as stop_reasons_count FROM stop_reasons;
 SELECT COUNT(*) as refund_requests_count FROM refund_requests;
 SELECT COUNT(*) as call_logs_count FROM call_logs;
 SELECT COUNT(*) as unpaid_balances_count FROM unpaid_balances;
+
+-- Mark migration as completed
+INSERT INTO schema_migrations (version, applied_at, description) 
+VALUES (
+    '2024-01-01-enhanced-payment-system', 
+    NOW(), 
+    'Enhanced payment system with comprehensive features including student groups, attendance tracking, refunds, debts, and call logs'
+) ON CONFLICT (version) DO NOTHING;

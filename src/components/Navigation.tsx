@@ -102,7 +102,7 @@ const Navigation: React.FC = () => {
                     </nav>
 
                     {/* User Info and Logout */}
-                    <div className="px-2 py-4 border-t border-gray-200">
+                    <div className="px-2 py-1 border-t border-gray-200">
                         {user && (
                             <div className="mb-2">
                                 <div className="w-12 h-12 mx-auto bg-gray-100 rounded-lg flex items-center justify-center">
@@ -117,7 +117,7 @@ const Navigation: React.FC = () => {
                             variant="outline"
                             size="sm"
                             onClick={handleLogout}
-                            className="w-12 h-12 mx-auto p-0 flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50"
+                            className="w-12 h-12 mx-auto p-0 flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 border-red-200 hover:border-red-300"
                             title="Logout"
                         >
                             <ArrowRightOnRectangleIcon className="h-5 w-5" />

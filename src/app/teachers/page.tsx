@@ -18,6 +18,12 @@ import {
     EnvelopeIcon,
     PhoneIcon,
     MagnifyingGlassIcon,
+    ClipboardDocumentCheckIcon,
+    CalendarIcon,
+    ClockIcon,
+    CheckCircleIcon,
+    ExclamationTriangleIcon,
+    XCircleIcon,
 } from '@heroicons/react/24/outline';
 
 export default function TeachersPage() {
@@ -34,8 +40,18 @@ export default function TeachersPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [showTeacherDetailModal, setShowTeacherDetailModal] = useState(false);
+    const [showEvaluationModal, setShowEvaluationModal] = useState(false);
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
     const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' } }>({});
+    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent', groupName: string, sessionId: string }> }>({});
+
+    // History modal states
+    const [historySearchTerm, setHistorySearchTerm] = useState('');
+    const [selectedHistoryTeacher, setSelectedHistoryTeacher] = useState<Teacher | null>(null);
+    const [selectedHistoryGroup, setSelectedHistoryGroup] = useState<number | null>(null);
     const [formData, setFormData] = useState({
         name: '',
         email: '',
@@ -296,10 +312,19 @@ export default function TeachersPage() {
                                         Manage your teaching staff and their assignments
                                     </p>
                                 </div>
-                                <Button onClick={() => setIsCreateModalOpen(true)}>
-                                    <PlusIcon className="h-5 w-5 mr-2" />
-                                    Add Teacher
-                                </Button>
+                                <div className="flex gap-3">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setShowEvaluationModal(true)}
+                                    >
+                                        <ClipboardDocumentCheckIcon className="h-5 w-5 mr-2" />
+                                        Evaluate
+                                    </Button>
+                                    <Button onClick={() => setIsCreateModalOpen(true)}>
+                                        <PlusIcon className="h-5 w-5 mr-2" />
+                                        Add Teacher
+                                    </Button>
+                                </div>
                             </div>
 
                             {/* Search */}
@@ -724,6 +749,484 @@ export default function TeachersPage() {
                         </div>
                     </div>
                 )}
+            </Modal>
+
+            {/* Teacher Evaluation Modal */}
+            <Modal
+                isOpen={showEvaluationModal}
+                onClose={() => setShowEvaluationModal(false)}
+                title="Teacher Evaluation"
+            >
+                <div className="space-y-6">
+                    {/* Header with History Button */}
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-medium text-gray-900">Select Date and Evaluate Teachers</h3>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowHistoryModal(true)}
+                            className="text-sm"
+                        >
+                            <CalendarIcon className="h-4 w-4 mr-1" />
+                            History
+                        </Button>
+                    </div>
+
+                    {/* Date Selection */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <CalendarIcon className="h-4 w-4 inline mr-1" />
+                            Select Date
+                        </label>
+                        <Input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            className="w-full"
+                        />
+                    </div>
+
+                    {/* Teachers with Groups */}
+                    <div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-4">
+                            Teachers with Groups on {new Date(selectedDate).toLocaleDateString()}
+                        </h3>
+
+                        {(() => {
+                            // Get teachers who have groups with sessions on the selected date
+                            const teachersWithGroups = teachers.filter(teacher => {
+                                const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
+                                return teacherGroups.some(group =>
+                                    group.sessions?.some(session =>
+                                        new Date(session.date).toISOString().split('T')[0] === selectedDate
+                                    )
+                                );
+                            });
+
+                            if (teachersWithGroups.length === 0) {
+                                return (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                                        <p>No teachers have groups scheduled for this date.</p>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <div className="space-y-4">
+                                    {teachersWithGroups.map(teacher => {
+                                        const teacherGroups = groups.filter(group =>
+                                            group.teacherId === teacher.id &&
+                                            group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
+                                        );
+
+                                        return (
+                                            <div key={teacher.id} className="border rounded-lg p-4 bg-gray-50">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <div className="flex items-center">
+                                                        <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                            <UsersIcon className="h-5 w-5 text-orange-600" />
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-medium text-gray-900">{teacher.name}</h4>
+                                                            <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Groups and Sessions */}
+                                                <div className="space-y-3">
+                                                    {teacherGroups.map(group => {
+                                                        const groupSessions = group.sessions?.filter(session =>
+                                                            new Date(session.date).toISOString().split('T')[0] === selectedDate
+                                                        ) || [];
+
+                                                        return (
+                                                            <div key={group.id} className="bg-white rounded-lg p-3 border">
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <div>
+                                                                        <h5 className="font-medium text-gray-900">{group.name}</h5>
+                                                                        <p className="text-sm text-gray-500">
+                                                                            Group #{group.id.toString().padStart(6, '0')}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Sessions */}
+                                                                <div className="space-y-2">
+                                                                    {groupSessions.map((session, index) => (
+                                                                        <div key={session.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                                                            <div className="flex items-center">
+                                                                                <ClockIcon className="h-4 w-4 text-gray-400 mr-2" />
+                                                                                <span className="text-sm text-gray-700">
+                                                                                    Session #{index + 1} - {new Date(session.date).toLocaleDateString()}
+                                                                                </span>
+                                                                            </div>
+
+                                                                            {/* Attendance Status */}
+                                                                            <div className="flex items-center space-x-2">
+                                                                                <span className="text-xs text-gray-500">Status:</span>
+                                                                                <select
+                                                                                    value={teacherAttendance[teacher.id]?.[session.id] || 'present'}
+                                                                                    onChange={(e) => {
+                                                                                        setTeacherAttendance(prev => ({
+                                                                                            ...prev,
+                                                                                            [teacher.id]: {
+                                                                                                ...prev[teacher.id],
+                                                                                                [session.id]: e.target.value as 'present' | 'late' | 'absent'
+                                                                                            }
+                                                                                        }));
+                                                                                    }}
+                                                                                    className="text-xs border rounded px-2 py-1"
+                                                                                >
+                                                                                    <option value="present">Present</option>
+                                                                                    <option value="late">Late</option>
+                                                                                    <option value="absent">Absent</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => setShowEvaluationModal(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            // Save teacher attendance to history
+                            const newHistory = { ...teacherHistory };
+
+                            // Process each teacher's attendance
+                            Object.keys(teacherAttendance).forEach(teacherId => {
+                                const teacher = teachers.find(t => t.id === teacherId);
+                                if (!teacher) return;
+
+                                const teacherGroups = groups.filter(group =>
+                                    group.teacherId === teacherId &&
+                                    group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
+                                );
+
+                                teacherGroups.forEach(group => {
+                                    const groupSessions = group.sessions?.filter(session =>
+                                        new Date(session.date).toISOString().split('T')[0] === selectedDate
+                                    ) || [];
+
+                                    groupSessions.forEach(session => {
+                                        const status = teacherAttendance[teacherId]?.[session.id];
+                                        if (status) {
+                                            if (!newHistory[teacherId]) {
+                                                newHistory[teacherId] = [];
+                                            }
+
+                                            // Add to history
+                                            newHistory[teacherId].push({
+                                                date: selectedDate,
+                                                status: status,
+                                                groupName: group.name,
+                                                sessionId: session.id
+                                            });
+                                        }
+                                    });
+                                });
+                            });
+
+                            setTeacherHistory(newHistory);
+                            setTeacherAttendance({});
+                            setShowEvaluationModal(false);
+
+                            // Show success message
+                            alert('Teacher evaluation saved successfully!');
+                        }}
+                        className="bg-orange-600 hover:bg-orange-700"
+                    >
+                        Save Evaluation
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Teacher Evaluation History Modal */}
+            <Modal
+                isOpen={showHistoryModal}
+                onClose={() => {
+                    setShowHistoryModal(false);
+                    setSelectedHistoryTeacher(null);
+                    setSelectedHistoryGroup(null);
+                    setHistorySearchTerm('');
+                }}
+                title="Teacher Evaluation History"
+            >
+                <div className="space-y-6">
+                    {!selectedHistoryTeacher ? (
+                        // Step 1: Teacher Selection
+                        <>
+                            {/* Search */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
+                                    Search Teachers
+                                </label>
+                                <Input
+                                    type="text"
+                                    placeholder="Search by name or ID..."
+                                    value={historySearchTerm}
+                                    onChange={(e) => setHistorySearchTerm(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+
+                            {/* Teachers Table */}
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900 mb-4">Select Teacher</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Teacher
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    ID
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Groups
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Evaluations
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {teachers
+                                                .filter(teacher => {
+                                                    const matchesSearch = historySearchTerm === '' ||
+                                                        teacher.name.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
+                                                        formatTeacherId(teacher.id).toLowerCase().includes(historySearchTerm.toLowerCase());
+                                                    return matchesSearch;
+                                                })
+                                                .map(teacher => {
+                                                    const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
+                                                    const evaluations = teacherHistory[teacher.id] || [];
+                                                    const presentCount = evaluations.filter(h => h.status === 'present').length;
+                                                    const totalEvaluations = evaluations.length;
+                                                    const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
+
+                                                    return (
+                                                        <tr
+                                                            key={teacher.id}
+                                                            className="hover:bg-orange-50 transition-colors cursor-pointer"
+                                                            onClick={() => setSelectedHistoryTeacher(teacher)}
+                                                        >
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="flex items-center">
+                                                                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                                        <UsersIcon className="h-5 w-5 text-orange-600" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
+                                                                        <div className="text-sm text-gray-500">{teacher.email}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {formatTeacherId(teacher.id)}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {teacherGroups.length}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="flex items-center">
+                                                                    <span className="text-sm font-medium text-gray-900">{totalEvaluations}</span>
+                                                                    {totalEvaluations > 0 && (
+                                                                        <span className="ml-2 text-xs text-gray-500">
+                                                                            ({attendanceRate}% present)
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </>
+                    ) : !selectedHistoryGroup ? (
+                        // Step 2: Group Selection
+                        <>
+                            {/* Back Button */}
+                            <div className="flex items-center mb-4">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSelectedHistoryTeacher(null)}
+                                    className="mr-3"
+                                >
+                                    ← Back
+                                </Button>
+                                <div>
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        {selectedHistoryTeacher.name} - Select Group
+                                    </h3>
+                                    <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
+                                </div>
+                            </div>
+
+                            {/* Groups List */}
+                            <div className="space-y-3">
+                                {groups
+                                    .filter(group => group.teacherId === selectedHistoryTeacher.id)
+                                    .map(group => {
+                                        const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === group.name) || [];
+                                        const presentCount = groupEvaluations.filter(h => h.status === 'present').length;
+                                        const totalEvaluations = groupEvaluations.length;
+                                        const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
+
+                                        return (
+                                            <div
+                                                key={group.id}
+                                                className="border rounded-lg p-4 hover:bg-orange-50 transition-colors cursor-pointer"
+                                                onClick={() => setSelectedHistoryGroup(group.id)}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h4 className="font-medium text-gray-900">{group.name}</h4>
+                                                        <p className="text-sm text-gray-500">
+                                                            Group #{group.id.toString().padStart(6, '0')} • {group.students.length} students
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-sm font-medium text-gray-900">{totalEvaluations} evaluations</div>
+                                                        {totalEvaluations > 0 && (
+                                                            <div className="text-xs text-gray-500">{attendanceRate}% present</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                        </>
+                    ) : (
+                        // Step 3: Sessions and Evaluations
+                        <>
+                            {/* Back Button */}
+                            <div className="flex items-center mb-4">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSelectedHistoryGroup(null)}
+                                    className="mr-3"
+                                >
+                                    ← Back
+                                </Button>
+                                <div>
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        {selectedHistoryTeacher.name} - {groups.find(g => g.id === selectedHistoryGroup)?.name}
+                                    </h3>
+                                    <p className="text-sm text-gray-500">
+                                        Group #{selectedHistoryGroup?.toString().padStart(6, '0')} • Session Evaluations
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Sessions Table */}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Date
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Session
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Status
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Group
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {(() => {
+                                            const groupName = groups.find(g => g.id === selectedHistoryGroup)?.name || '';
+                                            const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === groupName) || [];
+
+                                            if (groupEvaluations.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                                                            <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                                                            <p>No evaluations found for this group.</p>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            return groupEvaluations
+                                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                                .map((evaluation, index) => (
+                                                    <tr key={index} className="hover:bg-gray-50">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            {new Date(evaluation.date).toLocaleDateString()}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            Session #{index + 1}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
+                                                                    evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
+                                                                        'bg-red-100 text-red-800'
+                                                                }`}>
+                                                                {evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            {evaluation.groupName}
+                                                        </td>
+                                                    </tr>
+                                                ));
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setShowHistoryModal(false);
+                            setSelectedHistoryTeacher(null);
+                            setSelectedHistoryGroup(null);
+                            setHistorySearchTerm('');
+                        }}
+                    >
+                        Close
+                    </Button>
+                </div>
             </Modal>
 
             <GlobalKeyboardShortcuts

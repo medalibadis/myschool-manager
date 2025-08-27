@@ -1417,9 +1417,6 @@ export default function TeachersPage() {
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Groups
                                                 </th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Evaluations
-                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
@@ -1432,14 +1429,6 @@ export default function TeachersPage() {
                                                 })
                                                 .map(teacher => {
                                                     const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
-                                                    const evaluations = teacherHistory[teacher.id] || [];
-                                                    const presentCount = evaluations.filter(h => h.status === 'present').length;
-                                                    const lateCount = evaluations.filter(h => h.status === 'late').length;
-                                                    const absentCount = evaluations.filter(h => h.status === 'absent').length;
-
-                                                    const justifiedCount = evaluations.filter(h => h.status === 'justified').length;
-                                                    const totalEvaluations = evaluations.length;
-                                                    const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
 
                                                     return (
                                                         <tr
@@ -1464,32 +1453,7 @@ export default function TeachersPage() {
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {teacherGroups.length}
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-sm font-medium text-gray-900">{totalEvaluations}</span>
-                                                                    {totalEvaluations > 0 && (
-                                                                        <div className="text-xs text-gray-500 space-y-1 mt-1">
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                                                                                {presentCount} Present
-                                                                            </div>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                                                                                {lateCount} Late
-                                                                            </div>
 
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                                                                                {justifiedCount} Justified
-                                                                            </div>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                                                                                {absentCount} Absent
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </td>
                                                         </tr>
                                                     );
                                                 })}
@@ -1519,61 +1483,44 @@ export default function TeachersPage() {
                                 </div>
                             </div>
 
-                            {/* Groups List */}
-                            <div className="space-y-3">
-                                {groups
-                                    .filter(group => group.teacherId === selectedHistoryTeacher.id)
-                                    .map(group => {
-                                        const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === group.name) || [];
-                                        const presentCount = groupEvaluations.filter(h => h.status === 'present').length;
-                                        const lateCount = groupEvaluations.filter(h => h.status === 'late').length;
-                                        const absentCount = groupEvaluations.filter(h => h.status === 'absent').length;
-
-                                        const justifiedCount = groupEvaluations.filter(h => h.status === 'justified').length;
-                                        const totalEvaluations = groupEvaluations.length;
-                                        const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
-
-                                        return (
-                                            <div
-                                                key={group.id}
-                                                className="border rounded-lg p-4 hover:bg-orange-50 transition-colors cursor-pointer"
-                                                onClick={() => setSelectedHistoryGroup(group.id)}
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <h4 className="font-medium text-gray-900">{group.name}</h4>
-                                                        <p className="text-sm text-gray-500">
-                                                            Group #{group.id.toString().padStart(6, '0')} • {group.students.length} students
-                                                        </p>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-sm font-medium text-gray-900">{totalEvaluations} evaluations</div>
-                                                        {totalEvaluations > 0 && (
-                                                            <div className="text-xs text-gray-500 space-y-1 mt-1">
-                                                                <div className="flex items-center gap-1 justify-end">
-                                                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                                                                    {presentCount} Present
-                                                                </div>
-                                                                <div className="flex items-center gap-1 justify-end">
-                                                                    <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                                                                    {lateCount} Late
-                                                                </div>
-
-                                                                <div className="flex items-center gap-1 justify-end">
-                                                                    <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                                                                    {justifiedCount} Justified
-                                                                </div>
-                                                                <div className="flex items-center gap-1 justify-end">
-                                                                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                                                                    {absentCount} Absent
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                            {/* Groups Table */}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Group Name
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Group ID
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Students
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {groups
+                                            .filter(group => group.teacherId === selectedHistoryTeacher.id)
+                                            .map(group => (
+                                                <tr
+                                                    key={group.id}
+                                                    className="hover:bg-orange-50 transition-colors cursor-pointer"
+                                                    onClick={() => setSelectedHistoryGroup(group.id)}
+                                                >
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                        {group.name}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        #{group.id.toString().padStart(6, '0')}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        {group.students.length} students
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </>
                     ) : (
@@ -1613,9 +1560,6 @@ export default function TeachersPage() {
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Status
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Group
-                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1632,7 +1576,7 @@ export default function TeachersPage() {
                                             if (allGroupSessions.length === 0) {
                                                 return (
                                                     <tr>
-                                                        <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                                                        <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
                                                             <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
                                                             <p>No sessions found for this group.</p>
                                                         </td>
@@ -1671,21 +1615,49 @@ export default function TeachersPage() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             {evaluation ? (
-                                                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
-                                                                    evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
-                                                                        evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
-                                                                            'bg-red-100 text-red-800'
-                                                                    }`}>
-                                                                    {evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1)}
-                                                                </span>
+                                                                <select
+                                                                    value={evaluation.status}
+                                                                    onChange={async (e) => {
+                                                                        const newStatus = e.target.value as 'present' | 'late' | 'absent' | 'justified';
+                                                                        try {
+                                                                            // Update the evaluation in the database using teacher_id and session_id
+                                                                            const { error } = await supabase
+                                                                                .from('teacher_attendance')
+                                                                                .update({ status: newStatus })
+                                                                                .eq('teacher_id', selectedHistoryTeacher.id)
+                                                                                .eq('session_id', session.id);
+
+                                                                            if (error) {
+                                                                                console.error('Error updating status:', error);
+                                                                                alert('Failed to update status. Please try again.');
+                                                                                return;
+                                                                            }
+
+                                                                            // Refresh the teacher history
+                                                                            await loadTeacherHistory();
+
+                                                                            alert('Status updated successfully!');
+                                                                        } catch (error) {
+                                                                            console.error('Error updating status:', error);
+                                                                            alert('Failed to update status. Please try again.');
+                                                                        }
+                                                                    }}
+                                                                    className={`text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
+                                                                            evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
+                                                                                evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
+                                                                                    'bg-red-100 text-red-800'
+                                                                        }`}
+                                                                >
+                                                                    <option value="present">Present</option>
+                                                                    <option value="late">Late</option>
+                                                                    <option value="absent">Absent</option>
+                                                                    <option value="justified">Justified</option>
+                                                                </select>
                                                             ) : (
                                                                 <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600">
                                                                     Not Evaluated
                                                                 </span>
                                                             )}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {groupName}
                                                         </td>
                                                     </tr>
                                                 );

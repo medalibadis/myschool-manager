@@ -46,8 +46,8 @@ export default function TeachersPage() {
     const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
     const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' } }>({});
-    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified', groupName: string, sessionId: string }> }>({});
+    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default' } }>({});
+    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default', groupName: string, sessionId: string }> }>({});
 
     // History modal states
     const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -141,6 +141,13 @@ export default function TeachersPage() {
             loadTeacherHistory();
         }
     }, [showHistoryModal, teachers]);
+
+    // Load existing evaluations when evaluation modal opens or date changes
+    React.useEffect(() => {
+        if (showEvaluationModal && selectedDate && teachers.length > 0) {
+            loadExistingEvaluations();
+        }
+    }, [showEvaluationModal, selectedDate, teachers]);
 
     const handleCreateTeacher = async () => {
         if (!formData.name || !formData.email) {
@@ -344,7 +351,7 @@ export default function TeachersPage() {
         sessionId: string;
         groupId: number;
         date: string;
-        status: 'present' | 'late' | 'absent' | 'sick' | 'justified';
+        status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default';
         notes?: string;
     }>) => {
         try {
@@ -503,9 +510,42 @@ export default function TeachersPage() {
         }
     };
 
+    // Load existing evaluations for the selected date
+    const loadExistingEvaluations = async () => {
+        try {
+            console.log('🔄 Loading existing evaluations for date:', selectedDate);
+
+            // Get all teacher attendance records for the selected date
+            const { data: existingEvaluations, error } = await supabase
+                .from('teacher_attendance')
+                .select('*')
+                .eq('date', selectedDate);
+
+            if (error) {
+                console.error('Error loading existing evaluations:', error);
+                return;
+            }
+
+            // Convert to the format expected by teacherAttendance state
+            const newAttendanceState: { [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' } } = {};
+
+            existingEvaluations.forEach(evaluation => {
+                if (!newAttendanceState[evaluation.teacher_id]) {
+                    newAttendanceState[evaluation.teacher_id] = {};
+                }
+                newAttendanceState[evaluation.teacher_id][evaluation.session_id] = evaluation.status;
+            });
+
+            console.log('📊 Loaded existing evaluations:', newAttendanceState);
+            setTeacherAttendance(newAttendanceState);
+        } catch (error) {
+            console.error('Error loading existing evaluations:', error);
+        }
+    };
+
     const loadTeacherHistory = async () => {
         try {
-            const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified', groupName: string, sessionId: string }> } = {};
+            const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default', groupName: string, sessionId: string }> } = {};
 
             for (const teacher of teachers) {
                 const attendance = await fetchTeacherAttendance(teacher.id);
@@ -1212,7 +1252,7 @@ export default function TeachersPage() {
                                                                                                 ...prev,
                                                                                                 [teacher.id]: {
                                                                                                     ...prev[teacher.id],
-                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'sick' | 'justified'
+                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default'
                                                                                                 }
                                                                                             }));
                                                                                         }
@@ -1220,6 +1260,7 @@ export default function TeachersPage() {
                                                                                     className="text-xs border rounded px-2 py-1"
                                                                                 >
                                                                                     <option value="-">-</option>
+                                                                                    <option value="default">Default</option>
                                                                                     <option value="present">Present</option>
                                                                                     <option value="late">Late</option>
                                                                                     <option value="absent">Absent</option>
@@ -1263,7 +1304,7 @@ export default function TeachersPage() {
                                     sessionId: string;
                                     groupId: number;
                                     date: string;
-                                    status: 'present' | 'late' | 'absent' | 'sick' | 'justified';
+                                    status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default';
                                     notes?: string;
                                 }> = [];
 

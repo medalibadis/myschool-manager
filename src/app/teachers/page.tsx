@@ -46,8 +46,8 @@ export default function TeachersPage() {
     const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
     const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default' } }>({});
-    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default', groupName: string, sessionId: string }> }>({});
+    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'justified' } }>({});
+    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'justified', groupName: string, sessionId: string }> }>({});
 
     // History modal states
     const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -527,7 +527,7 @@ export default function TeachersPage() {
             }
 
             // Convert to the format expected by teacherAttendance state
-            const newAttendanceState: { [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' } } = {};
+            const newAttendanceState: { [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'justified' } } = {};
 
             existingEvaluations.forEach(evaluation => {
                 if (!newAttendanceState[evaluation.teacher_id]) {
@@ -545,7 +545,7 @@ export default function TeachersPage() {
 
     const loadTeacherHistory = async () => {
         try {
-            const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default', groupName: string, sessionId: string }> } = {};
+            const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'justified', groupName: string, sessionId: string }> } = {};
 
             for (const teacher of teachers) {
                 const attendance = await fetchTeacherAttendance(teacher.id);
@@ -1252,7 +1252,7 @@ export default function TeachersPage() {
                                                                                                 ...prev,
                                                                                                 [teacher.id]: {
                                                                                                     ...prev[teacher.id],
-                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default'
+                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'justified'
                                                                                                 }
                                                                                             }));
                                                                                         }
@@ -1260,11 +1260,9 @@ export default function TeachersPage() {
                                                                                     className="text-xs border rounded px-2 py-1"
                                                                                 >
                                                                                     <option value="-">-</option>
-                                                                                    <option value="default">Default</option>
                                                                                     <option value="present">Present</option>
                                                                                     <option value="late">Late</option>
                                                                                     <option value="absent">Absent</option>
-                                                                                    <option value="sick">Sick</option>
                                                                                     <option value="justified">Justified</option>
                                                                                 </select>
                                                                             </div>
@@ -1304,7 +1302,7 @@ export default function TeachersPage() {
                                     sessionId: string;
                                     groupId: number;
                                     date: string;
-                                    status: 'present' | 'late' | 'absent' | 'sick' | 'justified' | 'default';
+                                    status: 'present' | 'late' | 'absent' | 'justified';
                                     notes?: string;
                                 }> = [];
 
@@ -1438,7 +1436,7 @@ export default function TeachersPage() {
                                                     const presentCount = evaluations.filter(h => h.status === 'present').length;
                                                     const lateCount = evaluations.filter(h => h.status === 'late').length;
                                                     const absentCount = evaluations.filter(h => h.status === 'absent').length;
-                                                    const sickCount = evaluations.filter(h => h.status === 'sick').length;
+
                                                     const justifiedCount = evaluations.filter(h => h.status === 'justified').length;
                                                     const totalEvaluations = evaluations.length;
                                                     const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
@@ -1479,10 +1477,7 @@ export default function TeachersPage() {
                                                                                 <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
                                                                                 {lateCount} Late
                                                                             </div>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                                                                                {sickCount} Sick
-                                                                            </div>
+
                                                                             <div className="flex items-center gap-1">
                                                                                 <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
                                                                                 {justifiedCount} Justified
@@ -1533,7 +1528,7 @@ export default function TeachersPage() {
                                         const presentCount = groupEvaluations.filter(h => h.status === 'present').length;
                                         const lateCount = groupEvaluations.filter(h => h.status === 'late').length;
                                         const absentCount = groupEvaluations.filter(h => h.status === 'absent').length;
-                                        const sickCount = groupEvaluations.filter(h => h.status === 'sick').length;
+
                                         const justifiedCount = groupEvaluations.filter(h => h.status === 'justified').length;
                                         const totalEvaluations = groupEvaluations.length;
                                         const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
@@ -1563,10 +1558,7 @@ export default function TeachersPage() {
                                                                     <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
                                                                     {lateCount} Late
                                                                 </div>
-                                                                <div className="flex items-center gap-1 justify-end">
-                                                                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                                                                    {sickCount} Sick
-                                                                </div>
+
                                                                 <div className="flex items-center gap-1 justify-end">
                                                                     <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
                                                                     {justifiedCount} Justified
@@ -1681,9 +1673,8 @@ export default function TeachersPage() {
                                                             {evaluation ? (
                                                                 <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
                                                                     evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
-                                                                        evaluation.status === 'sick' ? 'bg-blue-100 text-blue-800' :
-                                                                            evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
-                                                                                'bg-red-100 text-red-800'
+                                                                        evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
+                                                                            'bg-red-100 text-red-800'
                                                                     }`}>
                                                                     {evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1)}
                                                                 </span>

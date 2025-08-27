@@ -36,6 +36,7 @@ interface MySchoolStore {
     freezeGroup: (groupId: number) => Promise<void>;
     unfreezeGroup: (groupId: number, unfreezeDate: Date) => Promise<void>;
     rescheduleSession: (sessionId: string, newDate: Date) => Promise<void>;
+    updateTeacherEvaluationForRescheduledSession: (sessionId: string, newDate: Date) => Promise<void>;
 
     fetchPayments: () => Promise<void>;
     // populateExistingUnpaidBalances: () => Promise<void>;
@@ -439,9 +440,42 @@ Thank you for your payment!`,
         try {
             await groupService.rescheduleSession(sessionId, newDate);
             await get().fetchGroups(); // Refresh groups to show updated session date
+
+            // Update teacher evaluations for the rescheduled session
+            await get().updateTeacherEvaluationForRescheduledSession(sessionId, newDate);
+
+            // Dispatch event to notify teacher evaluation system
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('sessionRescheduled', {
+                    detail: { sessionId, newDate }
+                }));
+            }
+
             set({ loading: false });
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    // Teacher evaluation actions
+    updateTeacherEvaluationForRescheduledSession: async (sessionId: string, newDate: Date) => {
+        set({ loading: true, error: null });
+        try {
+            // Update teacher attendance records for the rescheduled session
+            const { supabase } = await import('../lib/supabase');
+            await supabase
+                .from('teacher_attendance')
+                .update({
+                    date: newDate.toISOString().split('T')[0],
+                    updated_at: new Date().toISOString()
+                })
+                .eq('session_id', sessionId);
+
+            set({ loading: false });
+        } catch (error) {
+            console.error('Error updating teacher evaluation for rescheduled session:', error);
+            set({ loading: false });
+            // Don't throw error as this is not critical for session rescheduling
         }
     },
 

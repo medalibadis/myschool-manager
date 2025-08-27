@@ -4022,6 +4022,110 @@ export const paymentService = {
     }
   },
 
+  // Teacher Attendance Operations
+  async getTeacherAttendance(teacherId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    try {
+      let query = supabase
+        .from('teacher_attendance')
+        .select(`
+          *,
+          sessions!inner(
+            id,
+            date,
+            session_number,
+            topic
+          ),
+          groups!inner(
+            id,
+            name
+          )
+        `)
+        .eq('teacher_id', teacherId)
+        .order('date', { ascending: false });
+
+      if (startDate) {
+        query = query.gte('date', startDate);
+      }
+      if (endDate) {
+        query = query.lte('date', endDate);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching teacher attendance:', error);
+      throw error;
+    }
+  },
+
+  async saveTeacherAttendance(attendanceData: Array<{
+    teacherId: string;
+    sessionId: string;
+    groupId: number;
+    date: string;
+    status: 'present' | 'late' | 'absent';
+    notes?: string;
+  }>): Promise<void> {
+    try {
+      // First, delete any existing attendance records for these sessions
+      const sessionIds = attendanceData.map(d => d.sessionId);
+      const { error: deleteError } = await supabase
+        .from('teacher_attendance')
+        .delete()
+        .in('session_id', sessionIds);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new attendance records
+      const { error: insertError } = await supabase
+        .from('teacher_attendance')
+        .insert(attendanceData.map(data => ({
+          teacher_id: data.teacherId,
+          session_id: data.sessionId,
+          group_id: data.groupId,
+          date: data.date,
+          status: data.status,
+          notes: data.notes || null,
+          evaluated_by: 'current_user_id' // This should be the actual admin user ID
+        })));
+
+      if (insertError) throw insertError;
+    } catch (error) {
+      console.error('Error saving teacher attendance:', error);
+      throw error;
+    }
+  },
+
+  async getTeacherAttendanceSummary(teacherId: string): Promise<{
+    totalSessions: number;
+    presentCount: number;
+    lateCount: number;
+    absentCount: number;
+    attendanceRate: number;
+  }> {
+    try {
+      const attendance = await this.getTeacherAttendance(teacherId);
+
+      const totalSessions = attendance.length;
+      const presentCount = attendance.filter(a => a.status === 'present').length;
+      const lateCount = attendance.filter(a => a.status === 'late').length;
+      const absentCount = attendance.filter(a => a.status === 'absent').length;
+      const attendanceRate = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+
+      return {
+        totalSessions,
+        presentCount,
+        lateCount,
+        absentCount,
+        attendanceRate
+      };
+    } catch (error) {
+      console.error('Error getting teacher attendance summary:', error);
+      throw error;
+    }
+  },
+
   // Handle cross-group refund when student stops from one group but has active groups
   async handleCrossGroupRefund(studentId: string, stoppedGroupId: number): Promise<void> {
     try {

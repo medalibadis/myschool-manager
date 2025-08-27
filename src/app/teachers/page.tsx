@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Navigation from '../../components/Navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -8,8 +8,9 @@ import { Input } from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import { useMySchoolStore } from '../../store';
 import AuthGuard from '../../components/AuthGuard';
-import { Teacher } from '../../types';
+import { Teacher, Session } from '../../types';
 import { GlobalKeyboardShortcuts } from '../../components/GlobalKeyboardShortcuts';
+import { supabase } from '../../lib/supabase';
 import {
     PlusIcon,
     UsersIcon,
@@ -45,8 +46,8 @@ export default function TeachersPage() {
     const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
     const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' } }>({});
-    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent', groupName: string, sessionId: string }> }>({});
+    const [teacherAttendance, setTeacherAttendance] = useState<{ [key: string]: { [sessionId: string]: 'present' | 'late' | 'absent' | 'sick' | 'justified' } }>({});
+    const [teacherHistory, setTeacherHistory] = useState<{ [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified', groupName: string, sessionId: string }> }>({});
 
     // History modal states
     const [historySearchTerm, setHistorySearchTerm] = useState('');
@@ -133,6 +134,13 @@ export default function TeachersPage() {
             saveFormToStorage();
         }
     }, [isCreateModalOpen]);
+
+    // Load teacher history when history modal opens
+    React.useEffect(() => {
+        if (showHistoryModal && teachers.length > 0) {
+            loadTeacherHistory();
+        }
+    }, [showHistoryModal, teachers]);
 
     const handleCreateTeacher = async () => {
         if (!formData.name || !formData.email) {
@@ -229,6 +237,316 @@ export default function TeachersPage() {
         };
     };
 
+    // Teacher Attendance Functions
+    const fetchTeacherAttendance = async (teacherId: string, startDate?: string, endDate?: string) => {
+        try {
+            let query = supabase
+                .from('teacher_attendance')
+                .select(`
+                    *,
+                    sessions!inner(
+                        id,
+                        date,
+                        session_number,
+                        topic
+                    ),
+                    groups!inner(
+                        id,
+                        name
+                    )
+                `)
+                .eq('teacher_id', teacherId)
+                .order('date', { ascending: false });
+
+            if (startDate) {
+                query = query.gte('date', startDate);
+            }
+            if (endDate) {
+                query = query.lte('date', endDate);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching teacher attendance:', error);
+            return [];
+        }
+    };
+
+    // Calculate session number for a given session (same logic as attendance page)
+    const getSessionNumber = (session: Session, allSessions: Session[]): number => {
+        if (!allSessions || allSessions.length === 0) return 1;
+
+        // Sort sessions by date
+        const sortedSessions = [...allSessions].sort((a, b) => {
+            const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
+            const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
+            return dateA.getTime() - dateB.getTime();
+        });
+
+        // Find the index of the current session
+        const sessionIndex = sortedSessions.findIndex(s => s.id === session.id);
+        return sessionIndex >= 0 ? sessionIndex + 1 : 1;
+    };
+
+    const checkTeacherAttendanceTable = async () => {
+        try {
+            console.log('🔍 Checking if teacher_attendance table exists...');
+
+            // Try a simple query to check if table exists
+            const { data, error } = await supabase
+                .from('teacher_attendance')
+                .select('id')
+                .limit(1);
+
+            if (error) {
+                console.error('❌ Teacher attendance table check failed:', error);
+                console.error('❌ Table check error details:', {
+                    message: error.message || 'No message',
+                    details: error.details || 'No details',
+                    hint: error.hint || 'No hint',
+                    code: error.code || 'No code'
+                });
+
+                // Check if it's a table doesn't exist error
+                if (error.code === '42P01') {
+                    console.error('❌ Table "teacher_attendance" does not exist');
+                    alert('The teacher attendance table does not exist. Please run the database migration first.');
+                } else if (error.code === '42501') {
+                    console.error('❌ Permission denied accessing table');
+                    alert('Permission denied. Please check your database access rights.');
+                } else {
+                    console.error('❌ Unknown database error:', error.code);
+                    alert('Database error occurred. Please check the console for details.');
+                }
+
+                return false;
+            }
+
+            console.log('✅ Teacher attendance table exists and is accessible');
+            return true;
+        } catch (error: any) {
+            console.error('❌ Error checking teacher attendance table:', error);
+            console.error('❌ Table check error details:', {
+                message: error?.message || 'No message available',
+                details: error?.details || 'No details available',
+                hint: error?.hint || 'No hint available',
+                code: error?.code || 'No code available',
+                stack: error?.stack || 'No stack available'
+            });
+            return false;
+        }
+    };
+
+    const saveTeacherAttendance = async (attendanceData: Array<{
+        teacherId: string;
+        sessionId: string;
+        groupId: number;
+        date: string;
+        status: 'present' | 'late' | 'absent' | 'sick' | 'justified';
+        notes?: string;
+    }>) => {
+        try {
+            console.log('🔄 Saving teacher attendance data:', attendanceData);
+
+            // Direct database check - try to access the table
+            console.log('🔍 Direct database check...');
+            try {
+                const { data: directCheck, error: directCheckError } = await supabase
+                    .from('teacher_attendance')
+                    .select('id')
+                    .limit(1);
+
+                if (directCheckError) {
+                    console.error('❌ Direct table access failed:', directCheckError);
+                    console.error('❌ Direct check error details:', {
+                        message: directCheckError.message || 'No message',
+                        details: directCheckError.details || 'No details',
+                        hint: directCheckError.hint || 'No hint',
+                        code: directCheckError.code || 'No code'
+                    });
+
+                    // Check specific error codes
+                    if (directCheckError.code === '42P01') {
+                        console.error('❌ Table "teacher_attendance" does not exist');
+                        alert('The teacher attendance table does not exist. Please run the database migration first.');
+                        return false;
+                    } else if (directCheckError.code === '42501') {
+                        console.error('❌ Permission denied accessing table');
+                        alert('Permission denied. Please check your database access rights.');
+                        return false;
+                    } else {
+                        console.error('❌ Unknown database error:', directCheckError.code);
+                        alert('Database error occurred. Please check the console for details.');
+                        return false;
+                    }
+                } else {
+                    console.log('✅ Direct table access successful');
+                }
+            } catch (directError: any) {
+                console.error('❌ Direct table access error:', directError);
+                console.error('❌ Direct error details:', {
+                    message: directError?.message || 'No message available',
+                    details: directError?.details || 'No details available',
+                    hint: directError?.hint || 'No hint available',
+                    code: directError?.code || 'No code available',
+                    stack: directError?.stack || 'No stack available'
+                });
+                return false;
+            }
+
+            // Validate input data
+            if (!attendanceData || attendanceData.length === 0) {
+                console.error('❌ No attendance data provided');
+                return false;
+            }
+
+            // Validate each record
+            for (const record of attendanceData) {
+                if (!record.teacherId || !record.sessionId || !record.groupId || !record.date || !record.status) {
+                    console.error('❌ Invalid record data:', record);
+                    return false;
+                }
+            }
+
+            // First, delete any existing attendance records for these sessions
+            const sessionIds = attendanceData.map(d => d.sessionId);
+            console.log('🗑️ Deleting existing records for sessions:', sessionIds);
+
+            try {
+                const { error: deleteError } = await supabase
+                    .from('teacher_attendance')
+                    .delete()
+                    .in('session_id', sessionIds);
+
+                if (deleteError) {
+                    console.error('❌ Error deleting existing records:', deleteError);
+                    console.error('❌ Delete error details:', {
+                        message: deleteError.message || 'No message',
+                        details: deleteError.details || 'No details',
+                        hint: deleteError.hint || 'No hint',
+                        code: deleteError.code || 'No code'
+                    });
+                    console.error('❌ Delete error object:', JSON.stringify(deleteError, null, 2));
+                    throw deleteError;
+                }
+                console.log('✅ Successfully deleted existing records');
+            } catch (deleteException: any) {
+                console.error('❌ Exception during delete:', deleteException);
+                console.error('❌ Delete exception details:', {
+                    message: deleteException?.message || 'No message',
+                    details: deleteException?.details || 'No details',
+                    hint: deleteException?.hint || 'No hint',
+                    code: deleteException?.code || 'No code',
+                    stack: deleteException?.stack || 'No stack'
+                });
+                throw deleteException;
+            }
+
+            // Prepare data for insertion
+            const insertData = attendanceData.map(data => ({
+                teacher_id: data.teacherId,
+                session_id: data.sessionId,
+                group_id: data.groupId,
+                date: data.date,
+                status: data.status,
+                notes: data.notes || null,
+                evaluated_by: null // Set to null for now, can be updated later
+            }));
+
+            console.log('📝 Inserting new attendance records:', insertData);
+
+            // Insert new attendance records
+            try {
+                console.log('📝 Attempting to insert records...');
+                const { data: insertResult, error: insertError } = await supabase
+                    .from('teacher_attendance')
+                    .insert(insertData)
+                    .select();
+
+                if (insertError) {
+                    console.error('❌ Error inserting new records:', insertError);
+                    console.error('❌ Insert error details:', {
+                        message: insertError.message || 'No message',
+                        details: insertError.details || 'No details',
+                        hint: insertError.hint || 'No hint',
+                        code: insertError.code || 'No code'
+                    });
+                    console.error('❌ Insert error object:', JSON.stringify(insertError, null, 2));
+                    throw insertError;
+                }
+
+                console.log('✅ Successfully inserted attendance records:', insertResult);
+                return true;
+            } catch (insertException: any) {
+                console.error('❌ Exception during insert:', insertException);
+                console.error('❌ Insert exception details:', {
+                    message: insertException?.message || 'No message',
+                    details: insertException?.details || 'No details',
+                    hint: insertException?.hint || 'No hint',
+                    code: insertException?.code || 'No code',
+                    stack: insertException?.stack || 'No stack'
+                });
+                throw insertException;
+            }
+        } catch (error: any) {
+            console.error('❌ Error saving teacher attendance:', error);
+            console.error('❌ Error details:', {
+                message: error?.message || 'No message available',
+                details: error?.details || 'No details available',
+                hint: error?.hint || 'No hint available',
+                code: error?.code || 'No code available',
+                stack: error?.stack || 'No stack available'
+            });
+            return false;
+        }
+    };
+
+    const loadTeacherHistory = async () => {
+        try {
+            const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'sick' | 'justified', groupName: string, sessionId: string }> } = {};
+
+            for (const teacher of teachers) {
+                const attendance = await fetchTeacherAttendance(teacher.id);
+                if (attendance.length > 0) {
+                    newHistory[teacher.id] = attendance.map(record => ({
+                        date: record.date,
+                        status: record.status,
+                        groupName: record.groups.name,
+                        sessionId: record.session_id
+                    }));
+                }
+            }
+
+            setTeacherHistory(newHistory);
+        } catch (error) {
+            console.error('Error loading teacher history:', error);
+        }
+    };
+
+    // Refresh teacher history when groups are updated (e.g., after session rescheduling)
+    useEffect(() => {
+        if (groups.length > 0 && teachers.length > 0) {
+            loadTeacherHistory();
+        }
+    }, [groups, teachers]);
+
+    // Listen for session rescheduling events and refresh teacher evaluations
+    useEffect(() => {
+        const handleSessionRescheduled = () => {
+            // Refresh teacher history when sessions are rescheduled
+            loadTeacherHistory();
+        };
+
+        // Add event listener for session rescheduling
+        window.addEventListener('sessionRescheduled', handleSessionRescheduled);
+
+        return () => {
+            window.removeEventListener('sessionRescheduled', handleSessionRescheduled);
+        };
+    }, []);
+
     // Form persistence functions
     const saveFormToStorage = () => {
         if (hasUnsavedChanges) {
@@ -315,7 +633,10 @@ export default function TeachersPage() {
                                 <div className="flex gap-3">
                                     <Button
                                         variant="outline"
-                                        onClick={() => setShowEvaluationModal(true)}
+                                        onClick={() => {
+                                            setShowEvaluationModal(true);
+                                            setTeacherAttendance({}); // Reset form when opening
+                                        }}
                                     >
                                         <ClipboardDocumentCheckIcon className="h-5 w-5 mr-2" />
                                         Evaluate
@@ -761,15 +1082,18 @@ export default function TeachersPage() {
                     {/* Header with History Button */}
                     <div className="flex items-center justify-between">
                         <h3 className="text-lg font-medium text-gray-900">Select Date and Evaluate Teachers</h3>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowHistoryModal(true)}
-                            className="text-sm"
-                        >
-                            <CalendarIcon className="h-4 w-4 mr-1" />
-                            History
-                        </Button>
+                        <div className="flex space-x-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowHistoryModal(true)}
+                                className="text-sm"
+                            >
+                                <CalendarIcon className="h-4 w-4 mr-1" />
+                                History
+                            </Button>
+
+                        </div>
                     </div>
 
                     {/* Date Selection */}
@@ -859,7 +1183,7 @@ export default function TeachersPage() {
                                                                             <div className="flex items-center">
                                                                                 <ClockIcon className="h-4 w-4 text-gray-400 mr-2" />
                                                                                 <span className="text-sm text-gray-700">
-                                                                                    Session #{index + 1} - {new Date(session.date).toLocaleDateString()}
+                                                                                    Session #{getSessionNumber(session, group.sessions || [])} - {new Date(session.date).toLocaleDateString()}
                                                                                 </span>
                                                                             </div>
 
@@ -867,21 +1191,40 @@ export default function TeachersPage() {
                                                                             <div className="flex items-center space-x-2">
                                                                                 <span className="text-xs text-gray-500">Status:</span>
                                                                                 <select
-                                                                                    value={teacherAttendance[teacher.id]?.[session.id] || 'present'}
+                                                                                    value={teacherAttendance[teacher.id]?.[session.id] || '-'}
                                                                                     onChange={(e) => {
-                                                                                        setTeacherAttendance(prev => ({
-                                                                                            ...prev,
-                                                                                            [teacher.id]: {
-                                                                                                ...prev[teacher.id],
-                                                                                                [session.id]: e.target.value as 'present' | 'late' | 'absent'
-                                                                                            }
-                                                                                        }));
+                                                                                        const newStatus = e.target.value;
+                                                                                        if (newStatus === '-') {
+                                                                                            // Remove the status if "-" is selected
+                                                                                            setTeacherAttendance(prev => {
+                                                                                                const newState = { ...prev };
+                                                                                                if (newState[teacher.id]) {
+                                                                                                    delete newState[teacher.id][session.id];
+                                                                                                    if (Object.keys(newState[teacher.id]).length === 0) {
+                                                                                                        delete newState[teacher.id];
+                                                                                                    }
+                                                                                                }
+                                                                                                return newState;
+                                                                                            });
+                                                                                        } else {
+                                                                                            // Set the selected status
+                                                                                            setTeacherAttendance(prev => ({
+                                                                                                ...prev,
+                                                                                                [teacher.id]: {
+                                                                                                    ...prev[teacher.id],
+                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'sick' | 'justified'
+                                                                                                }
+                                                                                            }));
+                                                                                        }
                                                                                     }}
                                                                                     className="text-xs border rounded px-2 py-1"
                                                                                 >
+                                                                                    <option value="-">-</option>
                                                                                     <option value="present">Present</option>
                                                                                     <option value="late">Late</option>
                                                                                     <option value="absent">Absent</option>
+                                                                                    <option value="sick">Sick</option>
+                                                                                    <option value="justified">Justified</option>
                                                                                 </select>
                                                                             </div>
                                                                         </div>
@@ -904,55 +1247,83 @@ export default function TeachersPage() {
                 <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
                     <Button
                         variant="outline"
-                        onClick={() => setShowEvaluationModal(false)}
+                        onClick={() => {
+                            setShowEvaluationModal(false);
+                            setTeacherAttendance({}); // Reset form when closing
+                        }}
                     >
                         Cancel
                     </Button>
                     <Button
-                        onClick={() => {
-                            // Save teacher attendance to history
-                            const newHistory = { ...teacherHistory };
+                        onClick={async () => {
+                            try {
+                                // Prepare attendance data for database
+                                const attendanceData: Array<{
+                                    teacherId: string;
+                                    sessionId: string;
+                                    groupId: number;
+                                    date: string;
+                                    status: 'present' | 'late' | 'absent' | 'sick' | 'justified';
+                                    notes?: string;
+                                }> = [];
 
-                            // Process each teacher's attendance
-                            Object.keys(teacherAttendance).forEach(teacherId => {
-                                const teacher = teachers.find(t => t.id === teacherId);
-                                if (!teacher) return;
+                                // Process each teacher's attendance
+                                Object.keys(teacherAttendance).forEach(teacherId => {
+                                    const teacher = teachers.find(t => t.id === teacherId);
+                                    if (!teacher) return;
 
-                                const teacherGroups = groups.filter(group =>
-                                    group.teacherId === teacherId &&
-                                    group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
-                                );
+                                    const teacherGroups = groups.filter(group =>
+                                        group.teacherId === teacherId &&
+                                        group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
+                                    );
 
-                                teacherGroups.forEach(group => {
-                                    const groupSessions = group.sessions?.filter(session =>
-                                        new Date(session.date).toISOString().split('T')[0] === selectedDate
-                                    ) || [];
+                                    teacherGroups.forEach(group => {
+                                        const groupSessions = group.sessions?.filter(session =>
+                                            new Date(session.date).toISOString().split('T')[0] === selectedDate
+                                        ) || [];
 
-                                    groupSessions.forEach(session => {
-                                        const status = teacherAttendance[teacherId]?.[session.id];
-                                        if (status) {
-                                            if (!newHistory[teacherId]) {
-                                                newHistory[teacherId] = [];
+                                        groupSessions.forEach(session => {
+                                            const status = teacherAttendance[teacherId]?.[session.id];
+                                            if (status) {
+                                                attendanceData.push({
+                                                    teacherId: teacherId,
+                                                    sessionId: session.id,
+                                                    groupId: group.id,
+                                                    date: selectedDate,
+                                                    status: status,
+                                                    notes: `Teacher evaluation for ${selectedDate}`
+                                                });
                                             }
-
-                                            // Add to history
-                                            newHistory[teacherId].push({
-                                                date: selectedDate,
-                                                status: status,
-                                                groupName: group.name,
-                                                sessionId: session.id
-                                            });
-                                        }
+                                        });
                                     });
                                 });
-                            });
 
-                            setTeacherHistory(newHistory);
-                            setTeacherAttendance({});
-                            setShowEvaluationModal(false);
+                                if (attendanceData.length === 0) {
+                                    alert('No attendance data to save. Please select attendance status for at least one session.');
+                                    return;
+                                }
 
-                            // Show success message
-                            alert('Teacher evaluation saved successfully!');
+                                console.log('📊 Prepared attendance data:', attendanceData);
+
+                                // Save to database
+                                const success = await saveTeacherAttendance(attendanceData);
+
+                                if (success) {
+                                    // Refresh teacher history
+                                    await loadTeacherHistory();
+
+                                    // Reset form
+                                    setTeacherAttendance({});
+                                    setShowEvaluationModal(false);
+
+                                    alert('Teacher evaluation saved successfully to database!');
+                                } else {
+                                    alert('Failed to save teacher evaluation. Please check the console for details and try again.');
+                                }
+                            } catch (error) {
+                                console.error('Error saving teacher evaluation:', error);
+                                alert('Error saving teacher evaluation. Please try again.');
+                            }
                         }}
                         className="bg-orange-600 hover:bg-orange-700"
                     >
@@ -1024,6 +1395,10 @@ export default function TeachersPage() {
                                                     const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
                                                     const evaluations = teacherHistory[teacher.id] || [];
                                                     const presentCount = evaluations.filter(h => h.status === 'present').length;
+                                                    const lateCount = evaluations.filter(h => h.status === 'late').length;
+                                                    const absentCount = evaluations.filter(h => h.status === 'absent').length;
+                                                    const sickCount = evaluations.filter(h => h.status === 'sick').length;
+                                                    const justifiedCount = evaluations.filter(h => h.status === 'justified').length;
                                                     const totalEvaluations = evaluations.length;
                                                     const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
 
@@ -1051,12 +1426,31 @@ export default function TeachersPage() {
                                                                 {teacherGroups.length}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex items-center">
+                                                                <div className="flex flex-col">
                                                                     <span className="text-sm font-medium text-gray-900">{totalEvaluations}</span>
                                                                     {totalEvaluations > 0 && (
-                                                                        <span className="ml-2 text-xs text-gray-500">
-                                                                            ({attendanceRate}% present)
-                                                                        </span>
+                                                                        <div className="text-xs text-gray-500 space-y-1 mt-1">
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                                                {presentCount} Present
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                                                                                {lateCount} Late
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                                                                {sickCount} Sick
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                                                                                {justifiedCount} Justified
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                                                {absentCount} Absent
+                                                                            </div>
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             </td>
@@ -1096,6 +1490,10 @@ export default function TeachersPage() {
                                     .map(group => {
                                         const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === group.name) || [];
                                         const presentCount = groupEvaluations.filter(h => h.status === 'present').length;
+                                        const lateCount = groupEvaluations.filter(h => h.status === 'late').length;
+                                        const absentCount = groupEvaluations.filter(h => h.status === 'absent').length;
+                                        const sickCount = groupEvaluations.filter(h => h.status === 'sick').length;
+                                        const justifiedCount = groupEvaluations.filter(h => h.status === 'justified').length;
                                         const totalEvaluations = groupEvaluations.length;
                                         const attendanceRate = totalEvaluations > 0 ? Math.round((presentCount / totalEvaluations) * 100) : 0;
 
@@ -1115,7 +1513,28 @@ export default function TeachersPage() {
                                                     <div className="text-right">
                                                         <div className="text-sm font-medium text-gray-900">{totalEvaluations} evaluations</div>
                                                         {totalEvaluations > 0 && (
-                                                            <div className="text-xs text-gray-500">{attendanceRate}% present</div>
+                                                            <div className="text-xs text-gray-500 space-y-1 mt-1">
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                                    {presentCount} Present
+                                                                </div>
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                                                                    {lateCount} Late
+                                                                </div>
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                                                    {sickCount} Sick
+                                                                </div>
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                                                                    {justifiedCount} Justified
+                                                                </div>
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                                    {absentCount} Absent
+                                                                </div>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -1156,7 +1575,7 @@ export default function TeachersPage() {
                                                 Date
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Session
+                                                Session & Topic
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Status
@@ -1168,43 +1587,77 @@ export default function TeachersPage() {
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {(() => {
-                                            const groupName = groups.find(g => g.id === selectedHistoryGroup)?.name || '';
+                                            const selectedGroup = groups.find(g => g.id === selectedHistoryGroup);
+                                            const groupName = selectedGroup?.name || '';
                                             const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === groupName) || [];
 
-                                            if (groupEvaluations.length === 0) {
+                                            // Get all sessions for this group, sorted by date
+                                            const allGroupSessions = selectedGroup?.sessions?.sort((a, b) =>
+                                                new Date(a.date).getTime() - new Date(b.date).getTime()
+                                            ) || [];
+
+                                            if (allGroupSessions.length === 0) {
                                                 return (
                                                     <tr>
                                                         <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
                                                             <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                                                            <p>No evaluations found for this group.</p>
+                                                            <p>No sessions found for this group.</p>
                                                         </td>
                                                     </tr>
                                                 );
                                             }
 
-                                            return groupEvaluations
-                                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                                                .map((evaluation, index) => (
-                                                    <tr key={index} className="hover:bg-gray-50">
+                                            return allGroupSessions.map((session, index) => {
+                                                // Find evaluation for this session if it exists
+                                                const evaluation = groupEvaluations.find(e => e.sessionId === session.id);
+
+                                                const sessionNumber = getSessionNumber(session, allGroupSessions);
+                                                const sessionDate = new Date(session.date).toLocaleDateString('en-US', {
+                                                    month: 'short',
+                                                    day: '2-digit'
+                                                });
+
+                                                return (
+                                                    <tr key={session.id} className="hover:bg-gray-50">
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {new Date(evaluation.date).toLocaleDateString()}
+                                                            <div className="flex flex-col">
+                                                                <span className="font-medium">{sessionDate}</span>
+                                                                <span className="text-xs text-gray-500">
+                                                                    {new Date(session.date).toLocaleDateString('en-US', {
+                                                                        weekday: 'short',
+                                                                        year: 'numeric'
+                                                                    })}
+                                                                </span>
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            Session #{index + 1}
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-blue-600">#{sessionNumber}</span>
+                                                                <span className="text-xs text-gray-500">Session</span>
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
+                                                            {evaluation ? (
+                                                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
                                                                     evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
-                                                                        'bg-red-100 text-red-800'
-                                                                }`}>
-                                                                {evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1)}
-                                                            </span>
+                                                                        evaluation.status === 'sick' ? 'bg-blue-100 text-blue-800' :
+                                                                            evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
+                                                                                'bg-red-100 text-red-800'
+                                                                    }`}>
+                                                                    {evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600">
+                                                                    Not Evaluated
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {evaluation.groupName}
+                                                            {groupName}
                                                         </td>
                                                     </tr>
-                                                ));
+                                                );
+                                            });
                                         })()}
                                     </tbody>
                                 </table>

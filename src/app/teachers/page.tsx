@@ -1643,9 +1643,9 @@ export default function TeachersPage() {
                                                                         }
                                                                     }}
                                                                     className={`text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
-                                                                            evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
-                                                                                evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
-                                                                                    'bg-red-100 text-red-800'
+                                                                        evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
+                                                                            evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
+                                                                                'bg-red-100 text-red-800'
                                                                         }`}
                                                                 >
                                                                     <option value="present">Present</option>
@@ -1654,9 +1654,49 @@ export default function TeachersPage() {
                                                                     <option value="justified">Justified</option>
                                                                 </select>
                                                             ) : (
-                                                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600">
-                                                                    Not Evaluated
-                                                                </span>
+                                                                <select
+                                                                    value="-"
+                                                                    onChange={async (e) => {
+                                                                        const newStatus = e.target.value;
+                                                                        if (newStatus === '-') return;
+
+                                                                        try {
+                                                                            // Create a new evaluation record in the database
+                                                                            const { error } = await supabase
+                                                                                .from('teacher_attendance')
+                                                                                .insert({
+                                                                                    teacher_id: selectedHistoryTeacher.id,
+                                                                                    session_id: session.id,
+                                                                                    group_id: selectedHistoryGroup,
+                                                                                    date: session.date,
+                                                                                    status: newStatus,
+                                                                                    notes: `Teacher evaluation created from history view`,
+                                                                                    evaluated_by: null
+                                                                                });
+
+                                                                            if (error) {
+                                                                                console.error('Error creating evaluation:', error);
+                                                                                alert('Failed to create evaluation. Please try again.');
+                                                                                return;
+                                                                            }
+
+                                                                            // Refresh the teacher history
+                                                                            await loadTeacherHistory();
+
+                                                                            alert('Evaluation created successfully!');
+                                                                        } catch (error) {
+                                                                            console.error('Error creating evaluation:', error);
+                                                                            alert('Failed to create evaluation. Please try again.');
+                                                                        }
+                                                                    }}
+                                                                    className="text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 border border-dashed border-gray-400"
+                                                                >
+                                                                    <option value="-">Not Evaluated</option>
+                                                                    <option value="present">Present</option>
+                                                                    <option value="late">Late</option>
+                                                                    <option value="absent">Absent</option>
+                                                                    <option value="justified">Justified</option>
+                                                                </select>
                                                             )}
                                                         </td>
                                                     </tr>

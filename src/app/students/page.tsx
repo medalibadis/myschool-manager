@@ -136,13 +136,7 @@ export default function StudentsPage() {
         });
 
         const result = Array.from(studentsMap.values());
-        console.log('Final deduplicated students:', result.length);
-        result.forEach(student => {
-            console.log(`Student: ${student.name} - Groups: ${student.groups.length}`);
-            student.groups.forEach((group: { name: string; status: string }) => {
-                console.log(`  Group ${group.name}: status = ${group.status}`);
-            });
-        });
+        return result;
 
         return result;
     }, [groups]);

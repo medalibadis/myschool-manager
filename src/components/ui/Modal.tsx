@@ -7,7 +7,7 @@ interface ModalProps {
     onClose: () => void;
     title?: string;
     children: React.ReactNode;
-    maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+    maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl';
 }
 
 const Modal: React.FC<ModalProps> = ({
@@ -26,6 +26,8 @@ const Modal: React.FC<ModalProps> = ({
         '3xl': 'max-w-3xl',
         '4xl': 'max-w-4xl',
         '5xl': 'max-w-5xl',
+        '6xl': 'max-w-6xl',
+        '7xl': 'max-w-7xl',
     };
 
     return (
@@ -43,7 +45,7 @@ const Modal: React.FC<ModalProps> = ({
                     <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
                 </Transition.Child>
 
-                <div className="fixed inset-0 z-10">
+                <div className="fixed inset-0 z-10 overflow-y-auto">
                     <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
                         <Transition.Child
                             as={Fragment}

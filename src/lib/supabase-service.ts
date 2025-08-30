@@ -4221,8 +4221,18 @@ export const paymentService = {
               .eq('group_id', group.id)
               .single();
 
-            if (paymentError && paymentError.code !== 'PGRST116') { // PGRST116 = no rows returned
-              console.log(`ℹ️ Payment table might not exist yet for group ${group.id}`);
+            if (paymentError) {
+              if (paymentError.code === 'PGRST116') { // PGRST116 = no rows returned
+                // No payment record found, which is fine
+                existingPayment = null;
+              } else if (paymentError.code === 'PGRST116' || paymentError.message?.includes('does not exist')) {
+                // Table doesn't exist yet - this is expected if SQL setup hasn't been run
+                console.log(`ℹ️ Teacher salaries table doesn't exist yet - run the SQL setup script`);
+                existingPayment = null;
+              } else {
+                console.error(`❌ Error checking payment for group ${group.id}:`, paymentError);
+                existingPayment = null;
+              }
             } else {
               existingPayment = payment;
             }

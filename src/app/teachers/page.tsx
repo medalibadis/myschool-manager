@@ -781,8 +781,8 @@ export default function TeachersPage() {
                             </Card>
                         </div>
 
-                        {/* Scrollable Table Section */}
-                        <div className="overflow-x-auto max-h-[calc(100vh-300px)]">
+                        {/* Table Section */}
+                        <div className="overflow-x-auto">
                             {filteredTeachers.length > 0 ? (
                                 /* Teachers Table */
                                 <Card>
@@ -967,6 +967,7 @@ export default function TeachersPage() {
                         isOpen={showUnsavedWarning}
                         onClose={() => setShowUnsavedWarning(false)}
                         title="Unsaved Changes"
+                        maxWidth="2xl"
                     >
                         <div className="space-y-4">
                             <p className="text-gray-600">
@@ -1084,7 +1085,7 @@ export default function TeachersPage() {
                     setSelectedTeacher(null);
                 }}
                 title={`Teacher Details - ${selectedTeacher?.name}`}
-                maxWidth="2xl"
+                maxWidth="4xl"
             >
                 {selectedTeacher && (
                     <div className="space-y-6">
@@ -1163,7 +1164,7 @@ export default function TeachersPage() {
                         {/* Assigned Groups */}
                         <div className="bg-gray-50 p-4 rounded-lg border">
                             <h3 className="text-sm font-medium text-gray-700 mb-3">Assigned Groups</h3>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                            <div className="space-y-2">
                                 {groups.filter(group => group.teacherId === selectedTeacher.id).length > 0 ? (
                                     groups.filter(group => group.teacherId === selectedTeacher.id).map((group) => (
                                         <div key={group.id} className="p-3 bg-white rounded-lg border hover:bg-orange-50 transition-colors">
@@ -1216,6 +1217,7 @@ export default function TeachersPage() {
                 isOpen={showEvaluationModal}
                 onClose={() => setShowEvaluationModal(false)}
                 title="Teacher Evaluation"
+                maxWidth="4xl"
             >
                 <div className="space-y-6">
                     {/* Header with History Button */}
@@ -1230,15 +1232,6 @@ export default function TeachersPage() {
                             >
                                 <CalendarIcon className="h-4 w-4 mr-1" />
                                 History
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShowSalaryModal(true)}
-                                className="text-sm"
-                            >
-                                <CalendarIcon className="h-4 w-4 mr-1" />
-                                Salary
                             </Button>
                         </div>
                     </div>
@@ -1488,6 +1481,7 @@ export default function TeachersPage() {
                     setHistorySearchTerm('');
                 }}
                 title="Teacher Evaluation History"
+                maxWidth="4xl"
             >
                 <div className="space-y-6">
                     {!selectedHistoryTeacher ? (
@@ -1843,6 +1837,7 @@ export default function TeachersPage() {
                     setSalarySearchTerm('');
                 }}
                 title="Teacher Salary Management"
+                maxWidth="4xl"
             >
                 <div className="space-y-6">
                     {!selectedSalaryTeacher ? (
@@ -1862,7 +1857,7 @@ export default function TeachersPage() {
                                 />
                             </div>
 
-                            <div className="max-h-96 overflow-y-auto">
+                            <div>
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
                                         <tr>
@@ -2071,6 +2066,7 @@ export default function TeachersPage() {
                     `Salary Details - ${selectedGroupSalary.group_name}` :
                     `Salary History - ${selectedSalaryTeacher?.name}`
                 }
+                maxWidth="4xl"
             >
                 {selectedGroupSalary && (
                     <div className="space-y-6">

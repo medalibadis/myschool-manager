@@ -1,5 +1,6 @@
 -- Simple Teacher Salary System Setup
 -- Run this in your Supabase SQL editor
+-- This script is safe to run multiple times
 
 -- 1. Add price_per_session field to teachers table (if not exists)
 ALTER TABLE teachers 
@@ -31,7 +32,12 @@ CREATE INDEX IF NOT EXISTS idx_teacher_salaries_payment_date ON teacher_salaries
 -- 4. Enable RLS on teacher_salaries table
 ALTER TABLE teacher_salaries ENABLE ROW LEVEL SECURITY;
 
--- 5. Create RLS policies for teacher_salaries
+-- 5. Drop existing policies if they exist (to avoid conflicts)
+DROP POLICY IF EXISTS "Allow authenticated users to view teacher salaries" ON teacher_salaries;
+DROP POLICY IF EXISTS "Allow authenticated users to insert teacher salaries" ON teacher_salaries;
+DROP POLICY IF EXISTS "Allow authenticated users to update teacher salaries" ON teacher_salaries;
+
+-- 6. Create RLS policies for teacher_salaries
 CREATE POLICY "Allow authenticated users to view teacher salaries" ON teacher_salaries
     FOR SELECT USING (auth.role() = 'authenticated');
 
@@ -41,12 +47,12 @@ CREATE POLICY "Allow authenticated users to insert teacher salaries" ON teacher_
 CREATE POLICY "Allow authenticated users to update teacher salaries" ON teacher_salaries
     FOR UPDATE USING (auth.role() = 'authenticated');
 
--- 6. Update existing teachers to have a default price per session
+-- 7. Update existing teachers to have a default price per session
 UPDATE teachers 
 SET price_per_session = 1000.00 
 WHERE price_per_session IS NULL OR price_per_session = 0;
 
--- 7. Verify the setup
+-- 8. Verify the setup
 SELECT 'Teacher salary system setup completed successfully!' as status;
 SELECT COUNT(*) as teachers_count FROM teachers;
 SELECT COUNT(*) as groups_count FROM groups;

@@ -2183,7 +2183,13 @@ export default function TeachersPage() {
                                         alert('Salary payment processed successfully!');
                                     } catch (error) {
                                         console.error('Error processing salary payment:', error);
-                                        alert('Failed to process salary payment. Please try again.');
+
+                                        // Check if it's the service role key error
+                                        if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+                                            alert('Salary payment requires admin access. Please add the SUPABASE_SERVICE_ROLE_KEY to your .env.local file. See the setup guide for instructions.');
+                                        } else {
+                                            alert('Failed to process salary payment. Please try again.');
+                                        }
                                     }
                                 }}
                             >

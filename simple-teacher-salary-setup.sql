@@ -36,16 +36,29 @@ ALTER TABLE teacher_salaries ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow authenticated users to view teacher salaries" ON teacher_salaries;
 DROP POLICY IF EXISTS "Allow authenticated users to insert teacher salaries" ON teacher_salaries;
 DROP POLICY IF EXISTS "Allow authenticated users to update teacher salaries" ON teacher_salaries;
+DROP POLICY IF EXISTS "Allow authenticated users to delete teacher salaries" ON teacher_salaries;
 
--- 6. Create RLS policies for teacher_salaries
+-- 6. Create comprehensive RLS policies for teacher_salaries
+-- Policy for SELECT (viewing)
 CREATE POLICY "Allow authenticated users to view teacher salaries" ON teacher_salaries
-    FOR SELECT USING (auth.role() = 'authenticated');
+    FOR SELECT 
+    USING (auth.role() = 'authenticated');
 
+-- Policy for INSERT (creating new records)
 CREATE POLICY "Allow authenticated users to insert teacher salaries" ON teacher_salaries
-    FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+    FOR INSERT 
+    WITH CHECK (auth.role() = 'authenticated');
 
+-- Policy for UPDATE (modifying existing records)
 CREATE POLICY "Allow authenticated users to update teacher salaries" ON teacher_salaries
-    FOR UPDATE USING (auth.role() = 'authenticated');
+    FOR UPDATE 
+    USING (auth.role() = 'authenticated')
+    WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for DELETE (removing records)
+CREATE POLICY "Allow authenticated users to delete teacher salaries" ON teacher_salaries
+    FOR DELETE 
+    USING (auth.role() = 'authenticated');
 
 -- 7. Update existing teachers to have a default price per session
 UPDATE teachers 
@@ -56,3 +69,8 @@ WHERE price_per_session IS NULL OR price_per_session = 0;
 SELECT 'Teacher salary system setup completed successfully!' as status;
 SELECT COUNT(*) as teachers_count FROM teachers;
 SELECT COUNT(*) as groups_count FROM groups;
+
+-- 9. Show current policies
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check 
+FROM pg_policies 
+WHERE tablename = 'teacher_salaries';

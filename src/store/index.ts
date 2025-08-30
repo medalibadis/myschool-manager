@@ -549,7 +549,15 @@ Thank you for your payment!`,
             return data;
         } catch (error) {
             console.error('Error paying teacher salary:', error);
-            set({ loading: false, error: error as string });
+
+            // Provide better error message for service role key issues
+            if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+                const errorMessage = 'Salary payment requires admin access. Please add the SUPABASE_SERVICE_ROLE_KEY to your .env.local file. See the setup guide for instructions.';
+                set({ loading: false, error: errorMessage });
+                throw new Error(errorMessage);
+            }
+
+            set({ loading: false, error: (error as Error).message });
             throw error;
         }
     },
@@ -563,7 +571,15 @@ Thank you for your payment!`,
             return data;
         } catch (error) {
             console.error('Error fetching teacher salary history:', error);
-            set({ loading: false, error: error as string });
+
+            // Provide better error message for service role key issues
+            if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+                const errorMessage = 'Salary history requires admin access. Please add the SUPABASE_SERVICE_ROLE_KEY to your .env.local file. See the setup guide for instructions.';
+                set({ loading: false, error: errorMessage });
+                throw new Error(errorMessage);
+            }
+
+            set({ loading: false, error: (error as Error).message });
             throw error;
         }
     },

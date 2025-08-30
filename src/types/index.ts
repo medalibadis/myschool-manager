@@ -4,6 +4,7 @@ export interface Teacher {
     name: string;
     email: string;
     phone?: string;
+    price_per_session?: number; // Amount paid per session for this teacher
 }
 
 export interface Admin {
@@ -199,4 +200,33 @@ export interface GroupWithDetails extends Group {
     totalStudents: number;
     totalSessionsGenerated: number;
     nextSession?: Date;
+}
+
+// Teacher Salary Management Interfaces
+export interface TeacherSalary {
+    id: string;
+    teacher_id: string;
+    group_id: number;
+    total_sessions: number;
+    present_sessions: number;
+    late_sessions: number;
+    absent_sessions: number;
+    justified_sessions: number;
+    calculated_salary: number;
+    paid_amount: number;
+    payment_date: string;
+    payment_notes?: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface UnpaidGroupSalary {
+    group_id: number;
+    group_name: string;
+    total_sessions: number;
+    present_sessions: number;
+    late_sessions: number;
+    absent_sessions: number;
+    justified_sessions: number;
+    calculated_salary: number;
 } 

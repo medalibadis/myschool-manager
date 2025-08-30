@@ -37,6 +37,24 @@ interface MySchoolStore {
     unfreezeGroup: (groupId: number, unfreezeDate: Date) => Promise<void>;
     rescheduleSession: (sessionId: string, newDate: Date) => Promise<void>;
     updateTeacherEvaluationForRescheduledSession: (sessionId: string, newDate: Date) => Promise<void>;
+    // Teacher salary actions
+    getTeacherUnpaidGroups: (teacherId: string) => Promise<any[]>;
+    calculateGroupSalary: (teacherId: string, groupId: number) => Promise<any>;
+    payTeacherSalary: (salaryData: {
+        teacher_id: string;
+        group_id: number;
+        total_sessions: number;
+        present_sessions: number;
+        late_sessions: number;
+        absent_sessions: number;
+        justified_sessions: number;
+        calculated_salary: number;
+        paid_amount: number;
+        payment_date: string;
+        payment_notes?: string;
+    }) => Promise<any>;
+    getTeacherSalaryHistory: (teacherId: string) => Promise<any[]>;
+    updateTeacherPricePerSession: (teacherId: string, pricePerSession: number) => Promise<any>;
 
     fetchPayments: () => Promise<void>;
     // populateExistingUnpaidBalances: () => Promise<void>;
@@ -476,6 +494,89 @@ Thank you for your payment!`,
             console.error('Error updating teacher evaluation for rescheduled session:', error);
             set({ loading: false });
             // Don't throw error as this is not critical for session rescheduling
+        }
+    },
+
+    // Teacher salary actions
+    getTeacherUnpaidGroups: async (teacherId: string) => {
+        set({ loading: true, error: null });
+        try {
+            const { paymentService } = await import('../lib/supabase-service');
+            const data = await paymentService.getTeacherUnpaidGroups(teacherId);
+            set({ loading: false });
+            return data;
+        } catch (error) {
+            console.error('Error fetching teacher unpaid groups:', error);
+            set({ loading: false, error: error as string });
+            throw error;
+        }
+    },
+
+    calculateGroupSalary: async (teacherId: string, groupId: number) => {
+        set({ loading: true, error: null });
+        try {
+            const { paymentService } = await import('../lib/supabase-service');
+            const data = await paymentService.calculateGroupSalary(teacherId, groupId);
+            set({ loading: false });
+            return data;
+        } catch (error) {
+            console.error('Error calculating group salary:', error);
+            set({ loading: false, error: error as string });
+            throw error;
+        }
+    },
+
+    payTeacherSalary: async (salaryData: {
+        teacher_id: string;
+        group_id: number;
+        total_sessions: number;
+        present_sessions: number;
+        late_sessions: number;
+        absent_sessions: number;
+        justified_sessions: number;
+        calculated_salary: number;
+        paid_amount: number;
+        payment_date: string;
+        payment_notes?: string;
+    }) => {
+        set({ loading: true, error: null });
+        try {
+            const { paymentService } = await import('../lib/supabase-service');
+            const data = await paymentService.payTeacherSalary(salaryData);
+            set({ loading: false });
+            return data;
+        } catch (error) {
+            console.error('Error paying teacher salary:', error);
+            set({ loading: false, error: error as string });
+            throw error;
+        }
+    },
+
+    getTeacherSalaryHistory: async (teacherId: string) => {
+        set({ loading: true, error: null });
+        try {
+            const { paymentService } = await import('../lib/supabase-service');
+            const data = await paymentService.getTeacherSalaryHistory(teacherId);
+            set({ loading: false });
+            return data;
+        } catch (error) {
+            console.error('Error fetching teacher salary history:', error);
+            set({ loading: false, error: error as string });
+            throw error;
+        }
+    },
+
+    updateTeacherPricePerSession: async (teacherId: string, pricePerSession: number) => {
+        set({ loading: true, error: null });
+        try {
+            const { paymentService } = await import('../lib/supabase-service');
+            const data = await paymentService.updateTeacherPricePerSession(teacherId, pricePerSession);
+            set({ loading: false });
+            return data;
+        } catch (error) {
+            console.error('Error updating teacher price per session:', error);
+            set({ loading: false, error: error as string });
+            throw error;
         }
     },
 

@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import { useMySchoolStore } from '../../store';
 import AuthGuard from '../../components/AuthGuard';
-import { Teacher, Session } from '../../types';
+import { Teacher, Session, UnpaidGroupSalary, TeacherSalary } from '../../types';
 import { GlobalKeyboardShortcuts } from '../../components/GlobalKeyboardShortcuts';
 import { supabase } from '../../lib/supabase';
 import {
@@ -53,10 +53,20 @@ export default function TeachersPage() {
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [selectedHistoryTeacher, setSelectedHistoryTeacher] = useState<Teacher | null>(null);
     const [selectedHistoryGroup, setSelectedHistoryGroup] = useState<number | null>(null);
+
+    // Salary management state
+    const [showSalaryModal, setShowSalaryModal] = useState(false);
+    const [salarySearchTerm, setSalarySearchTerm] = useState('');
+    const [selectedSalaryTeacher, setSelectedSalaryTeacher] = useState<Teacher | null>(null);
+    const [unpaidGroups, setUnpaidGroups] = useState<UnpaidGroupSalary[]>([]);
+    const [showSalaryDetails, setShowSalaryDetails] = useState(false);
+    const [selectedGroupSalary, setSelectedGroupSalary] = useState<UnpaidGroupSalary | null>(null);
+    const [salaryHistory, setSalaryHistory] = useState<TeacherSalary[]>([]);
     const [formData, setFormData] = useState({
         name: '',
         email: '',
         phone: '',
+        price_per_session: 1000,
     });
 
     // Search state
@@ -149,9 +159,42 @@ export default function TeachersPage() {
         }
     }, [showEvaluationModal, selectedDate, teachers]);
 
+    // Salary management functions
+    const getTeacherUnpaidGroups = async (teacherId: string) => {
+        try {
+            const { getTeacherUnpaidGroups: getUnpaidGroups } = useMySchoolStore.getState();
+            return await getUnpaidGroups(teacherId);
+        } catch (error) {
+            console.error('Error fetching teacher unpaid groups:', error);
+            throw error;
+        }
+    };
+
+    const payTeacherSalary = async (salaryData: {
+        teacher_id: string;
+        group_id: number;
+        total_sessions: number;
+        present_sessions: number;
+        late_sessions: number;
+        absent_sessions: number;
+        justified_sessions: number;
+        calculated_salary: number;
+        paid_amount: number;
+        payment_date: string;
+        payment_notes?: string;
+    }) => {
+        try {
+            const { payTeacherSalary: paySalary } = useMySchoolStore.getState();
+            return await paySalary(salaryData);
+        } catch (error) {
+            console.error('Error paying teacher salary:', error);
+            throw error;
+        }
+    };
+
     const handleCreateTeacher = async () => {
-        if (!formData.name || !formData.email) {
-            alert('Please fill in all required fields');
+        if (!formData.name || !formData.email || !formData.price_per_session) {
+            alert('Please fill in all required fields (Name, Email, and Price per Session)');
             return;
         }
 
@@ -181,6 +224,7 @@ export default function TeachersPage() {
                 name: '',
                 email: '',
                 phone: '',
+                price_per_session: 1000,
             });
 
             setEditingTeacher(null);
@@ -197,6 +241,7 @@ export default function TeachersPage() {
             name: teacher.name,
             email: teacher.email,
             phone: teacher.phone || '',
+            price_per_session: teacher.price_per_session || 1000,
         });
         setIsEditModalOpen(true);
     };
@@ -607,6 +652,7 @@ export default function TeachersPage() {
                     name: data.name || '',
                     email: data.email || '',
                     phone: data.phone || '',
+                    price_per_session: data.price_per_session || 1000,
                 });
                 setHasUnsavedChanges(true);
                 alert('Unsaved form data has been restored.');
@@ -619,7 +665,10 @@ export default function TeachersPage() {
     };
 
     const handleFormChange = (field: string, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
+        setFormData(prev => ({
+            ...prev,
+            [field]: field === 'price_per_session' ? Number(value) || 0 : value
+        }));
         setHasUnsavedChanges(true);
     };
 
@@ -637,6 +686,7 @@ export default function TeachersPage() {
             name: '',
             email: '',
             phone: '',
+            price_per_session: 1000,
         });
         setHasUnsavedChanges(false);
         clearFormStorage();
@@ -680,6 +730,13 @@ export default function TeachersPage() {
                                     >
                                         <ClipboardDocumentCheckIcon className="h-5 w-5 mr-2" />
                                         Evaluate
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setShowSalaryModal(true)}
+                                    >
+                                        <CalendarIcon className="h-5 w-5 mr-2" />
+                                        Salary
                                     </Button>
                                     <Button onClick={() => setIsCreateModalOpen(true)}>
                                         <PlusIcon className="h-5 w-5 mr-2" />
@@ -831,6 +888,7 @@ export default function TeachersPage() {
                         isOpen={isCreateModalOpen}
                         onClose={handleModalClose}
                         title="Add New Teacher"
+                        maxWidth="3xl"
                     >
                         <div className="space-y-6">
                             <div>
@@ -873,15 +931,31 @@ export default function TeachersPage() {
                                 />
                             </div>
 
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Price per Session (DA) *
+                                </label>
+                                <Input
+                                    type="number"
+                                    value={formData.price_per_session || ''}
+                                    onChange={(e) => handleFormChange('price_per_session', e.target.value)}
+                                    placeholder="Enter price per session"
+                                    min="0"
+                                    step="50"
+                                    required
+                                    tabIndex={4}
+                                />
+                            </div>
+
                             <div className="flex justify-end space-x-3 pt-4">
                                 <Button
                                     variant="outline"
                                     onClick={() => setIsCreateModalOpen(false)}
-                                    tabIndex={4}
+                                    tabIndex={5}
                                 >
                                     Cancel
                                 </Button>
-                                <Button onClick={handleCreateTeacher} tabIndex={5}>
+                                <Button onClick={handleCreateTeacher} tabIndex={6}>
                                     Add Teacher
                                 </Button>
                             </div>
@@ -930,6 +1004,7 @@ export default function TeachersPage() {
                     setEditingTeacher(null);
                 }}
                 title="Edit Teacher"
+                maxWidth="3xl"
             >
                 <div className="space-y-6">
                     <div>
@@ -966,6 +1041,21 @@ export default function TeachersPage() {
                             value={formData.phone || ''}
                             onChange={(e) => handleFormChange('phone', e.target.value)}
                             placeholder="Enter phone number"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Price per Session (DA) *
+                        </label>
+                        <Input
+                            type="number"
+                            value={formData.price_per_session || ''}
+                            onChange={(e) => handleFormChange('price_per_session', e.target.value)}
+                            placeholder="Enter price per session"
+                            min="0"
+                            step="50"
+                            required
                         />
                     </div>
 
@@ -1025,6 +1115,15 @@ export default function TeachersPage() {
                                         </div>
                                     </div>
                                 )}
+                                <div className="flex items-center space-x-2">
+                                    <CalendarIcon className="h-4 w-4 text-orange-500" />
+                                    <div>
+                                        <div className="text-xs font-medium text-orange-700">Price per Session</div>
+                                        <div className="text-sm text-gray-900">
+                                            {selectedTeacher.price_per_session ? `${selectedTeacher.price_per_session} DA` : 'Not set'}
+                                        </div>
+                                    </div>
+                                </div>
                                 <div className="flex items-center space-x-2">
                                     <UsersIcon className="h-4 w-4 text-orange-500" />
                                     <div>
@@ -1132,7 +1231,15 @@ export default function TeachersPage() {
                                 <CalendarIcon className="h-4 w-4 mr-1" />
                                 History
                             </Button>
-
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowSalaryModal(true)}
+                                className="text-sm"
+                            >
+                                <CalendarIcon className="h-4 w-4 mr-1" />
+                                Salary
+                            </Button>
                         </div>
                     </div>
 
@@ -1719,6 +1826,464 @@ export default function TeachersPage() {
                             setSelectedHistoryTeacher(null);
                             setSelectedHistoryGroup(null);
                             setHistorySearchTerm('');
+                        }}
+                    >
+                        Close
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Teacher Salary Management Modal */}
+            <Modal
+                isOpen={showSalaryModal}
+                onClose={() => {
+                    setShowSalaryModal(false);
+                    setSelectedSalaryTeacher(null);
+                    setUnpaidGroups([]);
+                    setSalarySearchTerm('');
+                }}
+                title="Teacher Salary Management"
+            >
+                <div className="space-y-6">
+                    {!selectedSalaryTeacher ? (
+                        // Step 1: Teacher Selection
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
+                                    Search for Teacher
+                                </label>
+                                <Input
+                                    type="text"
+                                    placeholder="Enter teacher name..."
+                                    value={salarySearchTerm}
+                                    onChange={(e) => setSalarySearchTerm(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
+
+                            <div className="max-h-96 overflow-y-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Teacher
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Price/Session
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {(() => {
+                                            const filteredTeachers = teachers.filter(teacher => {
+                                                const matchesSearch = salarySearchTerm === '' ||
+                                                    teacher.name.toLowerCase().includes(salarySearchTerm.toLowerCase()) ||
+                                                    formatTeacherId(teacher.id).toLowerCase().includes(salarySearchTerm.toLowerCase());
+                                                return matchesSearch;
+                                            });
+
+                                            if (filteredTeachers.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={3} className="px-6 py-4 text-center text-gray-500">
+                                                            {salarySearchTerm ? 'No teachers found matching your search.' : 'No teachers available.'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+
+                                            return filteredTeachers.map(teacher => (
+                                                <tr key={teacher.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div>
+                                                            <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
+                                                            <div className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div className="text-sm text-gray-900">
+                                                            {teacher.price_per_session ? `${teacher.price_per_session} DA` : 'Not set'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                        <div className="flex space-x-2">
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={async () => {
+                                                                    setSelectedSalaryTeacher(teacher);
+                                                                    try {
+                                                                        console.log('🔄 Fetching unpaid groups for teacher:', teacher.id);
+                                                                        const unpaidGroupsData = await getTeacherUnpaidGroups(teacher.id);
+                                                                        console.log('✅ Unpaid groups data:', unpaidGroupsData);
+                                                                        setUnpaidGroups(unpaidGroupsData);
+                                                                    } catch (error) {
+                                                                        console.error('❌ Error fetching unpaid groups:', error);
+                                                                        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                                                                        alert(`Failed to fetch unpaid groups: ${errorMessage}\n\nPlease make sure you have run the SQL setup script in Supabase.`);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                View Unpaid Groups
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        const { getTeacherSalaryHistory } = useMySchoolStore.getState();
+                                                                        const historyData = await getTeacherSalaryHistory(teacher.id);
+                                                                        setSalaryHistory(historyData);
+                                                                        setSelectedSalaryTeacher(teacher);
+                                                                        setShowSalaryDetails(true);
+                                                                    } catch (error) {
+                                                                        console.error('Error fetching salary history:', error);
+                                                                        alert('Failed to fetch salary history. Please try again.');
+                                                                    }
+                                                                }}
+                                                            >
+                                                                View History
+                                                            </Button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ));
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    ) : (
+                        // Step 2: Unpaid Groups Display
+                        <>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        {selectedSalaryTeacher.name} - Unpaid Groups
+                                    </h3>
+                                    <p className="text-sm text-gray-500">
+                                        ID: {formatTeacherId(selectedSalaryTeacher.id)} •
+                                        Price per session: {selectedSalaryTeacher.price_per_session ? `${selectedSalaryTeacher.price_per_session} DA` : 'Not set'}
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        setSelectedSalaryTeacher(null);
+                                        setUnpaidGroups([]);
+                                    }}
+                                >
+                                    ← Back to Teachers
+                                </Button>
+                            </div>
+
+                            {unpaidGroups.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    <CheckCircleIcon className="h-12 w-12 mx-auto mb-4 text-green-400" />
+                                    <p>All groups have been paid for this teacher!</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {unpaidGroups.map(group => (
+                                        <div key={group.group_id} className="border rounded-lg p-4 bg-gray-50">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h4 className="font-medium text-gray-900">{group.group_name}</h4>
+                                                    <p className="text-sm text-gray-500">
+                                                        Group #{group.group_id.toString().padStart(6, '0')}
+                                                    </p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-lg font-bold text-green-600">
+                                                        {group.calculated_salary} DA
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setSelectedGroupSalary(group);
+                                                            setShowSalaryDetails(true);
+                                                        }}
+                                                    >
+                                                        View Details & Pay
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+                                                <div>
+                                                    <span className="text-gray-600">Total Sessions:</span>
+                                                    <span className="ml-2 font-medium">{group.total_sessions}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Present:</span>
+                                                    <span className="ml-2 font-medium text-green-600">{group.present_sessions}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Late:</span>
+                                                    <span className="ml-2 font-medium text-yellow-600">{group.late_sessions}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Absent:</span>
+                                                    <span className="ml-2 font-medium text-red-600">{group.absent_sessions}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Justified:</span>
+                                                    <span className="ml-2 font-medium text-purple-600">{group.justified_sessions}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setShowSalaryModal(false);
+                            setSelectedSalaryTeacher(null);
+                            setUnpaidGroups([]);
+                            setSalarySearchTerm('');
+                        }}
+                    >
+                        Close
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Salary Details & Payment Modal */}
+            <Modal
+                isOpen={showSalaryDetails}
+                onClose={() => {
+                    setShowSalaryDetails(false);
+                    setSelectedGroupSalary(null);
+                    setSalaryHistory([]);
+                }}
+                title={selectedGroupSalary ?
+                    `Salary Details - ${selectedGroupSalary.group_name}` :
+                    `Salary History - ${selectedSalaryTeacher?.name}`
+                }
+            >
+                {selectedGroupSalary && (
+                    <div className="space-y-6">
+                        <div className="bg-gray-50 rounded-lg p-4">
+                            <h3 className="text-lg font-medium text-gray-900 mb-4">Group Summary</h3>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span className="text-gray-600">Group Name:</span>
+                                    <span className="ml-2 font-medium">{selectedGroupSalary.group_name}</span>
+                                </div>
+                                <div>
+                                    <span className="text-gray-600">Group ID:</span>
+                                    <span className="ml-2 font-medium">#{selectedGroupSalary.group_id.toString().padStart(6, '0')}</span>
+                                </div>
+                                <div>
+                                    <span className="text-gray-600">Total Sessions:</span>
+                                    <span className="ml-2 font-medium">{selectedGroupSalary.total_sessions}</span>
+                                </div>
+                                <div>
+                                    <span className="text-gray-600">Calculated Salary:</span>
+                                    <span className="ml-2 font-medium text-green-600 font-bold">
+                                        {selectedGroupSalary.calculated_salary} DA
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-blue-50 rounded-lg p-4" id="salary-breakdown">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-medium text-blue-900">Salary Breakdown</h3>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        const printContent = document.getElementById('salary-breakdown');
+                                        if (printContent) {
+                                            const originalDisplay = printContent.style.display;
+                                            printContent.style.display = 'block';
+                                            window.print();
+                                            printContent.style.display = originalDisplay;
+                                        }
+                                    }}
+                                >
+                                    🖨️ Print
+                                </Button>
+                            </div>
+                            <div className="space-y-3">
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Present Sessions ({selectedGroupSalary.present_sessions}):</span>
+                                    <span className="font-medium text-blue-900">
+                                        +{selectedGroupSalary.present_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Late Sessions ({selectedGroupSalary.late_sessions}):</span>
+                                    <span className="font-medium text-blue-900">
+                                        -{selectedGroupSalary.late_sessions * 200} DA
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Absent Sessions ({selectedGroupSalary.absent_sessions}):</span>
+                                    <span className="font-medium text-blue-900">
+                                        -{selectedGroupSalary.absent_sessions * 500} DA
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Justified Sessions ({selectedGroupSalary.justified_sessions}):</span>
+                                    <span className="font-medium text-blue-900">
+                                        ±0 DA
+                                    </span>
+                                </div>
+                                <hr className="border-blue-200" />
+                                <div className="flex justify-between font-bold text-lg">
+                                    <span className="text-blue-700">Total Salary:</span>
+                                    <span className="text-green-600">
+                                        {selectedGroupSalary.calculated_salary} DA
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-green-50 rounded-lg p-4">
+                            <h3 className="text-lg font-medium text-green-900 mb-4">Payment Confirmation</h3>
+                            <p className="text-sm text-green-700 mb-4">
+                                Click the button below to confirm payment and add this group to the teacher's salary history.
+                            </p>
+                            <Button
+                                className="w-full bg-green-600 hover:bg-green-700"
+                                onClick={async () => {
+                                    try {
+                                        // Pay the teacher salary
+                                        await payTeacherSalary({
+                                            teacher_id: selectedSalaryTeacher!.id,
+                                            group_id: selectedGroupSalary.group_id,
+                                            total_sessions: selectedGroupSalary.total_sessions,
+                                            present_sessions: selectedGroupSalary.present_sessions,
+                                            late_sessions: selectedGroupSalary.late_sessions,
+                                            absent_sessions: selectedGroupSalary.absent_sessions,
+                                            justified_sessions: selectedGroupSalary.justified_sessions,
+                                            calculated_salary: selectedGroupSalary.calculated_salary,
+                                            paid_amount: selectedGroupSalary.calculated_salary,
+                                            payment_date: new Date().toISOString().split('T')[0],
+                                            payment_notes: `Salary payment for group ${selectedGroupSalary.group_name}`
+                                        });
+
+                                        // Refresh unpaid groups
+                                        const updatedUnpaidGroups = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
+                                        setUnpaidGroups(updatedUnpaidGroups);
+
+                                        // Close the details modal
+                                        setShowSalaryDetails(false);
+                                        setSelectedGroupSalary(null);
+
+                                        alert('Salary payment processed successfully!');
+                                    } catch (error) {
+                                        console.error('Error processing salary payment:', error);
+                                        alert('Failed to process salary payment. Please try again.');
+                                    }
+                                }}
+                            >
+                                Confirm Payment - {selectedGroupSalary.calculated_salary} DA
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Salary History Display */}
+                {!selectedGroupSalary && salaryHistory.length > 0 && (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-medium text-blue-900">Salary History</h3>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                    try {
+                                        const unpaidGroupsData = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
+                                        setUnpaidGroups(unpaidGroupsData);
+                                        setSalaryHistory([]);
+                                        setSelectedGroupSalary(null);
+                                    } catch (error) {
+                                        console.error('Error fetching unpaid groups:', error);
+                                        alert('Failed to fetch unpaid groups. Please try again.');
+                                    }
+                                }}
+                            >
+                                ← Back to Unpaid Groups
+                            </Button>
+                        </div>
+                        <div className="bg-blue-50 rounded-lg p-4">
+                            <h3 className="text-lg font-medium text-blue-900 mb-4">Payment History</h3>
+                            <div className="space-y-3">
+                                {salaryHistory.map((payment) => (
+                                    <div key={payment.id} className="bg-white rounded-lg p-3 border border-blue-200">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <div className="font-medium text-blue-900">
+                                                    Group #{payment.group_id.toString().padStart(6, '0')}
+                                                </div>
+                                                <div className="text-sm text-blue-700">
+                                                    {payment.payment_date} • {payment.total_sessions} sessions
+                                                </div>
+                                                <div className="text-xs text-blue-600 mt-1">
+                                                    Present: {payment.present_sessions} •
+                                                    Late: {payment.late_sessions} •
+                                                    Absent: {payment.absent_sessions} •
+                                                    Justified: {payment.justified_sessions}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-lg font-bold text-green-600">
+                                                    {payment.paid_amount} DA
+                                                </div>
+                                                <div className="text-xs text-blue-600">
+                                                    Paid on {payment.payment_date}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {payment.payment_notes && (
+                                            <div className="mt-2 text-xs text-blue-600 bg-blue-100 p-2 rounded">
+                                                {payment.payment_notes}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="bg-green-50 rounded-lg p-4">
+                            <h3 className="text-lg font-medium text-green-900 mb-4">Summary</h3>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span className="text-green-700">Total Payments:</span>
+                                    <span className="ml-2 font-medium">{salaryHistory.length}</span>
+                                </div>
+                                <div>
+                                    <span className="text-green-700">Total Amount Paid:</span>
+                                    <span className="ml-2 font-medium text-green-600 font-bold">
+                                        {salaryHistory.reduce((sum, payment) => sum + payment.paid_amount, 0)} DA
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setShowSalaryDetails(false);
+                            setSelectedGroupSalary(null);
                         }}
                     >
                         Close

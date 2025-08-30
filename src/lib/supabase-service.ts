@@ -213,6 +213,7 @@ export const teacherService = {
       name: teacher.name,
       email: teacher.email,
       phone: teacher.phone,
+      price_per_session: teacher.price_per_session,
     })) || [];
   },
 
@@ -223,6 +224,7 @@ export const teacherService = {
         name: teacher.name,
         email: teacher.email,
         phone: teacher.phone,
+        price_per_session: teacher.price_per_session,
       })
       .select()
       .single();
@@ -238,6 +240,7 @@ export const teacherService = {
       name: data.name,
       email: data.email,
       phone: data.phone,
+      price_per_session: data.price_per_session,
     };
   },
 
@@ -248,6 +251,7 @@ export const teacherService = {
         name: teacher.name,
         email: teacher.email,
         phone: teacher.phone,
+        price_per_session: teacher.price_per_session,
       })
       .eq('id', id)
       .select()
@@ -264,6 +268,7 @@ export const teacherService = {
       name: data.name,
       email: data.email,
       phone: data.phone,
+      price_per_session: data.price_per_session,
     };
   },
 
@@ -4122,6 +4127,218 @@ export const paymentService = {
       };
     } catch (error) {
       console.error('Error getting teacher attendance summary:', error);
+      throw error;
+    }
+  },
+
+  // Teacher Salary Operations
+  async getTeacherUnpaidGroups(teacherId: string) {
+    try {
+      console.log('🔄 Using manual calculation for teacher unpaid groups...');
+
+      // 1. Get all groups for this teacher
+      const { data: groups, error: groupsError } = await supabase
+        .from('groups')
+        .select('id, name')
+        .eq('teacher_id', teacherId);
+
+      if (groupsError) {
+        console.error('❌ Error fetching groups:', groupsError);
+        throw groupsError;
+      }
+
+      if (!groups || groups.length === 0) {
+        console.log('ℹ️ No groups found for teacher');
+        return [];
+      }
+
+      console.log(`📚 Found ${groups.length} groups for teacher`);
+
+      const unpaidGroups = [];
+
+      // 2. For each group, calculate salary manually
+      for (const group of groups) {
+        try {
+          // Get all sessions for this group
+          const { data: sessions, error: sessionsError } = await supabase
+            .from('sessions')
+            .select('id, date')
+            .eq('group_id', group.id);
+
+          if (sessionsError) {
+            console.error(`❌ Error fetching sessions for group ${group.id}:`, sessionsError);
+            continue;
+          }
+
+          if (!sessions || sessions.length === 0) {
+            console.log(`ℹ️ No sessions found for group ${group.id}`);
+            continue;
+          }
+
+          // Get teacher attendance for these sessions
+          const { data: attendance, error: attendanceError } = await supabase
+            .from('teacher_attendance')
+            .select('session_id, status')
+            .eq('teacher_id', teacherId)
+            .in('session_id', sessions.map(s => s.id));
+
+          if (attendanceError) {
+            console.error(`❌ Error fetching attendance for group ${group.id}:`, attendanceError);
+            continue;
+          }
+
+          // Get teacher's price per session
+          const { data: teacher, error: teacherError } = await supabase
+            .from('teachers')
+            .select('price_per_session')
+            .eq('id', teacherId)
+            .single();
+
+          if (teacherError || !teacher) {
+            console.error(`❌ Error fetching teacher ${teacherId}:`, teacherError);
+            continue;
+          }
+
+          const pricePerSession = teacher.price_per_session || 1000;
+
+          // Calculate salary
+          const presentSessions = attendance.filter(a => a.status === 'present').length;
+          const lateSessions = attendance.filter(a => a.status === 'late').length;
+          const absentSessions = attendance.filter(a => a.status === 'absent').length;
+          const justifiedSessions = attendance.filter(a => a.status === 'justified').length;
+
+          const calculatedSalary = (presentSessions * pricePerSession) -
+            (lateSessions * 200) -
+            (absentSessions * 500);
+
+          // Check if this group has been paid (optional - table might not exist yet)
+          let existingPayment = null;
+          try {
+            const { data: payment, error: paymentError } = await supabase
+              .from('teacher_salaries')
+              .select('id')
+              .eq('teacher_id', teacherId)
+              .eq('group_id', group.id)
+              .single();
+
+            if (paymentError && paymentError.code !== 'PGRST116') { // PGRST116 = no rows returned
+              console.log(`ℹ️ Payment table might not exist yet for group ${group.id}`);
+            } else {
+              existingPayment = payment;
+            }
+          } catch (error) {
+            console.log(`ℹ️ Could not check payment history for group ${group.id} (table may not exist)`);
+          }
+
+          // If no existing payment and salary > 0, add to unpaid groups
+          if (!existingPayment && calculatedSalary > 0) {
+            unpaidGroups.push({
+              group_id: group.id,
+              group_name: group.name,
+              total_sessions: sessions.length,
+              present_sessions: presentSessions,
+              late_sessions: lateSessions,
+              absent_sessions: absentSessions,
+              justified_sessions: justifiedSessions,
+              calculated_salary: calculatedSalary
+            });
+          }
+        } catch (groupError) {
+          console.error(`❌ Error processing group ${group.id}:`, groupError);
+          continue;
+        }
+      }
+
+      console.log(`✅ Calculation complete. Found ${unpaidGroups.length} unpaid groups`);
+      return unpaidGroups;
+
+    } catch (error) {
+      console.error('❌ Error fetching teacher unpaid groups:', error);
+      throw error;
+    }
+  },
+
+
+
+  async calculateGroupSalary(teacherId: string, groupId: number) {
+    try {
+      const { data, error } = await supabase
+        .rpc('calculate_teacher_group_salary', {
+          p_teacher_id: teacherId,
+          p_group_id: groupId
+        });
+
+      if (error) throw error;
+      return data?.[0] || null;
+    } catch (error) {
+      console.error('Error calculating group salary:', error);
+      throw error;
+    }
+  },
+
+  async payTeacherSalary(salaryData: {
+    teacher_id: string;
+    group_id: number;
+    total_sessions: number;
+    present_sessions: number;
+    late_sessions: number;
+    absent_sessions: number;
+    justified_sessions: number;
+    calculated_salary: number;
+    paid_amount: number;
+    payment_date: string;
+    payment_notes?: string;
+  }) {
+    try {
+      const { data, error } = await supabase
+        .from('teacher_salaries')
+        .insert(salaryData)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error paying teacher salary:', error);
+      throw error;
+    }
+  },
+
+  async getTeacherSalaryHistory(teacherId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('teacher_salaries')
+        .select(`
+          *,
+          groups (
+            id,
+            name
+          )
+        `)
+        .eq('teacher_id', teacherId)
+        .order('payment_date', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching teacher salary history:', error);
+      throw error;
+    }
+  },
+
+  async updateTeacherPricePerSession(teacherId: string, pricePerSession: number) {
+    try {
+      const { data, error } = await supabase
+        .from('teachers')
+        .update({ price_per_session: pricePerSession })
+        .eq('id', teacherId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error updating teacher price per session:', error);
       throw error;
     }
   },

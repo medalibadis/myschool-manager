@@ -17,10 +17,7 @@ export const GlobalKeyboardShortcuts: React.FC<GlobalKeyboardShortcutsProps> = (
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Debug: Log all key events to see what's happening
-            if (e.altKey) {
-                console.log('Alt key pressed:', { key: e.key, keyCode: e.keyCode, altKey: e.altKey });
-            }
+            // Only log when Alt+N is actually pressed
 
             // Alt+N for Add New (both lowercase and uppercase 'n')
             if (e.altKey && (e.key === 'n' || e.key === 'N' || e.keyCode === 78)) {

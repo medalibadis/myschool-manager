@@ -20,7 +20,7 @@ interface MySchoolStore {
     deleteTeacher: (id: string) => Promise<void>;
 
     fetchGroups: () => Promise<void>;
-    addGroup: (group: Omit<Group, 'id' | 'sessions' | 'createdAt'>) => Promise<void>;
+    addGroup: (group: Omit<Group, 'id' | 'sessions' | 'createdAt'>) => Promise<Group>;
     updateGroup: (id: number, group: Partial<Group>) => Promise<void>;
     deleteGroup: (id: number) => Promise<void>;
 
@@ -241,8 +241,10 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
                 groups: [newGroup, ...state.groups],
                 loading: false,
             }));
+            return newGroup;
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+            throw error;
         }
     },
 

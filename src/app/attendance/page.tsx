@@ -275,12 +275,12 @@ export default function AttendancePage() {
 
             setAttendanceMap({});
             if (showAlert) {
-            alert('Attendance changes saved. Refunds (if any) have been aggregated per student.');
+                alert('Attendance changes saved. Refunds (if any) have been aggregated per student.');
             }
         } catch (e) {
             console.error('Saving attendance changes failed:', e);
             if (showAlert) {
-            alert('Failed to save attendance changes.');
+                alert('Failed to save attendance changes.');
             }
             throw e; // Re-throw the error so caller can handle it
         }
@@ -940,7 +940,7 @@ export default function AttendancePage() {
                     setShowHistory(false);
                 }}
                 title={selectedGroup ? `Attendance - ${selectedGroup.name}` : 'Attendance Management'}
-                maxWidth="2xl"
+                maxWidth="4xl"
             >
                 {selectedGroup && (
                     <div className="space-y-6 w-full max-w-7xl">
@@ -1118,7 +1118,7 @@ export default function AttendancePage() {
                     setCallLogData({ adminName: 'Dalila', comment: '' });
                 }}
                 title={`Call Log - ${selectedStudent?.name || 'Student'}`}
-                maxWidth="2xl"
+                maxWidth="3xl"
             >
                 {selectedStudent && (
                     <div className="space-y-6">
@@ -1203,7 +1203,7 @@ export default function AttendancePage() {
                     setRescheduleDate(new Date());
                 }}
                 title={`Reschedule Sessions for ${format(selectedDate, 'MMMM dd, yyyy')}`}
-                maxWidth="sm"
+                maxWidth="2xl"
             >
                 <div className="space-y-4">
                     <div>
@@ -1247,7 +1247,7 @@ export default function AttendancePage() {
                 isOpen={showStopModal}
                 onClose={handleStopModalCancel}
                 title="⚠️ Stop Student(s) Confirmation"
-                maxWidth="lg"
+                maxWidth="3xl"
             >
                 <div className="space-y-6">
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">

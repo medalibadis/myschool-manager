@@ -211,6 +211,8 @@ export default function GroupDetailPage() {
         addCallLog,
         getStudentBalance,
         getLastPaymentCallNote,
+        addGroup,
+        teachers,
         loading,
         error
     } = useMySchoolStore();
@@ -246,6 +248,22 @@ export default function GroupDetailPage() {
     const [showWaitingListModal, setShowWaitingListModal] = useState(false);
     const [waitingListStudents, setWaitingListStudents] = useState<WaitingListStudent[]>([]);
     const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+
+    // Configure Next Group Modal State
+    const [showConfigureNextGroupModal, setShowConfigureNextGroupModal] = useState(false);
+    const [nextGroupFormData, setNextGroupFormData] = useState({
+        teacherId: '',
+        startDate: '',
+        totalSessions: 16,
+        recurringDays: [] as number[],
+        price: 0,
+        language: '',
+        level: '',
+        category: '',
+        startTime: '09:00',
+        endTime: '11:00',
+        selectedStudents: [] as string[],
+    });
 
     // New state for call log functionality
     const [isCallLogModalOpen, setIsCallLogModalOpen] = useState(false);
@@ -453,6 +471,26 @@ export default function GroupDetailPage() {
         'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
     ];
 
+    const languages = [
+        { value: 'French', label: 'French' },
+        { value: 'English', label: 'English' },
+        { value: 'Spanish', label: 'Spanish' },
+        { value: 'German', label: 'German' },
+    ];
+
+    const levels = [
+        { value: 'A1', label: 'A1 - Beginner' },
+        { value: 'A1+', label: 'A1+ - Beginner+' },
+        { value: 'A2', label: 'A2 - Elementary' },
+        { value: 'A2+', label: 'A2+ - Elementary+' },
+        { value: 'B1', label: 'B1 - Intermediate' },
+        { value: 'B1+', label: 'B1+ - Intermediate+' },
+        { value: 'B2', label: 'B2 - Upper-Intermediate' },
+        { value: 'B2+', label: 'B2+ - Upper-Intermediate+' },
+        { value: 'C1', label: 'C1 - Advanced' },
+        { value: 'C1+', label: 'C1+ - Advanced+' },
+    ];
+
     const formatTeacherId = (id: string | null) => {
         if (!id) return 'No Teacher';
         // Convert UUID to a number and format as T01, T02, etc.
@@ -599,6 +637,95 @@ export default function GroupDetailPage() {
         }
     };
 
+    // Handle next group form changes
+    const handleNextGroupFormChange = (field: string, value: any) => {
+        setNextGroupFormData(prev => ({
+            ...prev,
+            [field]: value
+        }));
+    };
+
+    // Handle student selection for next group
+    const handleStudentSelectionForNextGroup = (studentId: string) => {
+        setNextGroupFormData(prev => ({
+            ...prev,
+            selectedStudents: prev.selectedStudents.includes(studentId)
+                ? prev.selectedStudents.filter(id => id !== studentId)
+                : [...prev.selectedStudents, studentId]
+        }));
+    };
+
+    // Create next group
+    const handleCreateNextGroup = async () => {
+        if (!nextGroupFormData.teacherId || !nextGroupFormData.startDate || nextGroupFormData.selectedStudents.length === 0) {
+            alert('Please fill in all required fields and select at least one student');
+            return;
+        }
+
+        try {
+            // Create the new group
+            const newGroup = await addGroup({
+                name: `${nextGroupFormData.language} ${nextGroupFormData.level} - ${nextGroupFormData.category} (Next)`,
+                teacherId: nextGroupFormData.teacherId,
+                startDate: new Date(nextGroupFormData.startDate),
+                totalSessions: nextGroupFormData.totalSessions,
+                recurringDays: nextGroupFormData.recurringDays,
+                price: nextGroupFormData.price,
+                language: nextGroupFormData.language,
+                level: nextGroupFormData.level,
+                category: nextGroupFormData.category,
+                startTime: nextGroupFormData.startTime,
+                endTime: nextGroupFormData.endTime,
+                students: [], // Empty students array initially
+            });
+
+            // Add selected students to the new group
+            for (const studentId of nextGroupFormData.selectedStudents) {
+                const student = uniqueStudents.find(s => s.id === studentId);
+                if (student) {
+                    await addStudentToGroup(newGroup.id, {
+                        name: student.name,
+                        email: student.email || '',
+                        phone: student.phone || '',
+                        secondPhone: student.secondPhone || undefined,
+                        parentName: student.parentName || undefined,
+                        address: student.address || undefined,
+                        birthDate: student.birthDate || undefined,
+                        totalPaid: 0,
+                        groupId: newGroup.id,
+                    });
+                }
+            }
+
+            // Generate sessions for the new group
+            await generateSessions(newGroup.id);
+
+            // Close modal and reset form
+            setShowConfigureNextGroupModal(false);
+            setNextGroupFormData({
+                teacherId: '',
+                startDate: '',
+                totalSessions: 16,
+                recurringDays: [],
+                price: 0,
+                language: '',
+                level: '',
+                category: '',
+                startTime: '09:00',
+                endTime: '11:00',
+                selectedStudents: [],
+            });
+
+            alert(`Next group created successfully! New group ID: #${newGroup.id.toString().padStart(6, '0')}`);
+
+            // Redirect to the new group
+            window.location.href = `/groups/${newGroup.id}`;
+        } catch (error) {
+            console.error('Error creating next group:', error);
+            alert('Failed to create next group. Please try again.');
+        }
+    };
+
     return (
         <AuthGuard>
             <div className="min-h-screen bg-gray-50">
@@ -622,10 +749,17 @@ export default function GroupDetailPage() {
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
                                 <p className="mt-2 text-gray-600">
-                                    Teacher: {teacher?.name} {group.teacherId ? `(#${formatTeacherId(group.teacherId)})` : ''} • {group.students.length} students • {group.sessions.length} sessions
+                                    Teacher: {teacher?.name} {group.teacherId ? `(#${formatTeacherId(group.teacherId)})` : ''} • {uniqueStudents.length} students • {group.sessions.length} sessions
                                 </p>
                             </div>
                             <div className="flex space-x-3">
+                                <Button
+                                    onClick={() => setIsAddStudentModalOpen(true)}
+                                    className="flex items-center space-x-2"
+                                >
+                                    <PlusIcon className="h-4 w-4" />
+                                    <span>Add Existing Student</span>
+                                </Button>
                                 <Button
                                     variant="outline"
                                     onClick={handleShowWaitingList}
@@ -638,6 +772,31 @@ export default function GroupDetailPage() {
                                     <Button onClick={handleGenerateSessions}>
                                         <CalendarIcon className="h-5 w-5 mr-2" />
                                         Generate Sessions
+                                    </Button>
+                                )}
+                                {(group.progress?.completedSessions || 0) >= group.totalSessions && (
+                                    <Button
+                                        onClick={() => {
+                                            // Initialize form with current group data
+                                            setNextGroupFormData({
+                                                teacherId: group.teacherId,
+                                                startDate: new Date().toISOString().split('T')[0], // Today's date
+                                                totalSessions: group.totalSessions,
+                                                recurringDays: group.recurringDays,
+                                                price: group.price || 0,
+                                                language: group.language || '',
+                                                level: group.level || '',
+                                                category: group.category || '',
+                                                startTime: group.startTime || '09:00',
+                                                endTime: group.endTime || '11:00',
+                                                selectedStudents: uniqueStudents.map(s => s.id), // Include all students initially
+                                            });
+                                            setShowConfigureNextGroupModal(true);
+                                        }}
+                                        className="bg-green-600 hover:bg-green-700 text-white"
+                                    >
+                                        <PlusIcon className="h-5 w-5 mr-2" />
+                                        Configure Next Group
                                     </Button>
                                 )}
                             </div>
@@ -693,127 +852,7 @@ export default function GroupDetailPage() {
                                 </Card>
                             </div>
 
-                            {/* Students List */}
-                            <div className="lg:col-span-3">
-                                <Card>
-                                    <CardHeader>
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <CardTitle>Students ({uniqueStudents.length})</CardTitle>
-                                                <CardDescription>
-                                                    Manage students in this group
-                                                </CardDescription>
-                                            </div>
-                                            <Button
-                                                onClick={() => setIsAddStudentModalOpen(true)}
-                                                className="flex items-center space-x-2"
-                                            >
-                                                <PlusIcon className="h-4 w-4" />
-                                                <span>Add Existing Student</span>
-                                            </Button>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="overflow-x-auto">
-                                            <table className="min-w-full divide-y divide-gray-200">
-                                                <thead className="bg-orange-50">
-                                                    <tr>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
-                                                            Student
-                                                        </th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
-                                                            Contact
-                                                        </th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
-                                                            Address
-                                                        </th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
-                                                            Status
-                                                        </th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-orange-700 uppercase tracking-wider">
-                                                            Actions
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="bg-white divide-y divide-gray-200">
-                                                    {uniqueStudents.map((student) => (
-                                                        <tr key={student.id} className="hover:bg-orange-50 transition-colors">
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex items-center">
-                                                                    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                                                        <UsersIcon className="h-4 w-4 text-orange-600" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="text-sm font-medium text-gray-900">
-                                                                            {student.name}
-                                                                        </div>
-                                                                        {student.birthDate && (
-                                                                            <div className="text-sm text-gray-500">
-                                                                                {format(new Date(student.birthDate), 'MMM dd, yyyy')}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="text-sm text-gray-900">
-                                                                    <div className="flex items-center mb-1">
-                                                                        <EnvelopeIcon className="h-4 w-4 mr-2 text-orange-500" />
-                                                                        {student.email || 'No email'}
-                                                                    </div>
-                                                                    <div className="flex items-center">
-                                                                        <PhoneIcon className="h-4 w-4 mr-2 text-orange-500" />
-                                                                        {student.phone}
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {student.address || 'No address'}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <StudentStatusBadge studentId={student.id} groupId={groupId} />
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                                <div className="flex items-center space-x-2">
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        onClick={() => handleEditStudentClick(student)}
-                                                                        className="text-orange-600 hover:text-orange-900 hover:bg-orange-100"
-                                                                    >
-                                                                        <PencilIcon className="h-4 w-4" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        onClick={() => handleDeleteStudent(student.id)}
-                                                                        className="text-red-600 hover:text-red-900 hover:bg-red-100"
-                                                                    >
-                                                                        <TrashIcon className="h-4 w-4" />
-                                                                    </Button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        {uniqueStudents.length === 0 && (
-                                            <div className="text-center py-8">
-                                                <UsersIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                                <h3 className="text-lg font-medium text-gray-900 mb-2">No students yet</h3>
-                                                <p className="text-gray-500 mb-4">
-                                                    Add existing students to this group to get started.
-                                                </p>
-                                                <Button onClick={() => setIsAddStudentModalOpen(true)}>
-                                                    <PlusIcon className="h-5 w-5 mr-2" />
-                                                    Add Existing Student
-                                                </Button>
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </div>
+
 
                             {/* Sessions */}
                             <div className="lg:col-span-3">
@@ -860,6 +899,9 @@ export default function GroupDetailPage() {
                                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                 Student
                                                             </th>
+                                                            <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                Status
+                                                            </th>
                                                             {group.sessions.map((session) => (
                                                                 <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                     {format(session.date, 'MMM dd')}
@@ -883,6 +925,9 @@ export default function GroupDetailPage() {
                                                                     <div className="text-sm text-gray-500">
                                                                         {student.email}
                                                                     </div>
+                                                                </td>
+                                                                <td className="px-3 py-4 whitespace-nowrap text-center">
+                                                                    <StudentStatusBadge studentId={student.id} groupId={groupId} />
                                                                 </td>
                                                                 {group.sessions.map((session) => {
                                                                     const attendance = session.attendance && typeof session.attendance === 'object'
@@ -1366,6 +1411,251 @@ export default function GroupDetailPage() {
                                 </Button>
                                 <Button onClick={handleAddCallLog}>
                                     Add Call Log
+                                </Button>
+                            </div>
+                        </Modal>
+
+                        {/* Configure Next Group Modal */}
+                        <Modal
+                            isOpen={showConfigureNextGroupModal}
+                            onClose={() => {
+                                setShowConfigureNextGroupModal(false);
+                                setNextGroupFormData({
+                                    teacherId: '',
+                                    startDate: '',
+                                    totalSessions: 16,
+                                    recurringDays: [],
+                                    price: 0,
+                                    language: '',
+                                    level: '',
+                                    category: '',
+                                    startTime: '09:00',
+                                    endTime: '11:00',
+                                    selectedStudents: [],
+                                });
+                            }}
+                            title="Configure Next Group"
+                            maxWidth="4xl"
+                        >
+                            <div className="space-y-6">
+                                {/* Group Configuration */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Teacher *
+                                        </label>
+                                        <select
+                                            value={nextGroupFormData.teacherId}
+                                            onChange={(e) => handleNextGroupFormChange('teacherId', e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                            required
+                                        >
+                                            <option value="">Select Teacher</option>
+                                            {teachers.map((teacher) => (
+                                                <option key={teacher.id} value={teacher.id}>
+                                                    {teacher.name} (#{formatTeacherId(teacher.id)})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Start Date *
+                                        </label>
+                                        <Input
+                                            type="date"
+                                            value={nextGroupFormData.startDate}
+                                            onChange={(e) => handleNextGroupFormChange('startDate', e.target.value)}
+                                            required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Total Sessions
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            value={nextGroupFormData.totalSessions}
+                                            onChange={(e) => handleNextGroupFormChange('totalSessions', parseInt(e.target.value))}
+                                            min="1"
+                                            max="100"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Price (DA)
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            value={nextGroupFormData.price}
+                                            onChange={(e) => handleNextGroupFormChange('price', parseFloat(e.target.value))}
+                                            min="0"
+                                            step="50"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Language
+                                        </label>
+                                        <select
+                                            value={nextGroupFormData.language}
+                                            onChange={(e) => handleNextGroupFormChange('language', e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                        >
+                                            <option value="">Select Language</option>
+                                            {languages.map((lang) => (
+                                                <option key={lang.value} value={lang.value}>
+                                                    {lang.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Level
+                                        </label>
+                                        <select
+                                            value={nextGroupFormData.level}
+                                            onChange={(e) => handleNextGroupFormChange('level', e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                        >
+                                            <option value="">Select Level</option>
+                                            {levels.map((level) => (
+                                                <option key={level.value} value={level.value}>
+                                                    {level.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Category
+                                        </label>
+                                        <select
+                                            value={nextGroupFormData.category}
+                                            onChange={(e) => handleNextGroupFormChange('category', e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                        >
+                                            <option value="">Select Category</option>
+                                            <option value="Children">Children</option>
+                                            <option value="Teenagers">Teenagers</option>
+                                            <option value="Adults">Adults</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Start Time
+                                        </label>
+                                        <Input
+                                            type="time"
+                                            value={nextGroupFormData.startTime}
+                                            onChange={(e) => handleNextGroupFormChange('startTime', e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            End Time
+                                        </label>
+                                        <Input
+                                            type="time"
+                                            value={nextGroupFormData.endTime}
+                                            onChange={(e) => handleNextGroupFormChange('endTime', e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Recurring Days */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Recurring Days
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {weekDays.map((day, index) => (
+                                            <label key={index} className="flex items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={nextGroupFormData.recurringDays.includes(index)}
+                                                    onChange={(e) => {
+                                                        const newDays = e.target.checked
+                                                            ? [...nextGroupFormData.recurringDays, index]
+                                                            : nextGroupFormData.recurringDays.filter(d => d !== index);
+                                                        handleNextGroupFormChange('recurringDays', newDays);
+                                                    }}
+                                                    className="mr-2"
+                                                />
+                                                <span className="text-sm">{day}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Student Selection */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Select Active Students ({nextGroupFormData.selectedStudents.length} selected)
+                                    </label>
+                                    <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-md p-4">
+                                        {uniqueStudents.map((student) => (
+                                            <div
+                                                key={student.id}
+                                                className="flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer"
+                                                onClick={() => handleStudentSelectionForNextGroup(student.id)}
+                                            >
+                                                <div className="flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={nextGroupFormData.selectedStudents.includes(student.id)}
+                                                        onChange={() => handleStudentSelectionForNextGroup(student.id)}
+                                                        className="mr-3"
+                                                    />
+                                                    <div>
+                                                        <div className="font-medium">{student.name}</div>
+                                                        <div className="text-sm text-gray-500">{student.email}</div>
+                                                    </div>
+                                                </div>
+                                                <StudentStatusBadge studentId={student.id} groupId={groupId} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setShowConfigureNextGroupModal(false);
+                                        setNextGroupFormData({
+                                            teacherId: '',
+                                            startDate: '',
+                                            totalSessions: 16,
+                                            recurringDays: [],
+                                            price: 0,
+                                            language: '',
+                                            level: '',
+                                            category: '',
+                                            startTime: '09:00',
+                                            endTime: '11:00',
+                                            selectedStudents: [],
+                                        });
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleCreateNextGroup}
+                                    className="bg-green-600 hover:bg-green-700"
+                                    disabled={!nextGroupFormData.teacherId || !nextGroupFormData.startDate || nextGroupFormData.selectedStudents.length === 0}
+                                >
+                                    Create Next Group
                                 </Button>
                             </div>
                         </Modal>

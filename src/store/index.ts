@@ -24,7 +24,7 @@ interface MySchoolStore {
     updateGroup: (id: number, group: Partial<Group>) => Promise<void>;
     deleteGroup: (id: number) => Promise<void>;
 
-    addStudentToGroup: (groupId: number, student: Omit<Student, 'id'>) => Promise<void>;
+    addStudentToGroup: (groupId: number, student: Omit<Student, 'id'>) => Promise<Student>;
     updateStudent: (groupId: number, studentId: string, student: Partial<Student>) => Promise<void>;
     removeStudentFromGroup: (groupId: number, studentId: string) => Promise<void>;
 
@@ -82,7 +82,7 @@ interface MySchoolStore {
         studentName: string;
         groupName: string;
     }>>;
-    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string) => Promise<{ depositId: string; allocations: any[] }>;
+    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => Promise<{ depositId: string; allocations: any[] }>;
 
     // Refund and Debts functionality
     getRefundList: () => Promise<Array<{
@@ -336,9 +336,11 @@ Thank you for your payment!`,
                 loading: false,
             }));
             console.log('Student added to store state');
+            return newStudent;
         } catch (error) {
             console.error('Error in addStudentToGroup:', error);
             set({ error: (error as Error).message, loading: false });
+            throw error; // Re-throw to maintain Promise<Student> return type
         }
     },
 
@@ -689,11 +691,11 @@ Thank you for your payment!`,
         }
     },
 
-    depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string) => {
+    depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => {
         set({ loading: true, error: null });
         try {
-            console.log(`🏪 STORE: depositAndAllocate called with:`, { studentId, amount, date, notes });
-            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila' });
+            console.log(`🏪 STORE: depositAndAllocate called with:`, { studentId, amount, date, notes, discount, originalAmount });
+            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila', discount, originalAmount });
             console.log(`🏪 STORE: depositAndAllocate result:`, result);
             // Refresh payments list
             const payments = await paymentService.getAll();
@@ -810,8 +812,37 @@ Thank you for your payment!`,
                 console.log('✅ Auto-receipt will be generated for this registration fee');
             }
 
-            await get().addStudentToGroup(groupId, newStudent);
+            const createdStudent = await get().addStudentToGroup(groupId, newStudent);
             console.log('Student added to group successfully');
+
+            // 🆕 Create payment record for registration fee if it was marked as paid
+            if (newStudent.registrationFeePaid && newStudent.registrationFeeAmount && createdStudent) {
+                try {
+                    console.log('🆕 Creating payment record for registration fee...');
+
+                    // Import payment service
+                    const { paymentService } = await import('../lib/supabase-service');
+
+                    // Create payment record for registration fee
+                    const paymentRecord: Omit<Payment, 'id'> = {
+                        studentId: createdStudent.id,
+                        groupId: undefined, // Registration fee has no group
+                        amount: newStudent.registrationFeeAmount,
+                        date: new Date(),
+                        notes: 'Registration fee payment - Student added from waiting list',
+                        adminName: 'Dalila',
+                        paymentType: 'registration_fee',
+                        originalAmount: newStudent.registrationFeeAmount,
+                        discount: 0
+                    };
+
+                    await paymentService.create(paymentRecord);
+                    console.log('✅ Payment record created for registration fee');
+                } catch (paymentError) {
+                    console.error('❌ Error creating payment record:', paymentError);
+                }
+            }
+
             console.log('🚨 FIX: Student should now appear in unpaid group fee list');
 
             // Remove from waiting list

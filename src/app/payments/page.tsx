@@ -69,6 +69,7 @@ export default function PaymentsPage() {
     const [selectedGroup, setSelectedGroup] = useState<number | null>(null);
     const [paymentData, setPaymentData] = useState({
         amount: '',
+        discount: '',
         notes: '',
         date: new Date().toISOString().split('T')[0],
     });
@@ -985,11 +986,18 @@ export default function PaymentsPage() {
         }
 
         try {
-            const depositAmount = Math.abs(parseFloat(paymentData.amount));
+            // Calculate amount with discount
+            const originalAmount = Math.abs(parseFloat(paymentData.amount || '0'));
+            const discountPercentage = parseFloat(paymentData.discount || '0');
+            const discountAmount = originalAmount * (discountPercentage / 100);
+            const depositAmount = originalAmount - discountAmount;
 
-            console.log('Processing payment:', {
+            console.log('Processing payment with discount:', {
                 studentId: selectedStudent.id,
-                amount: depositAmount,
+                originalAmount,
+                discountPercentage,
+                discountAmount,
+                finalAmount: depositAmount,
                 date: paymentData.date,
                 notes: paymentData.notes
             });
@@ -1006,7 +1014,9 @@ export default function PaymentsPage() {
                 selectedStudent.id,
                 depositAmount,
                 new Date(paymentData.date),
-                paymentData.notes || ''
+                paymentData.notes || '',
+                discountPercentage,
+                originalAmount
             );
 
             // Convert backend result to expected format
@@ -1040,6 +1050,7 @@ export default function PaymentsPage() {
             // Reset form but keep the student selected to see the changes
             setPaymentData({
                 amount: '',
+                discount: '',
                 notes: '',
                 date: new Date().toISOString().split('T')[0],
             });
@@ -1747,6 +1758,7 @@ Thank you!`;
                         setSelectedGroup(null);
                         setPaymentData({
                             amount: '',
+                            discount: '',
                             notes: '',
                             date: new Date().toISOString().split('T')[0],
                         });
@@ -1785,6 +1797,12 @@ Thank you!`;
                                         {Math.abs(selectedStudent.remainingBalance).toFixed(2)}
                                     </span>
                                 </div>
+                                {selectedStudent.defaultDiscount > 0 && (
+                                    <div className="text-sm text-blue-700">
+                                        <span className="font-medium">Default Discount:</span>
+                                        <span className="ml-2 font-bold">{selectedStudent.defaultDiscount}%</span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Unpaid Groups list with priority ordering */}
@@ -1839,16 +1857,78 @@ Thank you!`;
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Deposit Amount *
+                                        Original Amount *
                                     </label>
                                     <Input
                                         type="number"
                                         value={paymentData.amount}
                                         onChange={(e) => setPaymentData(prev => ({ ...prev, amount: e.target.value }))}
-                                        placeholder="Enter amount student gives (+ to balance)"
+                                        placeholder="Enter original amount before discount"
                                     />
-
                                 </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Discount (%)
+                                    </label>
+                                    <Input
+                                        type="number"
+                                        value={paymentData.discount}
+                                        onChange={(e) => setPaymentData(prev => ({ ...prev, discount: e.target.value }))}
+                                        placeholder={`Enter discount percentage (0-100)${selectedStudent?.defaultDiscount > 0 ? ` - Default: ${selectedStudent.defaultDiscount}%` : ''}`}
+                                        min="0"
+                                        max="100"
+                                    />
+                                    {selectedStudent?.defaultDiscount > 0 && (
+                                        <div className="mt-1 flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPaymentData(prev => ({ ...prev, discount: selectedStudent.defaultDiscount.toString() }))}
+                                                className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                            >
+                                                Use default ({selectedStudent.defaultDiscount}%)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPaymentData(prev => ({ ...prev, discount: '' }))}
+                                                className="text-xs text-gray-600 hover:text-gray-800 underline"
+                                            >
+                                                Clear discount
+                                            </button>
+                                        </div>
+                                    )}
+                                    <div className="mt-1 text-xs text-gray-500">
+                                        💡 Discount applies to course fees only, not balance credits
+                                    </div>
+                                </div>
+
+                                {/* Calculated Amount Display */}
+                                {paymentData.amount && paymentData.discount && (
+                                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                        <div className="text-xs text-blue-700 mb-2 font-medium">
+                                            💡 Discount Calculation (applies to course fees)
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-gray-600">Original Amount:</span>
+                                            <span className="font-medium">${parseFloat(paymentData.amount || '0').toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-gray-600">Discount ({paymentData.discount}%):</span>
+                                            <span className="font-medium text-green-600">-${(parseFloat(paymentData.amount || '0') * parseFloat(paymentData.discount || '0') / 100).toFixed(2)}</span>
+                                        </div>
+                                        <div className="border-t pt-2 mt-2">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-sm font-medium text-gray-700">Final Amount to Pay:</span>
+                                                <span className="font-bold text-lg text-blue-600">
+                                                    ${(parseFloat(paymentData.amount || '0') * (1 - parseFloat(paymentData.discount || '0') / 100)).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 text-xs text-gray-600">
+                                            * Balance credits are not discounted
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1886,6 +1966,7 @@ Thank you!`;
                                 setSelectedGroup(null);
                                 setPaymentData({
                                     amount: '',
+                                    discount: '',
                                     notes: '',
                                     date: new Date().toISOString().split('T')[0],
                                 });

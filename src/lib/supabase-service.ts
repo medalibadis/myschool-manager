@@ -2519,8 +2519,8 @@ export const paymentService = {
       .filter(payment => payment !== null) || [];
   },
 
-  async depositAndAllocate(params: { studentId: string; amount: number; date: Date; notes?: string; adminName?: string; }): Promise<{ depositId: string; allocations: Payment[] }> {
-    const { studentId, amount, date, notes, adminName } = params;
+  async depositAndAllocate(params: { studentId: string; amount: number; date: Date; notes?: string; adminName?: string; discount?: number; originalAmount?: number; }): Promise<{ depositId: string; allocations: Payment[] }> {
+    const { studentId, amount, date, notes, adminName, discount = 0, originalAmount } = params;
 
     console.log(`🚀 DEPOSIT AND ALLOCATE CALLED:`, { studentId, amount, date, notes, adminName });
 
@@ -2557,6 +2557,7 @@ export const paymentService = {
     const registrationBalance = currentBalance.groupBalances.find(gb => gb.isRegistrationFee);
     if (registrationBalance && registrationBalance.remainingAmount > 0 && available > 0) {
       const toPay = Math.min(available, registrationBalance.remainingAmount);
+      // 🆕 FIX: Only apply discount to course fees, not balance credits
       const defaultDiscount = registrationBalance.discount || 0;
       const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
 
@@ -2570,10 +2571,10 @@ export const paymentService = {
           group_id: null,
           amount: discountedAmount,
           date: date.toISOString().split('T')[0],
-          notes: `Registration fee payment${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+          notes: `Registration fee payment${discount > 0 ? ` - ${discount}% custom discount applied` : defaultDiscount > 0 ? ` - ${defaultDiscount}% default discount applied` : ''}`,
           admin_name: adminName || 'Dalila',
-          discount: defaultDiscount,
-          original_amount: toPay,
+          discount: discount > 0 ? discount : defaultDiscount,
+          original_amount: originalAmount || toPay,
           payment_type: 'registration_fee'
         })
         .select()
@@ -2763,8 +2764,10 @@ export const paymentService = {
       }
 
       const toPay = Math.min(available, group.remainingAmount);
+      // 🆕 FIX: Apply discount to course fees, but allow override with custom discount
       const defaultDiscount = group.discount || 0;
-      const discountedAmount = defaultDiscount > 0 ? toPay * (1 - defaultDiscount / 100) : toPay;
+      const appliedDiscount = discount > 0 ? discount : defaultDiscount; // Use custom discount if provided, otherwise default
+      const discountedAmount = appliedDiscount > 0 ? toPay * (1 - appliedDiscount / 100) : toPay;
       const remainingAfter = group.remainingAmount - toPay;
 
       console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DA (discounted: ${discountedAmount} DA)`);
@@ -2780,11 +2783,11 @@ export const paymentService = {
           amount: discountedAmount,
           date: date.toISOString().split('T')[0],
           notes: remainingAfter > 0
-            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`
-            : `Group fully paid${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${discount > 0 ? ` - ${discount}% custom discount applied` : defaultDiscount > 0 ? ` - ${defaultDiscount}% default discount applied` : ''}`
+            : `Group fully paid${discount > 0 ? ` - ${discount}% custom discount applied` : defaultDiscount > 0 ? ` - ${defaultDiscount}% default discount applied` : ''}`,
           admin_name: adminName || 'Dalila',
-          discount: defaultDiscount,
-          original_amount: toPay,
+          discount: discount > 0 ? discount : defaultDiscount,
+          original_amount: originalAmount || toPay,
           payment_type: 'group_payment'
         })
         .select()
@@ -2841,6 +2844,7 @@ export const paymentService = {
     if (available > 0) {
       console.log(`Adding remaining amount ${available} as balance credit`);
 
+      // 🆕 FIX: Balance credits should NOT have discounts applied
       const { data: creditPay, error: creditErr } = await supabase
         .from('payments')
         .insert({
@@ -2850,7 +2854,7 @@ export const paymentService = {
           date: date.toISOString().split('T')[0],
           notes: notes || 'Balance credit deposit',
           admin_name: adminName || 'Dalila',
-          discount: 0,
+          discount: 0, // No discount on balance credits
           original_amount: available,
           payment_type: 'balance_addition'
         })

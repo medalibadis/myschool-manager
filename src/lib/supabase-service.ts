@@ -1864,6 +1864,69 @@ export const paymentService = {
       throw new Error(`Failed to create payment: ${error.message}`);
     }
 
+    // Generate receipt for the payment
+    try {
+      // Get student name
+      const { data: studentData } = await supabase
+        .from('students')
+        .select('name')
+        .eq('id', payment.studentId)
+        .single();
+
+      // Get group name if applicable
+      let groupName = null;
+      if (payment.groupId) {
+        const { data: groupData } = await supabase
+          .from('groups')
+          .select('name')
+          .eq('id', payment.groupId)
+          .single();
+        groupName = groupData?.name;
+      }
+
+      // Determine group name based on payment type
+      let displayGroupName = groupName;
+      if (!displayGroupName) {
+        switch (payment.paymentType) {
+          case 'registration_fee':
+            displayGroupName = 'Registration Fee';
+            break;
+          case 'balance_addition':
+            displayGroupName = 'Balance Credit';
+            break;
+          case 'debt_reduction':
+            displayGroupName = 'Debt Reduction';
+            break;
+          case 'refund':
+            displayGroupName = 'Refund';
+            break;
+          default:
+            displayGroupName = 'N/A';
+        }
+      }
+
+      const { data: receiptData, error: receiptError } = await supabase
+        .from('receipts')
+        .insert({
+          student_id: payment.studentId,
+          student_name: studentData?.name || 'Unknown Student',
+          payment_id: data.id,
+          amount: Math.abs(payment.amount), // Always positive for receipts
+          payment_type: payment.paymentType || 'group_payment',
+          group_name: displayGroupName,
+          notes: payment.notes,
+          created_at: new Date().toISOString()
+        });
+
+      if (receiptError) {
+        console.warn('⚠️ Could not create receipt for payment:', receiptError);
+      } else {
+        console.log('✅ Receipt generated successfully for payment');
+      }
+    } catch (receiptError) {
+      console.warn('⚠️ Receipt generation failed for payment:', receiptError);
+    }
+
     return {
       id: data.id,
       studentId: data.student_id,
@@ -2518,6 +2581,30 @@ export const paymentService = {
         throw new Error(`Failed to create registration fee payment: ${regErr.message}`);
       }
 
+      // Generate receipt for registration fee payment
+      try {
+        const { data: receiptData, error: receiptError } = await supabase
+          .from('receipts')
+          .insert({
+            student_id: studentId,
+            student_name: (await supabase.from('students').select('name').eq('id', studentId).single()).data?.name || 'Unknown Student',
+            payment_id: regPay.id,
+            amount: discountedAmount,
+            payment_type: 'registration_fee',
+            group_name: 'Registration Fee',
+            notes: `Registration fee payment${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+            created_at: new Date().toISOString()
+          });
+
+        if (receiptError) {
+          console.warn('⚠️ Could not create receipt for registration fee payment:', receiptError);
+        } else {
+          console.log('✅ Receipt generated successfully for registration fee payment');
+        }
+      } catch (receiptError) {
+        console.warn('⚠️ Receipt generation failed for registration fee payment:', receiptError);
+      }
+
       allocations.push({
         id: regPay.id,
         studentId: regPay.student_id,
@@ -2705,6 +2792,32 @@ export const paymentService = {
         throw new Error(`Failed to create group payment: ${groupErr.message}`);
       }
 
+      // Generate receipt for group payment
+      try {
+        const { data: receiptData, error: receiptError } = await supabase
+          .from('receipts')
+          .insert({
+            student_id: studentId,
+            student_name: (await supabase.from('students').select('name').eq('id', studentId).single()).data?.name || 'Unknown Student',
+            payment_id: groupPay.id,
+            amount: discountedAmount,
+            payment_type: 'group_payment',
+            group_name: group.groupName,
+            notes: remainingAfter > 0
+              ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`
+              : `Group fully paid${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+            created_at: new Date().toISOString()
+          });
+
+        if (receiptError) {
+          console.warn('⚠️ Could not create receipt for group payment:', receiptError);
+        } else {
+          console.log('✅ Receipt generated successfully for group payment');
+        }
+      } catch (receiptError) {
+        console.warn('⚠️ Receipt generation failed for group payment:', receiptError);
+      }
+
       allocations.push({
         id: groupPay.id,
         studentId: groupPay.student_id,
@@ -2744,6 +2857,30 @@ export const paymentService = {
 
       if (creditErr) {
         throw new Error(`Failed to create balance credit: ${creditErr.message}`);
+      }
+
+      // Generate receipt for balance addition payment
+      try {
+        const { data: receiptData, error: receiptError } = await supabase
+          .from('receipts')
+          .insert({
+            student_id: studentId,
+            student_name: (await supabase.from('students').select('name').eq('id', studentId).single()).data?.name || 'Unknown Student',
+            payment_id: creditPay.id,
+            amount: available,
+            payment_type: 'balance_addition',
+            group_name: 'Balance Credit',
+            notes: notes || 'Balance credit deposit',
+            created_at: new Date().toISOString()
+          });
+
+        if (receiptError) {
+          console.warn('⚠️ Could not create receipt for balance addition payment:', receiptError);
+        } else {
+          console.log('✅ Receipt generated successfully for balance addition payment');
+        }
+      } catch (receiptError) {
+        console.warn('⚠️ Receipt generation failed for balance addition payment:', receiptError);
       }
 
       depositId = creditPay.id;

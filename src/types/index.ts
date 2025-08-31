@@ -166,13 +166,25 @@ export interface StudentBalance {
 }
 
 // New interface for group balance
+export interface StudentGroup {
+    id: string;
+    studentId: string;
+    groupId: number;
+    enrollmentDate: Date;
+    status: 'active' | 'stopped';
+    notes?: string;
+    groupDiscount?: number; // Individual discount for this student in this specific group
+    createdAt: Date;
+    updatedAt: Date;
+}
+
 export interface GroupBalance {
     groupId: number;
     groupName: string;
     groupFees: number; // Total fees for this group
     amountPaid: number; // Amount paid for this group
     remainingAmount: number; // Remaining amount for this group
-    discount?: number; // Default discount for this student in this group
+    discount?: number; // Applied discount for this student in this group (student default or group specific)
     isRegistrationFee?: boolean; // Whether this is a registration fee
     startDate?: string | null; // Start date for proper ordering
 }

@@ -29,6 +29,7 @@ import { format } from 'date-fns';
 import { formatTimeSimple } from '../../utils/timeUtils';
 import Modal from '../../components/ui/Modal';
 import { supabase } from '../../lib/supabase';
+import GroupDiscountManager from '../../components/GroupDiscountManager';
 
 export default function StudentsPage() {
     const {
@@ -688,6 +689,15 @@ export default function StudentsPage() {
                                 )}
                             </div>
                         </div>
+
+                        {/* Group Discounts */}
+                        <GroupDiscountManager
+                            student={selectedStudent}
+                            onUpdate={() => {
+                                // Refresh student data if needed
+                                fetchGroups();
+                            }}
+                        />
                     </div>
                 )}
             </Modal>

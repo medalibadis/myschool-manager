@@ -95,7 +95,31 @@ export default function PaymentsPage() {
         receipts: string[];
     } | null>(null);
     const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
-    const [unpaidGroups, setUnpaidGroups] = useState<Array<{ id: number; name: string; remaining: number; startDate?: string | null }>>([]);
+    const [unpaidGroups, setUnpaidGroups] = useState<Array<{
+        id: number;
+        name: string;
+        remaining: number;
+        originalPrice: number;
+        discount: number;
+        isRegistrationFee: boolean;
+        startDate?: string | null
+    }>>([]);
+
+    // New state for click-to-pay system
+    const [selectedGroupForPayment, setSelectedGroupForPayment] = useState<{
+        id: number;
+        name: string;
+        remaining: number;
+        originalPrice: number;
+        currentDiscount: number;
+        isRegistrationFee: boolean;
+    } | null>(null);
+    const [showGroupPaymentModal, setShowGroupPaymentModal] = useState(false);
+    const [groupPaymentData, setGroupPaymentData] = useState({
+        amount: '',
+        discount: '',
+        notes: ''
+    });
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [historySelectedStudent, setHistorySelectedStudent] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
@@ -416,6 +440,9 @@ export default function PaymentsPage() {
                     id: gb.groupId,
                     name: gb.groupName,
                     remaining: gb.remainingAmount,
+                    originalPrice: gb.groupFees,
+                    discount: gb.discount || 0,
+                    isRegistrationFee: gb.isRegistrationFee || false,
                     startDate: undefined // We don't have start date in our current calculation
                 }));
 
@@ -978,6 +1005,53 @@ export default function PaymentsPage() {
         }
     };
 
+    // Function to save group-specific discount as new price
+    const handleGroupPayment = async () => {
+        if (!selectedGroupForPayment || !selectedStudent) return;
+
+        try {
+            const originalAmount = parseFloat(groupPaymentData.amount);
+            const discountPercentage = parseFloat(groupPaymentData.discount || '0');
+            const discountAmount = originalAmount * (discountPercentage / 100);
+            const newPrice = originalAmount - discountAmount;
+
+            console.log('🎯 Setting new group price:');
+            console.log(`   Group: ${selectedGroupForPayment.name}`);
+            console.log(`   Original amount: ${originalAmount}`);
+            console.log(`   Discount: ${discountPercentage}%`);
+            console.log(`   New price: ${newPrice}`);
+
+            // Update the group discount in student_groups table
+            const { error } = await supabase
+                .from('student_groups')
+                .update({
+                    group_discount: discountPercentage > 0 ? discountPercentage : null
+                })
+                .eq('student_id', selectedStudent.id)
+                .eq('group_id', selectedGroupForPayment.id);
+
+            if (error) {
+                console.error('❌ Error updating group discount:', error);
+                alert('Failed to save discount. Please try again.');
+                return;
+            }
+
+            console.log('✅ Group discount saved successfully');
+
+            // Close modal and refresh data
+            setShowGroupPaymentModal(false);
+            setSelectedGroupForPayment(null);
+            setGroupPaymentData({ amount: '', discount: '', notes: '' });
+
+            // Refresh student data
+            await refreshSelectedStudentData();
+
+        } catch (error) {
+            console.error('❌ Error saving group discount:', error);
+            alert('Failed to save discount. Please try again.');
+        }
+    };
+
     // Handle adding payment
     const handleAddPayment = async () => {
         if (!selectedStudent || !paymentData.amount) {
@@ -986,18 +1060,11 @@ export default function PaymentsPage() {
         }
 
         try {
-            // Calculate amount with discount
-            const originalAmount = Math.abs(parseFloat(paymentData.amount || '0'));
-            const discountPercentage = parseFloat(paymentData.discount || '0');
-            const discountAmount = originalAmount * (discountPercentage / 100);
-            const depositAmount = originalAmount - discountAmount;
+            const depositAmount = Math.abs(parseFloat(paymentData.amount || '0'));
 
-            console.log('Processing payment with discount:', {
+            console.log('Processing payment:', {
                 studentId: selectedStudent.id,
-                originalAmount,
-                discountPercentage,
-                discountAmount,
-                finalAmount: depositAmount,
+                depositAmount,
                 date: paymentData.date,
                 notes: paymentData.notes
             });
@@ -1015,8 +1082,8 @@ export default function PaymentsPage() {
                 depositAmount,
                 new Date(paymentData.date),
                 paymentData.notes || '',
-                discountPercentage,
-                originalAmount
+                0, // No discount for main deposit
+                depositAmount
             );
 
             // Convert backend result to expected format
@@ -1807,12 +1874,30 @@ Thank you!`;
 
                             {/* Unpaid Groups list with priority ordering */}
                             <div className="bg-white p-4 rounded-lg border border-gray-200">
-                                <h4 className="font-medium text-gray-900 mb-3">Unpaid Groups (Priority Order)</h4>
+                                <h4 className="font-medium text-gray-900 mb-3">Unpaid Groups - Click to Set Discount</h4>
                                 {unpaidGroups.length > 0 ? (
                                     <ul className="space-y-3">
                                         {unpaidGroups.map((g, index) => (
-                                            <li key={g.id} className={`p-3 rounded-lg border ${g.id === 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
-                                                }`}>
+                                            <li
+                                                key={g.id}
+                                                className={`p-3 rounded-lg border cursor-pointer hover:shadow-md transition-all ${g.id === 0 ? 'bg-blue-50 border-blue-200 hover:bg-blue-100' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                onClick={() => {
+                                                    setSelectedGroupForPayment({
+                                                        id: g.id,
+                                                        name: g.name,
+                                                        remaining: g.remaining,
+                                                        originalPrice: g.originalPrice,
+                                                        currentDiscount: g.discount,
+                                                        isRegistrationFee: g.isRegistrationFee
+                                                    });
+                                                    setGroupPaymentData({
+                                                        amount: g.remaining.toString(),
+                                                        discount: g.discount.toString(),
+                                                        notes: ''
+                                                    });
+                                                    setShowGroupPaymentModal(true);
+                                                }}
+                                            >
                                                 <div className="flex items-center justify-between">
                                                     <div className="flex items-center gap-2">
                                                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${g.id === 0 ? 'bg-blue-500 text-white' : 'bg-gray-500 text-white'
@@ -1826,6 +1911,11 @@ Thank you!`;
                                                             <div className="text-xs text-gray-500">
                                                                 {g.id === 0 ? 'Priority 1 - Always First' : `Priority ${index + 1} - Group #${g.id}`}
                                                             </div>
+                                                            {g.discount > 0 && (
+                                                                <div className="text-xs text-blue-600 mt-1">
+                                                                    💰 Original: ${g.originalPrice.toFixed(2)} | Discount: {g.discount}% | Final: ${g.remaining.toFixed(2)}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <div className="text-right">
@@ -1833,6 +1923,11 @@ Thank you!`;
                                                         <div className="text-xs text-gray-500">
                                                             {g.id === 0 ? 'Registration Fee' : 'Group Fee'}
                                                         </div>
+                                                        {g.discount > 0 && (
+                                                            <div className="text-xs text-blue-600">
+                                                                ({g.discount}% discount applied)
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </li>
@@ -1849,7 +1944,7 @@ Thank you!`;
                                     </div>
                                 )}
                                 <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
-                                    <strong>Payment Priority:</strong> Registration fees are always paid first, then groups are paid from oldest to newest.
+                                    <strong>How it works:</strong> Click on any group to set a discount. Deposits are allocated from oldest to newest groups using the discounted prices.
                                 </div>
                             </div>
 
@@ -1857,78 +1952,15 @@ Thank you!`;
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Original Amount *
+                                        Deposit Amount *
                                     </label>
                                     <Input
                                         type="number"
                                         value={paymentData.amount}
                                         onChange={(e) => setPaymentData(prev => ({ ...prev, amount: e.target.value }))}
-                                        placeholder="Enter original amount before discount"
+                                        placeholder="Enter amount to deposit"
                                     />
                                 </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Discount (%)
-                                    </label>
-                                    <Input
-                                        type="number"
-                                        value={paymentData.discount}
-                                        onChange={(e) => setPaymentData(prev => ({ ...prev, discount: e.target.value }))}
-                                        placeholder={`Enter discount percentage (0-100)${selectedStudent?.defaultDiscount > 0 ? ` - Default: ${selectedStudent.defaultDiscount}%` : ''}`}
-                                        min="0"
-                                        max="100"
-                                    />
-                                    {selectedStudent?.defaultDiscount > 0 && (
-                                        <div className="mt-1 flex gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setPaymentData(prev => ({ ...prev, discount: selectedStudent.defaultDiscount.toString() }))}
-                                                className="text-xs text-blue-600 hover:text-blue-800 underline"
-                                            >
-                                                Use default ({selectedStudent.defaultDiscount}%)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setPaymentData(prev => ({ ...prev, discount: '' }))}
-                                                className="text-xs text-gray-600 hover:text-gray-800 underline"
-                                            >
-                                                Clear discount
-                                            </button>
-                                        </div>
-                                    )}
-                                    <div className="mt-1 text-xs text-gray-500">
-                                        💡 Discount applies to course fees only, not balance credits
-                                    </div>
-                                </div>
-
-                                {/* Calculated Amount Display */}
-                                {paymentData.amount && paymentData.discount && (
-                                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                                        <div className="text-xs text-blue-700 mb-2 font-medium">
-                                            💡 Discount Calculation (applies to course fees)
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Original Amount:</span>
-                                            <span className="font-medium">${parseFloat(paymentData.amount || '0').toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Discount ({paymentData.discount}%):</span>
-                                            <span className="font-medium text-green-600">-${(parseFloat(paymentData.amount || '0') * parseFloat(paymentData.discount || '0') / 100).toFixed(2)}</span>
-                                        </div>
-                                        <div className="border-t pt-2 mt-2">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-sm font-medium text-gray-700">Final Amount to Pay:</span>
-                                                <span className="font-bold text-lg text-blue-600">
-                                                    ${(parseFloat(paymentData.amount || '0') * (1 - parseFloat(paymentData.discount || '0') / 100)).toFixed(2)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="mt-2 text-xs text-gray-600">
-                                            * Balance credits are not discounted
-                                        </div>
-                                    </div>
-                                )}
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2829,6 +2861,130 @@ Thank you!`;
                                     }}
                                 >
                                     Close
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </Modal>
+
+                {/* Group Discount Modal */}
+                <Modal
+                    isOpen={showGroupPaymentModal}
+                    onClose={() => {
+                        setShowGroupPaymentModal(false);
+                        setSelectedGroupForPayment(null);
+                        setGroupPaymentData({ amount: '', discount: '', notes: '' });
+                    }}
+                    title={`Set Discount for ${selectedGroupForPayment?.name || 'Group'}`}
+                    maxWidth="2xl"
+                >
+                    {selectedGroupForPayment && (
+                        <div className="space-y-6">
+                            {/* Group Information */}
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                <h3 className="text-sm font-medium text-blue-700 mb-3">Group Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <div className="text-xs font-medium text-blue-700">Group Name</div>
+                                        <div className="text-sm text-blue-900">{selectedGroupForPayment.name}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-medium text-blue-700">Original Price</div>
+                                        <div className="text-sm text-blue-900">${selectedGroupForPayment.originalPrice.toFixed(2)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-medium text-blue-700">Remaining Amount</div>
+                                        <div className="text-sm text-blue-900 font-medium">${selectedGroupForPayment.remaining.toFixed(2)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-medium text-blue-700">Current Discount</div>
+                                        <div className="text-sm text-blue-900">{selectedGroupForPayment.currentDiscount}%</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Discount Form */}
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Original Group Fee *
+                                    </label>
+                                    <Input
+                                        type="number"
+                                        value={groupPaymentData.amount}
+                                        onChange={(e) => setGroupPaymentData(prev => ({ ...prev, amount: e.target.value }))}
+                                        placeholder="Enter original group fee"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Discount (%)
+                                    </label>
+                                    <Input
+                                        type="number"
+                                        value={groupPaymentData.discount}
+                                        onChange={(e) => setGroupPaymentData(prev => ({ ...prev, discount: e.target.value }))}
+                                        placeholder="Enter discount percentage (0-100)"
+                                        min="0"
+                                        max="100"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Notes
+                                    </label>
+                                    <Input
+                                        value={groupPaymentData.notes}
+                                        onChange={(e) => setGroupPaymentData(prev => ({ ...prev, notes: e.target.value }))}
+                                        placeholder="Discount notes (optional)"
+                                    />
+                                </div>
+
+                                {/* Calculated Amount Display */}
+                                {groupPaymentData.amount && groupPaymentData.discount && (
+                                    <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                        <div className="text-xs text-green-700 mb-2 font-medium">
+                                            💡 New Price Calculation
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-gray-600">Original Fee:</span>
+                                            <span className="font-medium">${parseFloat(groupPaymentData.amount || '0').toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm text-gray-600">Discount ({groupPaymentData.discount}%):</span>
+                                            <span className="font-medium text-green-600">-${(parseFloat(groupPaymentData.amount || '0') * parseFloat(groupPaymentData.discount || '0') / 100).toFixed(2)}</span>
+                                        </div>
+                                        <div className="border-t pt-2 mt-2">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-sm font-medium text-gray-700">New Group Fee:</span>
+                                                <span className="font-bold text-lg text-green-600">
+                                                    ${(parseFloat(groupPaymentData.amount || '0') * (1 - parseFloat(groupPaymentData.discount || '0') / 100)).toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 justify-end">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setShowGroupPaymentModal(false);
+                                        setSelectedGroupForPayment(null);
+                                        setGroupPaymentData({ amount: '', discount: '', notes: '' });
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleGroupPayment}
+                                    disabled={!groupPaymentData.amount || loading}
+                                >
+                                    {loading ? 'Saving...' : 'Save Discount'}
                                 </Button>
                             </div>
                         </div>

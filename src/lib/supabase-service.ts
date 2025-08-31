@@ -2086,6 +2086,7 @@ export const paymentService = {
         .select(`
           group_id,
           status,
+          group_discount,
           groups (
             id,
             name,
@@ -2216,10 +2217,10 @@ export const paymentService = {
       // CRITICAL: Only count payments that are actual payments, not automatic creations
       const validGroupPayments = groupPayments.filter(p => {
         // Skip payments that look like they were created automatically
-        if (!p.notes || p.notes.trim() === '') return false;
-        if (p.notes.toLowerCase().includes('automatic')) return false;
-        if (p.notes.toLowerCase().includes('system')) return false;
-        if (p.notes.toLowerCase().includes('default')) return false;
+        // Allow payments with empty notes (they might be legitimate)
+        if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
+        if (p.notes && p.notes.toLowerCase().includes('system')) return false;
+        if (p.notes && p.notes.toLowerCase().includes('default')) return false;
         return true;
       });
 
@@ -2237,10 +2238,20 @@ export const paymentService = {
 
       console.log(`  Group payments found: ${groupPayments.length}, Total paid: ${amountPaid}`);
 
-      // Calculate group fee (full price)
+      // Calculate group fee (full price) with proper discount logic
       const groupFee = groupPrice;
-      const defaultDiscount = Number(student.default_discount || 0);
-      const discountedGroupFee = defaultDiscount > 0 ? groupFee * (1 - defaultDiscount / 100) : groupFee;
+      const studentDefaultDiscount = Number(student.default_discount || 0);
+      const groupSpecificDiscount = Number(studentGroup.group_discount || 0);
+
+      // Use group-specific discount if available, otherwise use student default
+      const appliedDiscount = groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount;
+      const discountedGroupFee = appliedDiscount > 0 ? groupFee * (1 - appliedDiscount / 100) : groupFee;
+
+      console.log(`  🎯 Discount calculation for group ${group.name}:`);
+      console.log(`    Student default discount: ${studentDefaultDiscount}%`);
+      console.log(`    Group-specific discount: ${groupSpecificDiscount}%`);
+      console.log(`    Applied discount: ${appliedDiscount}%`);
+      console.log(`    Original fee: ${groupFee}, Discounted fee: ${discountedGroupFee}`);
 
       // Calculate remaining amount for this group
       const remainingAmount = Math.max(0, discountedGroupFee - amountPaid);
@@ -2269,7 +2280,7 @@ export const paymentService = {
         groupFees: discountedGroupFee,
         amountPaid: amountPaid,
         remainingAmount: remainingAmount,
-        discount: defaultDiscount,
+        discount: appliedDiscount,
         isRegistrationFee: false,
         startDate: group.start_date || null,
       });
@@ -2384,12 +2395,12 @@ export const paymentService = {
     // Remaining = Total owed - Total paid
     console.log('✅ SIMPLE SOLUTION: Balance calculation summary:');
     console.log(`  Total owed: ${totalBalance} (Registration: 500 + Groups: ${studentGroups.length} × 300)`);
-    console.log(`  Total paid: ${totalPaid}`);
+    console.log(`  Total paid: ${totalPaidAmount}`);
     console.log(`  Remaining balance: ${remainingBalance}`);
 
     return {
       totalBalance,
-      totalPaid,
+      totalPaid: totalPaidAmount, // Use the correct total paid amount
       remainingBalance,
       groupBalances,
     };
@@ -2764,10 +2775,35 @@ export const paymentService = {
       }
 
       const toPay = Math.min(available, group.remainingAmount);
-      // 🆕 FIX: Apply discount to course fees, but allow override with custom discount
-      const defaultDiscount = group.discount || 0;
-      const appliedDiscount = discount > 0 ? discount : defaultDiscount; // Use custom discount if provided, otherwise default
+
+      // 🆕 NEW DISCOUNT LOGIC: Get group-specific discount from student_groups table
+      let groupSpecificDiscount = 0;
+      try {
+        const { data: studentGroupData, error: sgError } = await supabase
+          .from('student_groups')
+          .select('group_discount')
+          .eq('student_id', studentId)
+          .eq('group_id', group.groupId)
+          .single();
+
+        if (!sgError && studentGroupData) {
+          groupSpecificDiscount = Number(studentGroupData.group_discount || 0);
+        }
+      } catch (error) {
+        console.log(`Could not fetch group-specific discount for group ${group.groupId}:`, error);
+      }
+
+      // 🆕 DISCOUNT PRIORITY: Custom discount > Group-specific discount > Student default discount
+      const studentDefaultDiscount = group.discount || 0; // From getStudentBalance
+      const appliedDiscount = discount > 0 ? discount : (groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount);
       const discountedAmount = appliedDiscount > 0 ? toPay * (1 - appliedDiscount / 100) : toPay;
+
+      console.log(`🎯 Group ${group.groupName} discount calculation:`);
+      console.log(`   - Student default: ${studentDefaultDiscount}%`);
+      console.log(`   - Group-specific: ${groupSpecificDiscount}%`);
+      console.log(`   - Custom payment: ${discount}%`);
+      console.log(`   - Applied: ${appliedDiscount}%`);
+      console.log(`   - Original: ${toPay}, Final: ${discountedAmount}`);
       const remainingAfter = group.remainingAmount - toPay;
 
       console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DA (discounted: ${discountedAmount} DA)`);
@@ -2783,10 +2819,10 @@ export const paymentService = {
           amount: discountedAmount,
           date: date.toISOString().split('T')[0],
           notes: remainingAfter > 0
-            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${discount > 0 ? ` - ${discount}% custom discount applied` : defaultDiscount > 0 ? ` - ${defaultDiscount}% default discount applied` : ''}`
-            : `Group fully paid${discount > 0 ? ` - ${discount}% custom discount applied` : defaultDiscount > 0 ? ` - ${defaultDiscount}% default discount applied` : ''}`,
+            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`
+            : `Group fully paid${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`,
           admin_name: adminName || 'Dalila',
-          discount: discount > 0 ? discount : defaultDiscount,
+          discount: discount > 0 ? discount : studentDefaultDiscount,
           original_amount: originalAmount || toPay,
           payment_type: 'group_payment'
         })
@@ -2809,8 +2845,8 @@ export const paymentService = {
             payment_type: 'group_payment',
             group_name: group.groupName,
             notes: remainingAfter > 0
-              ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`
-              : `Group fully paid${defaultDiscount > 0 ? ` - ${defaultDiscount}% discount applied` : ''}`,
+              ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`
+              : `Group fully paid${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`,
             created_at: new Date().toISOString()
           });
 

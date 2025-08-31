@@ -2305,53 +2305,55 @@ export const paymentService = {
       }
     }, 0);
 
-    // STEP 4: Calculate final balance
-    // remainingBalance = credits - total unpaid
-    // If positive: student has credit balance (additional amount)
-    // If negative: student owes money (sum of unpaid groups)
-    let totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
+    // STEP 4: Calculate final balance - FIXED LOGIC
+    // 🆕 NEW APPROACH: Calculate balance as (Total Paid) - (Total Owed)
+    // This properly handles debt-to-credit transitions
 
-    // 🆕 Handle debt reduction payments - convert to unpaid group fees if student has active groups
+    // Calculate total amount owed (all fees)
+    const totalOwed = groupBalances.reduce((sum, gb) => sum + gb.groupFees, 0);
+
+    // Calculate total amount paid (all positive payments)
+    const totalPaidAmount = payments.reduce((sum, p) => {
+      // Only count actual payments (positive amounts)
+      if (p.amount > 0) {
+        return sum + p.amount;
+      }
+      return sum;
+    }, 0);
+
+    // Calculate remaining balance: (Total Paid) - (Total Owed)
+    // If positive: student has credit (overpaid)
+    // If negative: student owes money (underpaid)
+    let remainingBalance = totalPaidAmount - totalOwed;
+
+    // 🆕 Handle debt reduction payments - apply as direct debt reduction
     const debtReductionPayments = payments.filter(p => p.payment_type === 'debt_reduction');
-    const totalDebtReduction = debtReductionPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const totalDebtReduction = debtReductionPayments.reduce((sum, p) => sum + Math.abs(Number(p.amount || 0)), 0);
 
     if (totalDebtReduction > 0) {
       console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
       debtReductionPayments.forEach((p, index) => {
-        console.log(`  Debt Reduction ${index + 1}: Amount=${p.amount} DA, Notes=${p.notes}`);
+        console.log(`  Debt Reduction ${index + 1}: Amount=${Math.abs(p.amount)} DA, Notes=${p.notes}`);
       });
 
-      // 🔄 CONVERSION LOGIC: If student has active groups, convert debt reduction to unpaid group fees
-      if (groupBalances.length > 0) {
-        console.log(`🔄 Student has ${groupBalances.length} active groups - converting debt reduction to unpaid group fees`);
+      // Apply debt reduction directly to balance
+      const adjustedBalance = remainingBalance + totalDebtReduction;
+      console.log(`💳 Applied debt reduction: ${remainingBalance} + ${totalDebtReduction} = ${adjustedBalance}`);
 
-        // Find the first active group with unpaid amount and apply the debt reduction
-        const activeGroupWithDebt = groupBalances.find(gb => gb.remainingAmount > 0);
-        if (activeGroupWithDebt) {
-          const conversionAmount = Math.min(totalDebtReduction, activeGroupWithDebt.remainingAmount);
-          activeGroupWithDebt.remainingAmount -= conversionAmount;
-          console.log(`🔄 Converted ${conversionAmount} DA debt reduction to unpaid fee for group: ${activeGroupWithDebt.groupName}`);
-          console.log(`🔄 Group ${activeGroupWithDebt.groupName} remaining amount: ${activeGroupWithDebt.remainingAmount} DA`);
-
-          // Recalculate total unpaid after conversion
-          totalUnpaid = groupBalances.reduce((sum, gb) => sum + gb.remainingAmount, 0);
-        }
-      }
+      // Update remaining balance with debt reduction
+      remainingBalance = adjustedBalance;
     }
-
-    // Calculate final balance: credits - total unpaid (debt reduction converted to unpaid fees if applicable)
-    const remainingBalance = totalCredits - totalUnpaid;
 
     // IMPORTANT: The remainingBalance should represent what the student actually owes
     // If they have unpaid amounts, it should be negative
     // If they have credits, it should be positive
 
     console.log(`Balance calculation for student ${studentId}:`);
-    console.log(`  Total fees charged: ${totalBalance}`);
-    console.log(`  Total amount paid: ${totalPaid}`);
+    console.log(`  Total fees charged: ${totalOwed}`);
+    console.log(`  Total amount paid: ${totalPaidAmount}`);
     console.log(`  Total credits/deposits: ${totalCredits}`);
-    console.log(`  Total debt reduction: ${totalDebtReduction} ${groupBalances.length > 0 ? '(converted to unpaid group fees)' : '(applied as debt reduction)'}`);
-    console.log(`  Total unpaid amounts: ${totalUnpaid}`);
+    console.log(`  Total debt reduction: ${totalDebtReduction} (applied as debt reduction)`);
+    console.log(`  Total unpaid amounts: ${totalOwed - totalPaidAmount}`);
     console.log(`  Final balance: ${remainingBalance} (negative = owes money, positive = has credit)`);
 
     // Debug: Show each group balance

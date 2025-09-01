@@ -2135,24 +2135,24 @@ export const paymentService = {
     }> = [];
 
     // STEP 1: Registration Fee ($500) - Always first priority
-    // IMPORTANT: Registration fee should always be added, regardless of groups
+    // IMPORTANT: Registration fee should always be added at full price (no discount)
     const registrationAmount = 500; // Fixed $500 registration fee
-    const defaultDiscount = Number(student.default_discount || 0);
-    const discountedRegistrationAmount = defaultDiscount > 0 ? registrationAmount * (1 - defaultDiscount / 100) : registrationAmount;
+    const discountedRegistrationAmount = registrationAmount; // No discount applied to registration
 
-    console.log(`Registration fee calculation: Base=${registrationAmount}, Discount=${defaultDiscount}%, Final=${discountedRegistrationAmount}`);
+    console.log(`Registration fee calculation: Base=${registrationAmount}, Discount=0%, Final=${discountedRegistrationAmount}`);
 
     // Check if registration fee already paid
-    const registrationPayments = payments.filter(p =>
-      p.group_id === null &&
-      p.notes &&
-      String(p.notes).toLowerCase().includes('registration fee') &&
-      // CRITICAL: Only count payments that are actual payments, not automatic creations
-      !p.notes.toLowerCase().includes('automatic') &&
-      !p.notes.toLowerCase().includes('system') &&
-      !p.notes.toLowerCase().includes('default')
-    );
-    const registrationPaid = registrationPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0);
+    const registrationPayments = payments.filter(p => {
+      if (p.group_id !== null) return false; // Registration payments have no group
+      const notes = String(p.notes || '').toLowerCase();
+      const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
+      const mentionsRegistration = notes.includes('registration fee');
+      return isRegistrationType || mentionsRegistration;
+    });
+    const registrationPaid = registrationPayments.reduce((sum, p) => {
+      const amount = Number(p.amount || 0);
+      return amount > 0 ? sum + amount : sum;
+    }, 0);
 
     console.log(`  Registration payments found: ${registrationPayments.length}, Total paid: ${registrationPaid}`);
 
@@ -2172,7 +2172,7 @@ export const paymentService = {
       groupFees: discountedRegistrationAmount,
       amountPaid: registrationPaid,
       remainingAmount: regRemaining,
-      discount: defaultDiscount,
+      discount: 0,
       isRegistrationFee: true,
       startDate: undefined,
     });
@@ -2260,7 +2260,7 @@ export const paymentService = {
       console.log(`    Discounted group fee: ${discountedGroupFee}`);
       console.log(`    Amount paid: ${amountPaid}`);
       console.log(`    Remaining amount: ${discountedGroupFee} - ${amountPaid} = ${remainingAmount}`);
-      console.log(`    Group fee: ${groupFee}, Discount: ${defaultDiscount}%, Final fee: ${discountedGroupFee}, Remaining: ${remainingAmount}`);
+      console.log(`    Group fee: ${groupFee}, Discount: ${appliedDiscount}%, Final fee: ${discountedGroupFee}, Remaining: ${remainingAmount}`);
 
       // IMPORTANT: Always add group fee to total balance (student owes this unless paid)
       // The remainingAmount calculation will handle partial payments correctly

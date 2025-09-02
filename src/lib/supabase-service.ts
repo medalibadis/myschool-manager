@@ -4956,11 +4956,16 @@ export const waitingListService = {
     studentCount: number;
     students: WaitingListStudent[];
   }>> {
+    console.log('🔍 DEBUG getSuggestedGroups: Starting...');
+
     // First, fetch waiting list students
     const { data: waitingListData, error: waitingListError } = await supabase
       .from('waiting_list')
       .select('*')
       .order('created_at', { ascending: false });
+
+    console.log('🔍 DEBUG getSuggestedGroups: waitingListData length:', waitingListData?.length);
+    console.log('🔍 DEBUG getSuggestedGroups: waitingListError:', waitingListError);
 
     if (waitingListError) {
       console.error('Error fetching waiting list for suggested groups:', waitingListError);
@@ -5014,11 +5019,32 @@ export const waitingListService = {
       callLogs: callLogsMap.get(student.id) || [],
     })) || [];
 
+    console.log('🔍 DEBUG getSuggestedGroups: students length:', students.length);
+    console.log('🔍 DEBUG getSuggestedGroups: first few students:', students.slice(0, 3).map(s => ({
+      name: s.name,
+      language: s.language,
+      level: s.level,
+      category: s.category
+    })));
+
     // Filter out students with missing, null, or invalid language, level, or category
     const validStudents = students.filter(student => {
       const hasValidLanguage = student.language && student.language.trim() !== '' && student.language !== 'other';
       const hasValidLevel = student.level && student.level.trim() !== '' && student.level !== 'other';
       const hasValidCategory = student.category && student.category.trim() !== '' && student.category !== 'other';
+
+      // Debug logging
+      if (student.name.includes('TEST') || student.name.includes('قطر')) {
+        console.log('🔍 DEBUG Student:', student.name, {
+          language: student.language,
+          level: student.level,
+          category: student.category,
+          hasValidLanguage,
+          hasValidLevel,
+          hasValidCategory,
+          isValid: hasValidLanguage && hasValidLevel && hasValidCategory
+        });
+      }
 
       return hasValidLanguage && hasValidLevel && hasValidCategory;
     });
@@ -5051,9 +5077,33 @@ export const waitingListService = {
       const group = groups.get(key)!;
       group.studentCount++;
       group.students.push(student);
+
+      // Debug logging for test students
+      if (student.name.includes('TEST') || student.name.includes('قطر')) {
+        console.log('🔍 DEBUG Group:', {
+          studentName: student.name,
+          key,
+          groupName,
+          studentCount: group.studentCount
+        });
+      }
     });
 
-    return Array.from(groups.values());
+    const result = Array.from(groups.values());
+
+    // Debug logging
+    console.log('🔍 DEBUG getSuggestedGroups result:', {
+      totalStudents: students.length,
+      validStudents: validStudents.length,
+      totalGroups: result.length,
+      groups: result.map(g => ({
+        groupName: g.groupName,
+        studentCount: g.studentCount,
+        students: g.students.map(s => s.name)
+      }))
+    });
+
+    return result;
   },
 };
 

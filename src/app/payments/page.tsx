@@ -425,7 +425,9 @@ export default function PaymentsPage() {
             const list = balance.groupBalances
                 .filter(gb => {
                     // 🚨 DEBUG: Show filtering decision for each group
-                    const shouldInclude = gb.remainingAmount > 0;
+                    // Add small tolerance for floating-point precision issues
+                    const tolerance = 0.01; // 1 cent tolerance
+                    const shouldInclude = gb.remainingAmount > tolerance;
                     console.log(`🚨 DEBUG: Group ${gb.groupName} (ID: ${gb.groupId}): remainingAmount=${gb.remainingAmount}, shouldInclude=${shouldInclude}`);
                     return shouldInclude;
                 })

@@ -431,8 +431,9 @@ export class CallLogManager {
     static formatGroupsWithDebts(
         groupBalances: GroupBalance[]
     ): Array<{ id: number; name: string; remainingAmount: number }> {
+        const tolerance = 0.01; // 1 cent tolerance for floating-point precision
         return groupBalances
-            .filter(gb => gb.remainingAmount > 0)
+            .filter(gb => gb.remainingAmount > tolerance)
             .map(gb => ({
                 id: gb.groupId,
                 name: gb.groupName,
@@ -446,8 +447,9 @@ export class CallLogManager {
     static calculateTotalRemainingAmount(
         groupBalances: GroupBalance[]
     ): number {
+        const tolerance = 0.01; // 1 cent tolerance for floating-point precision
         return groupBalances
-            .filter(gb => gb.remainingAmount > 0)
+            .filter(gb => gb.remainingAmount > tolerance)
             .reduce((sum, gb) => sum + gb.remainingAmount, 0);
     }
 
@@ -459,7 +461,8 @@ export class CallLogManager {
         groupBalances: GroupBalance[],
         totalRemaining: number
     ): string {
-        const unpaidGroups = groupBalances.filter(gb => gb.remainingAmount > 0);
+        const tolerance = 0.01; // 1 cent tolerance for floating-point precision
+        const unpaidGroups = groupBalances.filter(gb => gb.remainingAmount > tolerance);
 
         let summary = `Call Summary for ${student.name} (${student.custom_id || student.id})\n`;
         summary += `Total Outstanding: $${totalRemaining.toFixed(2)}\n\n`;

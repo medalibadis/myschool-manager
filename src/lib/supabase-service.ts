@@ -2258,6 +2258,9 @@ export const paymentService = {
       // Calculate remaining amount for this group
       const remainingAmount = Math.max(0, discountedGroupFee - amountPaid);
 
+      // Round to 2 decimal places to avoid floating-point precision issues
+      const roundedRemainingAmount = Math.round(remainingAmount * 100) / 100;
+
       console.log(`  🚨 DEBUG: Group ${group.name} remaining amount calculation:`);
       console.log(`    Discounted group fee: ${discountedGroupFee}`);
       console.log(`    Amount paid: ${amountPaid}`);
@@ -2269,7 +2272,9 @@ export const paymentService = {
       totalBalance += discountedGroupFee;
       totalPaid += amountPaid;
 
-      if (amountPaid < discountedGroupFee) {
+      if (appliedDiscount === 100) {
+        console.log(`  🎉 Group is FREE (100% discount) - no payment required`);
+      } else if (amountPaid < discountedGroupFee) {
         console.log(`  ✅ Student owes money for this group: ${discountedGroupFee} (added to total balance)`);
       } else {
         console.log(`  ✅ Group is fully paid, but still included in balance calculation`);
@@ -2278,10 +2283,10 @@ export const paymentService = {
       // Add group to balances (ALWAYS add, regardless of price or payment status)
       groupBalances.push({
         groupId: groupIdVal,
-        groupName: group.name || 'Unknown Group',
+        groupName: appliedDiscount === 100 ? `${group.name} (FREE - 100% discount)` : (group.name || 'Unknown Group'),
         groupFees: discountedGroupFee,
         amountPaid: amountPaid,
-        remainingAmount: remainingAmount,
+        remainingAmount: roundedRemainingAmount,
         discount: appliedDiscount,
         isRegistrationFee: false,
         startDate: group.start_date || null,

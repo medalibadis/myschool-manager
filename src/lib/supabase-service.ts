@@ -2061,14 +2061,17 @@ export const paymentService = {
       payments = [];
     }
 
-    // ✅ SIMPLE SOLUTION: Only count actual payments made by the student
-    // This ensures group fees appear as unpaid until actual payment is made
+    // ✅ FIXED: Count ALL payments for the student, including those without notes
+    // This ensures accurate balance calculation including all payment types
     const actualPayments = payments.filter(p => {
-      // Count payments that represent actual money transactions (positive = money in, negative = refunds out)
-      return p.notes && p.notes.trim() !== '';
+      // Include all payments except those explicitly marked as automatic/system
+      if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
+      if (p.notes && p.notes.toLowerCase().includes('system')) return false;
+      if (p.notes && p.notes.toLowerCase().includes('default')) return false;
+      return true; // Include all other payments
     });
 
-    console.log(`✅ SIMPLE SOLUTION: Found ${payments.length} total payments, ${actualPayments.length} are actual payments`);
+    console.log(`✅ FIXED: Found ${payments.length} total payments, ${actualPayments.length} are valid payments`);
     console.log(`🚨 DEBUG: Payment filtering details:`, payments.map(p => ({
       id: p.id,
       amount: p.amount,
@@ -2076,7 +2079,7 @@ export const paymentService = {
       payment_type: p.payment_type,
       group_id: p.group_id
     })));
-    payments = actualPayments; // Use only actual payments
+    payments = actualPayments; // Use filtered payments
 
     // Get all groups that this student is enrolled in
     let studentGroups: any[] = [];
@@ -2214,14 +2217,13 @@ export const paymentService = {
       // Get payments for this specific group
       const groupPayments = payments.filter(p => p.group_id === groupIdVal);
 
-      // CRITICAL: Only count payments that are actual payments, not automatic creations
+      // FIXED: Count all valid payments for this group
       const validGroupPayments = groupPayments.filter(p => {
         // Skip payments that look like they were created automatically
-        // Allow payments with empty notes (they might be legitimate)
         if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
         if (p.notes && p.notes.toLowerCase().includes('system')) return false;
         if (p.notes && p.notes.toLowerCase().includes('default')) return false;
-        return true;
+        return true; // Include all other payments
       });
 
       console.log(`  🚨 DEBUG: Group ${group.name} payment filtering:`);

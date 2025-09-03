@@ -27,6 +27,8 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
     const [showEditModal, setShowEditModal] = useState(false);
     const [editingGroup, setEditingGroup] = useState<GroupDiscountData | null>(null);
     const [editDiscount, setEditDiscount] = useState('');
+    const [isSavingDiscount, setIsSavingDiscount] = useState(false);
+    const [isClearingDiscount, setIsClearingDiscount] = useState<string | null>(null);
 
     useEffect(() => {
         fetchGroupDiscounts();
@@ -87,6 +89,7 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
         if (!editingGroup) return;
 
         try {
+            setIsSavingDiscount(true);
             const discountValue = editDiscount.trim() === '' ? null : parseFloat(editDiscount);
 
             if (discountValue !== null && (discountValue < 0 || discountValue > 100)) {
@@ -117,11 +120,14 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
         } catch (error) {
             console.error('Error saving discount:', error);
             alert('Failed to save discount');
+        } finally {
+            setIsSavingDiscount(false);
         }
     };
 
     const handleClearDiscount = async (group: GroupDiscountData) => {
         try {
+            setIsClearingDiscount(group.groupId.toString());
             const { error } = await supabase
                 .from('student_groups')
                 .update({ group_discount: null })
@@ -140,6 +146,8 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
         } catch (error) {
             console.error('Error clearing discount:', error);
             alert('Failed to clear discount');
+        } finally {
+            setIsClearingDiscount(null);
         }
     };
 
@@ -206,8 +214,9 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
                                                 size="sm"
                                                 variant="outline"
                                                 onClick={() => handleClearDiscount(group)}
+                                                disabled={isClearingDiscount === group.groupId.toString()}
                                             >
-                                                Clear
+                                                {isClearingDiscount === group.groupId.toString() ? 'Clearing...' : 'Clear'}
                                             </Button>
                                         )}
                                     </div>
@@ -269,8 +278,8 @@ export default function GroupDiscountManager({ student, onUpdate }: GroupDiscoun
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleSaveDiscount}>
-                            Save Discount
+                        <Button onClick={handleSaveDiscount} disabled={isSavingDiscount}>
+                            {isSavingDiscount ? 'Saving...' : 'Save Discount'}
                         </Button>
                     </div>
                 </div>

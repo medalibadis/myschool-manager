@@ -120,6 +120,7 @@ export default function PaymentsPage() {
         discount: '',
         notes: ''
     });
+    const [isSavingGroupDiscount, setIsSavingGroupDiscount] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [historySelectedStudent, setHistorySelectedStudent] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
@@ -1010,6 +1011,7 @@ export default function PaymentsPage() {
         if (!selectedGroupForPayment || !selectedStudent) return;
 
         try {
+            setIsSavingGroupDiscount(true);
             const originalAmount = parseFloat(groupPaymentData.amount);
             const discountPercentage = parseFloat(groupPaymentData.discount || '0');
             const discountAmount = originalAmount * (discountPercentage / 100);
@@ -1049,6 +1051,8 @@ export default function PaymentsPage() {
         } catch (error) {
             console.error('❌ Error saving group discount:', error);
             alert('Failed to save discount. Please try again.');
+        } finally {
+            setIsSavingGroupDiscount(false);
         }
     };
 
@@ -2982,9 +2986,9 @@ Thank you!`;
                                 </Button>
                                 <Button
                                     onClick={handleGroupPayment}
-                                    disabled={!groupPaymentData.amount || loading}
+                                    disabled={!groupPaymentData.amount || isSavingGroupDiscount}
                                 >
-                                    {loading ? 'Saving...' : 'Save Discount'}
+                                    {isSavingGroupDiscount ? 'Saving...' : 'Save Discount'}
                                 </Button>
                             </div>
                         </div>

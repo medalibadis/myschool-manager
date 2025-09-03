@@ -2322,8 +2322,8 @@ export const paymentService = {
     // 🆕 NEW APPROACH: Calculate balance as (Total Paid) - (Total Owed)
     // This properly handles debt-to-credit transitions
 
-    // Calculate total amount owed (all fees)
-    const totalOwed = groupBalances.reduce((sum, gb) => sum + gb.groupFees, 0);
+    // Calculate total amount owed (all fees) - FIXED: Use totalBalance which includes registration fee
+    const totalOwed = totalBalance; // This already includes registration fee + all group fees
 
     // Calculate total amount paid (all positive payments)
     const totalPaidAmount = payments.reduce((sum, p) => {
@@ -2396,7 +2396,7 @@ export const paymentService = {
     // Actual payments = Total paid
     // Remaining = Total owed - Total paid
     console.log('✅ SIMPLE SOLUTION: Balance calculation summary:');
-    console.log(`  Total owed: ${totalBalance} (Registration: 500 + Groups: ${studentGroups.length} × 300)`);
+    console.log(`  Total owed: ${totalOwed} (Registration: 500 + Groups: ${studentGroups.length} × discounted fees)`);
     console.log(`  Total paid: ${totalPaidAmount}`);
     console.log(`  Remaining balance: ${remainingBalance}`);
 

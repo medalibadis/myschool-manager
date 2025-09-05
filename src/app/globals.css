@@ -166,3 +166,194 @@ textarea::placeholder {
   /* text-gray-400 */
   opacity: 0.6 !important;
 }
+
+/* Print styles for reports */
+@media print {
+
+  /* Hide everything except reports */
+  * {
+    visibility: hidden !important;
+  }
+
+  /* Show only reports section and its children */
+  .reports-section,
+  .reports-section * {
+    visibility: visible !important;
+  }
+
+  .reports-section {
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Force table display */
+  .reports-table {
+    display: table !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8px !important;
+    margin: 0 !important;
+    table-layout: fixed !important;
+    page-break-inside: auto !important;
+  }
+
+  .reports-table thead {
+    display: table-header-group !important;
+    page-break-after: avoid !important;
+  }
+
+  .reports-table tbody {
+    display: table-row-group !important;
+  }
+
+  .reports-table tr {
+    display: table-row !important;
+  }
+
+  .reports-table th,
+  .reports-table td {
+    display: table-cell !important;
+    border: 1px solid #000 !important;
+    padding: 2px 3px !important;
+    text-align: left !important;
+    font-size: 8px !important;
+    background: white !important;
+    color: black !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 60px !important;
+  }
+
+  .reports-table th {
+    background: #f0f0f0 !important;
+    font-weight: bold !important;
+    text-align: center !important;
+  }
+
+  /* Specific column widths */
+  .reports-table th:nth-child(1),
+  .reports-table td:nth-child(1) {
+    width: 8% !important;
+  }
+
+  /* GID */
+  .reports-table th:nth-child(2),
+  .reports-table td:nth-child(2) {
+    width: 15% !important;
+  }
+
+  /* Group Name */
+  .reports-table th:nth-child(3),
+  .reports-table td:nth-child(3) {
+    width: 8% !important;
+  }
+
+  /* Language */
+  .reports-table th:nth-child(4),
+  .reports-table td:nth-child(4) {
+    width: 6% !important;
+  }
+
+  /* Level */
+  .reports-table th:nth-child(5),
+  .reports-table td:nth-child(5) {
+    width: 8% !important;
+  }
+
+  /* Category */
+  .reports-table th:nth-child(6),
+  .reports-table td:nth-child(6) {
+    width: 12% !important;
+  }
+
+  /* Teacher */
+  .reports-table th:nth-child(7),
+  .reports-table td:nth-child(7) {
+    width: 6% !important;
+  }
+
+  /* Total Students */
+  .reports-table th:nth-child(8),
+  .reports-table td:nth-child(8) {
+    width: 6% !important;
+  }
+
+  /* Active Students */
+  .reports-table th:nth-child(9),
+  .reports-table td:nth-child(9) {
+    width: 6% !important;
+  }
+
+  /* Stopped Students */
+  .reports-table th:nth-child(10),
+  .reports-table td:nth-child(10) {
+    width: 6% !important;
+  }
+
+  /* Sessions Taught */
+  .reports-table th:nth-child(11),
+  .reports-table td:nth-child(11) {
+    width: 6% !important;
+  }
+
+  /* Total Sessions */
+  .reports-table th:nth-child(12),
+  .reports-table td:nth-child(12) {
+    width: 6% !important;
+  }
+
+  /* Paid Students */
+  .reports-table th:nth-child(13),
+  .reports-table td:nth-child(13) {
+    width: 6% !important;
+  }
+
+  /* Unpaid Students */
+  .reports-table th:nth-child(14),
+  .reports-table td:nth-child(14) {
+    width: 6% !important;
+  }
+
+  /* Free Students */
+  .reports-table th:nth-child(15),
+  .reports-table td:nth-child(15) {
+    width: 8% !important;
+  }
+
+  /* Revenue */
+
+
+  /* Body styling */
+  body {
+    margin: 0 !important;
+    padding: 5px !important;
+    font-size: 10px !important;
+    color: black !important;
+    background: white !important;
+  }
+
+  /* Print title */
+  .print-title {
+    display: block !important;
+    text-align: center !important;
+    margin-bottom: 5px !important;
+    page-break-after: avoid !important;
+  }
+
+  .print-title h1 {
+    font-size: 12px !important;
+    font-weight: bold !important;
+    color: black !important;
+    margin: 0 0 2px 0 !important;
+    line-height: 1.2 !important;
+  }
+
+  .print-title p {
+    font-size: 8px !important;
+    color: black !important;
+    margin: 0 !important;
+    line-height: 1.2 !important;
+  }
+}

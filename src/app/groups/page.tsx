@@ -327,10 +327,21 @@ export default function GroupsPage() {
 
     // Filter groups based on search term
     const filteredGroups = groups.filter(group => {
-        return searchTerm === '' ||
-            group.name.toLowerCase().startsWith(searchTerm.toLowerCase()) ||
-            group.language?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            group.level?.toLowerCase().includes(searchTerm.toLowerCase());
+        if (searchTerm === '') return true;
+
+        const searchLower = searchTerm.toLowerCase();
+        const teacher = teachers.find(t => t.id === group.teacherId);
+        const teacherName = teacher?.name?.toLowerCase() || '';
+        const groupId = group.id.toString();
+
+        return (
+            group.name.toLowerCase().includes(searchLower) ||
+            group.language?.toLowerCase().includes(searchLower) ||
+            group.level?.toLowerCase().includes(searchLower) ||
+            teacherName.includes(searchLower) ||
+            groupId.includes(searchTerm) ||
+            formatGroupId(group.id).toLowerCase().includes(searchLower)
+        );
     });
 
     return (
@@ -382,7 +393,7 @@ export default function GroupsPage() {
                                                 <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                                                 <Input
                                                     type="text"
-                                                    placeholder="Search by name, language, or level..."
+                                                    placeholder="Search by group name, teacher name, group ID, language, or level..."
                                                     value={searchTerm}
                                                     onChange={(e) => setSearchTerm(e.target.value)}
                                                     className="pl-10"

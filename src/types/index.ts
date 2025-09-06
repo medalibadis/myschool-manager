@@ -240,5 +240,6 @@ export interface UnpaidGroupSalary {
     late_sessions: number;
     absent_sessions: number;
     justified_sessions: number;
+    covering_sessions?: number;
     calculated_salary: number;
 } 

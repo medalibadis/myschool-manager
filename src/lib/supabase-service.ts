@@ -5286,4 +5286,158 @@ export const callLogService = {
       throw error;
     }
   },
+};
+
+// Teacher Covering Service
+export const coveringService = {
+  // Get covering sessions for a teacher
+  async getCoveringSessions(teacherId: string): Promise<any[]> {
+    try {
+      console.log(`🔍 Fetching covering sessions for teacher: ${teacherId}`);
+
+      const { data, error } = await supabase
+        .from('teacher_covering')
+        .select(`
+          id,
+          original_teacher_id,
+          covering_teacher_id,
+          session_id,
+          group_id,
+          cover_date,
+          notes,
+          created_at
+        `)
+        .eq('covering_teacher_id', teacherId)
+        .order('cover_date', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching covering sessions:', error);
+        throw new Error(`Failed to fetch covering sessions: ${error.message}`);
+      }
+
+      console.log(`📋 Found ${data?.length || 0} covering sessions for teacher ${teacherId}`);
+
+      // If no data, return empty array
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      // Get group and session details separately
+      const groupIds = [...new Set(data.map(item => item.group_id))];
+      const sessionIds = [...new Set(data.map(item => item.session_id))];
+
+      console.log(`🔍 Fetching details for ${groupIds.length} groups and ${sessionIds.length} sessions`);
+
+      // Fetch groups
+      const { data: groups, error: groupsError } = await supabase
+        .from('groups')
+        .select('id, name, language, level, category')
+        .in('id', groupIds);
+
+      if (groupsError) {
+        console.error('Error fetching groups for covering sessions:', groupsError);
+      }
+
+      // Fetch sessions
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('sessions')
+        .select('id, date, start_time, end_time')
+        .in('id', sessionIds);
+
+      if (sessionsError) {
+        console.error('Error fetching sessions for covering sessions:', sessionsError);
+      }
+
+      // Combine the data
+      const result = data.map(covering => ({
+        ...covering,
+        groups: groups?.find(g => g.id === covering.group_id) || null,
+        sessions: sessions?.find(s => s.id === covering.session_id) || null
+      }));
+
+      console.log(`✅ Returning ${result.length} covering sessions with details`);
+      return result;
+    } catch (error) {
+      console.error('Error in coveringService.getCoveringSessions:', error);
+      throw error;
+    }
+  },
+
+  // Create a covering record
+  async createCovering(coveringData: {
+    originalTeacherId: string;
+    coveringTeacherId: string;
+    sessionId: string;
+    groupId: number;
+    coverDate: Date;
+    notes?: string;
+  }): Promise<any> {
+    try {
+      console.log(`🔄 Creating covering record:`, coveringData);
+
+      const { data, error } = await supabase
+        .from('teacher_covering')
+        .insert({
+          original_teacher_id: coveringData.originalTeacherId,
+          covering_teacher_id: coveringData.coveringTeacherId,
+          session_id: coveringData.sessionId,
+          group_id: coveringData.groupId,
+          cover_date: coveringData.coverDate.toISOString().split('T')[0],
+          notes: coveringData.notes || null,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating covering record:', error);
+        throw new Error(`Failed to create covering record: ${error.message}`);
+      }
+
+      console.log(`✅ Covering record created successfully:`, data);
+      return data;
+    } catch (error) {
+      console.error('Error in coveringService.createCovering:', error);
+      throw error;
+    }
+  },
+
+  // Get covering statistics for a teacher
+  async getCoveringStats(teacherId: string): Promise<{
+    totalCoveringSessions: number;
+    coveringSessionsThisMonth: number;
+    coveringSessionsThisYear: number;
+  }> {
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+      const { data, error } = await supabase
+        .from('teacher_covering')
+        .select('cover_date')
+        .eq('covering_teacher_id', teacherId);
+
+      if (error) {
+        console.error('Error fetching covering stats:', error);
+        throw new Error(`Failed to fetch covering stats: ${error.message}`);
+      }
+
+      const totalCoveringSessions = data?.length || 0;
+      const coveringSessionsThisMonth = data?.filter(
+        (record) => new Date(record.cover_date) >= startOfMonth
+      ).length || 0;
+      const coveringSessionsThisYear = data?.filter(
+        (record) => new Date(record.cover_date) >= startOfYear
+      ).length || 0;
+
+      return {
+        totalCoveringSessions,
+        coveringSessionsThisMonth,
+        coveringSessionsThisYear,
+      };
+    } catch (error) {
+      console.error('Error in coveringService.getCoveringStats:', error);
+      throw error;
+    }
+  },
 }; 

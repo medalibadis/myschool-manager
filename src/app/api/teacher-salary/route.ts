@@ -77,10 +77,109 @@ async function calculateUnpaidGroups(teacherId: string) {
 
         if (!groups || groups.length === 0) {
             console.log('ℹ️ No groups found for teacher');
+
+            // Even if teacher has no groups, check for covering sessions
+            const { data: coveringSessions, error: coveringError } = await supabaseAdmin
+                .from('teacher_covering')
+                .select('id, group_id, groups!teacher_covering_group_id_fkey(id, name)')
+                .eq('covering_teacher_id', teacherId);
+
+            if (coveringError) {
+                console.error(`❌ Error fetching covering sessions for teacher with no groups:`, coveringError);
+                return [];
+            }
+
+            if (coveringSessions && coveringSessions.length > 0) {
+                console.log(`🎯 Teacher has no groups but has ${coveringSessions.length} covering sessions`);
+
+                // Get teacher's price per session
+                const { data: teacher, error: teacherError } = await supabaseAdmin
+                    .from('teachers')
+                    .select('price_per_session')
+                    .eq('id', teacherId)
+                    .single();
+
+                if (!teacherError && teacher) {
+                    const pricePerSession = teacher.price_per_session || 1000;
+
+                    // Group covering sessions by group_id
+                    const coveringByGroup: { [key: number]: any[] } = coveringSessions.reduce((acc, cs) => {
+                        if (!acc[cs.group_id]) {
+                            acc[cs.group_id] = [];
+                        }
+                        acc[cs.group_id].push(cs);
+                        return acc;
+                    }, {} as { [key: number]: any[] });
+
+                    const unpaidGroups = [];
+
+                    // Create entries for each group with covering sessions
+                    for (const [groupId, sessions] of Object.entries(coveringByGroup)) {
+                        const groupIdNum = parseInt(groupId);
+                        const coveringCount = sessions.length;
+                        const coveringSalary = coveringCount * pricePerSession;
+
+                        console.log(`📊 Covering Group ${groupId} salary calculation:`);
+                        console.log(`  - Covering sessions: ${coveringCount}`);
+                        console.log(`  - Price per session: ${pricePerSession}`);
+                        console.log(`  - Covering salary: ${coveringSalary} DA`);
+
+                        unpaidGroups.push({
+                            group_id: groupIdNum,
+                            group_name: `🔄 COVERING: ${(sessions[0].groups as any)?.name || `Group ${groupId}`} (${coveringCount} sessions)`,
+                            total_sessions: 0,
+                            present_sessions: 0,
+                            late_sessions: 0,
+                            absent_sessions: 0,
+                            justified_sessions: 0,
+                            covering_sessions: coveringCount,
+                            calculated_salary: coveringSalary
+                        });
+                    }
+
+                    console.log(`✅ Found ${unpaidGroups.length} unpaid covering groups`);
+                    return unpaidGroups;
+                }
+            }
+
             return [];
         }
 
         console.log(`📚 Found ${groups.length} groups for teacher`);
+
+        // Debug: Check if there are ANY covering records in the database
+        const { data: allCoveringRecords, error: allCoveringRecordsError } = await supabaseAdmin
+            .from('teacher_covering')
+            .select('id, covering_teacher_id, group_id')
+            .limit(10);
+
+        if (allCoveringRecordsError) {
+            console.error(`❌ Error checking all covering records:`, allCoveringRecordsError);
+        } else {
+            console.log(`🔍 Total covering records in database: ${allCoveringRecords?.length || 0}`);
+            if (allCoveringRecords && allCoveringRecords.length > 0) {
+                console.log(`📋 Sample covering records:`, allCoveringRecords);
+            }
+        }
+
+        // Get all covering sessions for this teacher once (for debugging)
+        const { data: allCoveringSessions, error: allCoveringError } = await supabaseAdmin
+            .from('teacher_covering')
+            .select('id, group_id, groups!teacher_covering_group_id_fkey(id, name)')
+            .eq('covering_teacher_id', teacherId);
+
+        if (allCoveringError) {
+            console.error(`❌ Error fetching all covering sessions for teacher ${teacherId}:`, allCoveringError);
+        } else {
+            console.log(`🎯 Teacher ${teacherId} has ${allCoveringSessions?.length || 0} total covering sessions`);
+            if (allCoveringSessions && allCoveringSessions.length > 0) {
+                console.log(`📋 Covering sessions details:`, allCoveringSessions.map(cs => ({
+                    id: cs.id,
+                    group_id: cs.group_id,
+                    group_name: (cs.groups as any)?.name || 'Unknown'
+                })));
+            }
+        }
 
         const unpaidGroups = [];
 
@@ -129,13 +228,24 @@ async function calculateUnpaidGroups(teacherId: string) {
 
                 const pricePerSession = teacher.price_per_session || 1000;
 
-                // Calculate salary
+                // Count covering sessions for this specific group (use already fetched data)
+                const coveringSessionsCount = allCoveringSessions?.filter(cs => cs.group_id === group.id).length || 0;
+
+                // Calculate salary components
                 const presentSessions = attendance.filter(a => a.status === 'present').length;
                 const lateSessions = attendance.filter(a => a.status === 'late').length;
                 const absentSessions = attendance.filter(a => a.status === 'absent').length;
                 const justifiedSessions = attendance.filter(a => a.status === 'justified').length;
 
-                const calculatedSalary = (presentSessions * pricePerSession) -
+                console.log(`📊 Group ${group.id} salary calculation:`);
+                console.log(`  - Present sessions: ${presentSessions}`);
+                console.log(`  - Covering sessions: ${coveringSessionsCount}`);
+                console.log(`  - Price per session: ${pricePerSession}`);
+                console.log(`  - Covering sessions total: ${coveringSessionsCount * pricePerSession} DA`);
+
+                // Include covering sessions in salary calculation
+                const calculatedSalary = (presentSessions * pricePerSession) +
+                    (coveringSessionsCount * pricePerSession) - // Add covering sessions
                     (lateSessions * 200) -
                     (absentSessions * 500);
 
@@ -174,12 +284,67 @@ async function calculateUnpaidGroups(teacherId: string) {
                         late_sessions: lateSessions,
                         absent_sessions: absentSessions,
                         justified_sessions: justifiedSessions,
+                        covering_sessions: coveringSessionsCount,
                         calculated_salary: calculatedSalary
                     });
                 }
             } catch (groupError) {
                 console.error(`❌ Error processing group ${group.id}:`, groupError);
                 continue;
+            }
+        }
+
+        // 3. Add covering sessions as separate entries if they don't belong to teacher's groups
+        if (allCoveringSessions && allCoveringSessions.length > 0) {
+            const teacherGroupIds = groups.map(g => g.id);
+            const coveringSessionsForOtherGroups = allCoveringSessions.filter(cs => !teacherGroupIds.includes(cs.group_id));
+
+            if (coveringSessionsForOtherGroups.length > 0) {
+                console.log(`🎯 Found ${coveringSessionsForOtherGroups.length} covering sessions for other groups`);
+
+                // Get teacher's price per session
+                const { data: teacher, error: teacherError } = await supabaseAdmin
+                    .from('teachers')
+                    .select('price_per_session')
+                    .eq('id', teacherId)
+                    .single();
+
+                if (!teacherError && teacher) {
+                    const pricePerSession = teacher.price_per_session || 1000;
+
+                    // Group covering sessions by group_id
+                    const coveringByGroup: { [key: number]: any[] } = coveringSessionsForOtherGroups.reduce((acc, cs) => {
+                        if (!acc[cs.group_id]) {
+                            acc[cs.group_id] = [];
+                        }
+                        acc[cs.group_id].push(cs);
+                        return acc;
+                    }, {} as { [key: number]: any[] });
+
+                    // Create entries for each group with covering sessions
+                    for (const [groupId, sessions] of Object.entries(coveringByGroup)) {
+                        const groupIdNum = parseInt(groupId);
+                        const coveringCount = sessions.length;
+                        const coveringSalary = coveringCount * pricePerSession;
+
+                        console.log(`📊 Covering Group ${groupId} salary calculation:`);
+                        console.log(`  - Covering sessions: ${coveringCount}`);
+                        console.log(`  - Price per session: ${pricePerSession}`);
+                        console.log(`  - Covering salary: ${coveringSalary} DA`);
+
+                        unpaidGroups.push({
+                            group_id: groupIdNum,
+                            group_name: `🔄 COVERING: ${(sessions[0].groups as any)?.name || `Group ${groupId}`} (${coveringCount} sessions)`,
+                            total_sessions: 0, // Not applicable for covering
+                            present_sessions: 0,
+                            late_sessions: 0,
+                            absent_sessions: 0,
+                            justified_sessions: 0,
+                            covering_sessions: coveringCount,
+                            calculated_salary: coveringSalary
+                        });
+                    }
+                }
             }
         }
 

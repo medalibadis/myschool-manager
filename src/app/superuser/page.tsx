@@ -123,8 +123,8 @@ function ReportsSection() {
                 const totalStudents = groupStudentGroups.length;
 
                 // Count active vs stopped students from student_groups status
-                const activeStudents = groupStudentGroups.filter(sg => sg.status !== 'stopped').length;
-                const stoppedStudents = groupStudentGroups.filter(sg => sg.status === 'stopped').length;
+                const activeStudents = groupStudentGroups.filter(sg => (sg as any).status !== 'stopped').length;
+                const stoppedStudents = groupStudentGroups.filter(sg => (sg as any).status === 'stopped').length;
 
                 // Count sessions taught (sessions with actual attendance records)
                 const sessionsTaught = groupSessions.filter(session => {
@@ -152,7 +152,7 @@ function ReportsSection() {
 
                 // Count students with 100% discount (free) - check both group_discount and default_discount
                 const freeStudents = groupStudentGroups.filter(sg =>
-                    sg.group_discount === 100 || sg.students?.default_discount === 100
+                    (sg as any).group_discount === 100 || (sg as any).students?.default_discount === 100
                 ).length;
 
                 // Revenue = group fee × number of paid students
@@ -164,7 +164,7 @@ function ReportsSection() {
                     language: group.language || 'Unknown',
                     level: group.level || 'Unknown',
                     category: group.category || 'Unknown',
-                    teacher: group.teachers?.name || 'Unknown',
+                    teacher: (group.teachers as any)?.name || 'Unknown',
                     totalStudents,
                     activeStudents,
                     stoppedStudents,

@@ -202,6 +202,7 @@ export default function GroupDetailPage() {
         addStudentToGroup,
         removeStudentFromGroup,
         updateStudent,
+        updateGroup,
         generateSessions,
         updateAttendance,
         fetchGroups,
@@ -245,6 +246,20 @@ export default function GroupDetailPage() {
     const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
     const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+    const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
+    const [editingGroup, setEditingGroup] = useState<any>(null);
+    const [editGroupFormData, setEditGroupFormData] = useState({
+        teacherId: '',
+        startDate: '',
+        totalSessions: 16,
+        recurringDays: [] as number[],
+        price: 0,
+        language: '',
+        level: '',
+        category: '',
+        startTime: '09:00',
+        endTime: '11:00',
+    });
     const [showWaitingListModal, setShowWaitingListModal] = useState(false);
     const [waitingListStudents, setWaitingListStudents] = useState<WaitingListStudent[]>([]);
     const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
@@ -338,6 +353,81 @@ export default function GroupDetailPage() {
     const handleEditStudentClick = (student: Student) => {
         setEditingStudent({ ...student });
         setIsEditStudentModalOpen(true);
+    };
+
+    const handleEditGroup = (group: any) => {
+        setEditingGroup(group);
+        setEditGroupFormData({
+            teacherId: group.teacherId,
+            startDate: format(new Date(group.startDate), 'yyyy-MM-dd'),
+            totalSessions: group.totalSessions,
+            recurringDays: group.recurringDays,
+            price: group.price || 0,
+            language: group.language || '',
+            level: group.level || '',
+            category: group.category || '',
+            startTime: group.startTime || '09:00',
+            endTime: group.endTime || '11:00',
+        });
+        setIsEditGroupModalOpen(true);
+    };
+
+    const handleUpdateGroup = async () => {
+        if (!editGroupFormData.teacherId || !editGroupFormData.startDate || editGroupFormData.recurringDays.length === 0 ||
+            !editGroupFormData.language || !editGroupFormData.level || !editGroupFormData.category ||
+            !editGroupFormData.startTime || !editGroupFormData.endTime) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        try {
+            const updatedGroup = {
+                name: `${editGroupFormData.language}|${editGroupFormData.level}|${editGroupFormData.category}`,
+                teacherId: editGroupFormData.teacherId,
+                startDate: new Date(editGroupFormData.startDate),
+                recurringDays: editGroupFormData.recurringDays,
+                totalSessions: editGroupFormData.totalSessions,
+                language: editGroupFormData.language,
+                level: editGroupFormData.level,
+                category: editGroupFormData.category,
+                price: editGroupFormData.price,
+                startTime: editGroupFormData.startTime,
+                endTime: editGroupFormData.endTime,
+            };
+
+            await updateGroup(editingGroup.id, updatedGroup);
+            await fetchGroups();
+
+            // Reset form
+            setEditGroupFormData({
+                teacherId: '',
+                startDate: '',
+                totalSessions: 16,
+                recurringDays: [],
+                price: 0,
+                language: '',
+                level: '',
+                category: '',
+                startTime: '09:00',
+                endTime: '11:00',
+            });
+
+            setIsEditGroupModalOpen(false);
+            setEditingGroup(null);
+            alert('Group updated successfully!');
+        } catch (error) {
+            console.error('Error updating group:', error);
+            alert('Failed to update group. Please try again.');
+        }
+    };
+
+    const handleDayToggle = (dayValue: number) => {
+        setEditGroupFormData(prev => ({
+            ...prev,
+            recurringDays: prev.recurringDays.includes(dayValue)
+                ? prev.recurringDays.filter(day => day !== dayValue)
+                : [...prev.recurringDays, dayValue]
+        }));
     };
 
     const handleDeleteStudent = async (studentId: string) => {
@@ -753,6 +843,14 @@ export default function GroupDetailPage() {
                                 </p>
                             </div>
                             <div className="flex space-x-3">
+                                <Button
+                                    onClick={() => handleEditGroup(group)}
+                                    variant="outline"
+                                    className="flex items-center space-x-2"
+                                >
+                                    <PencilIcon className="h-4 w-4" />
+                                    <span>Edit Group</span>
+                                </Button>
                                 <Button
                                     onClick={() => setIsAddStudentModalOpen(true)}
                                     className="flex items-center space-x-2"
@@ -1656,6 +1754,198 @@ export default function GroupDetailPage() {
                                     disabled={!nextGroupFormData.teacherId || !nextGroupFormData.startDate || nextGroupFormData.selectedStudents.length === 0}
                                 >
                                     Create Next Group
+                                </Button>
+                            </div>
+                        </Modal>
+
+                        {/* Edit Group Modal */}
+                        <Modal
+                            isOpen={isEditGroupModalOpen}
+                            onClose={() => {
+                                setIsEditGroupModalOpen(false);
+                                setEditingGroup(null);
+                            }}
+                            title="Edit Group"
+                            maxWidth="2xl"
+                        >
+                            <div className="space-y-4">
+                                {/* Row 1: Teacher, Start Date */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Teacher *
+                                        </label>
+                                        <select
+                                            value={editGroupFormData.teacherId}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, teacherId: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                            required
+                                        >
+                                            <option value="">Select a teacher</option>
+                                            {teachers.map((teacher) => (
+                                                <option key={teacher.id} value={teacher.id}>
+                                                    {teacher.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Start Date *
+                                        </label>
+                                        <Input
+                                            type="date"
+                                            value={editGroupFormData.startDate}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Row 2: Language, Level, Category */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Language *
+                                        </label>
+                                        <select
+                                            value={editGroupFormData.language}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, language: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                            required
+                                        >
+                                            <option value="">Select language</option>
+                                            {languages.map((lang) => (
+                                                <option key={lang.value} value={lang.value}>
+                                                    {lang.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Level *
+                                        </label>
+                                        <select
+                                            value={editGroupFormData.level}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, level: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                            required
+                                        >
+                                            <option value="">Select level</option>
+                                            {levels.map((level) => (
+                                                <option key={level.value} value={level.value}>
+                                                    {level.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Category *
+                                        </label>
+                                        <select
+                                            value={editGroupFormData.category}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, category: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                            required
+                                        >
+                                            <option value="">Select category</option>
+                                            <option value="Children">Children</option>
+                                            <option value="Teenagers">Teenagers</option>
+                                            <option value="Adults">Adults</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Row 3: Group Fees, Start Time, End Time */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Group Fees *
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            value={editGroupFormData.price}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                                            placeholder="0.00"
+                                            min="0"
+                                            required
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Total fees for the entire group course
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Start Time *
+                                        </label>
+                                        <Input
+                                            type="time"
+                                            value={editGroupFormData.startTime}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, startTime: e.target.value }))}
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            End Time *
+                                        </label>
+                                        <Input
+                                            type="time"
+                                            value={editGroupFormData.endTime}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, endTime: e.target.value }))}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Row 4: Total Sessions, Recurring Days */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Total Sessions
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            value={editGroupFormData.totalSessions}
+                                            onChange={(e) => setEditGroupFormData(prev => ({ ...prev, totalSessions: parseInt(e.target.value) || 16 }))}
+                                            min="1"
+                                            max="52"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Recurring Days *
+                                        </label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {weekDays.map((day, index) => (
+                                                <label key={index} className="flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={editGroupFormData.recurringDays.includes(index)}
+                                                        onChange={() => handleDayToggle(index)}
+                                                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                                                    />
+                                                    <span className="ml-2 text-sm text-gray-700">{day}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex justify-end space-x-3 pt-4">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setIsEditGroupModalOpen(false);
+                                        setEditingGroup(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button onClick={handleUpdateGroup}>
+                                    Update Group
                                 </Button>
                             </div>
                         </Modal>

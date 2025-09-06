@@ -11,6 +11,7 @@ import AuthGuard from '../../components/AuthGuard';
 import { Teacher, Session, UnpaidGroupSalary, TeacherSalary } from '../../types';
 import { GlobalKeyboardShortcuts } from '../../components/GlobalKeyboardShortcuts';
 import { supabase } from '../../lib/supabase';
+import { coveringService } from '../../lib/supabase-service';
 import {
     PlusIcon,
     UsersIcon,
@@ -53,6 +54,21 @@ export default function TeachersPage() {
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [selectedHistoryTeacher, setSelectedHistoryTeacher] = useState<Teacher | null>(null);
     const [selectedHistoryGroup, setSelectedHistoryGroup] = useState<number | null>(null);
+
+    // Covering modal states
+    const [showCoveringModal, setShowCoveringModal] = useState(false);
+    const [coveringSessions, setCoveringSessions] = useState<any[]>([]);
+
+    // Covering popup states
+    const [showCoveringPopup, setShowCoveringPopup] = useState(false);
+    const [coveringData, setCoveringData] = useState<{
+        originalTeacherId: string;
+        sessionId: string;
+        groupId: number;
+        date: string;
+        status: 'absent' | 'justified';
+        groupName: string;
+    } | null>(null);
 
     // Salary management state
     const [showSalaryModal, setShowSalaryModal] = useState(false);
@@ -530,6 +546,28 @@ export default function TeachersPage() {
                 }
 
                 console.log('✅ Successfully inserted attendance records:', insertResult);
+
+                // Check for absent/justified status and trigger covering popup
+                const absentOrJustifiedRecords = attendanceData.filter(record =>
+                    record.status === 'absent' || record.status === 'justified'
+                );
+
+                if (absentOrJustifiedRecords.length > 0) {
+                    // Get the first absent/justified record to show covering popup
+                    const firstRecord = absentOrJustifiedRecords[0];
+                    const group = groups.find(g => g.id === firstRecord.groupId);
+
+                    setCoveringData({
+                        originalTeacherId: firstRecord.teacherId,
+                        sessionId: firstRecord.sessionId,
+                        groupId: firstRecord.groupId,
+                        date: firstRecord.date,
+                        status: firstRecord.status as 'absent' | 'justified',
+                        groupName: group?.name || 'Unknown Group'
+                    });
+                    setShowCoveringPopup(true);
+                }
+
                 return true;
             } catch (insertException: any) {
                 console.error('❌ Exception during insert:', insertException);
@@ -607,6 +645,16 @@ export default function TeachersPage() {
             setTeacherHistory(newHistory);
         } catch (error) {
             console.error('Error loading teacher history:', error);
+        }
+    };
+
+    const loadCoveringSessions = async (teacherId: string) => {
+        try {
+            const sessions = await coveringService.getCoveringSessions(teacherId);
+            setCoveringSessions(sessions);
+        } catch (error) {
+            console.error('Error loading covering sessions:', error);
+            setCoveringSessions([]);
         }
     };
 
@@ -1567,21 +1615,35 @@ export default function TeachersPage() {
                         // Step 2: Group Selection
                         <>
                             {/* Back Button */}
-                            <div className="flex items-center mb-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setSelectedHistoryTeacher(null)}
+                                        className="mr-3"
+                                    >
+                                        ← Back
+                                    </Button>
+                                    <div>
+                                        <h3 className="text-lg font-medium text-gray-900">
+                                            {selectedHistoryTeacher.name} - Select Group
+                                        </h3>
+                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
+                                    </div>
+                                </div>
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => setSelectedHistoryTeacher(null)}
-                                    className="mr-3"
+                                    onClick={() => {
+                                        loadCoveringSessions(selectedHistoryTeacher.id);
+                                        setShowCoveringModal(true);
+                                    }}
+                                    className="flex items-center space-x-2"
                                 >
-                                    ← Back
+                                    <ClipboardDocumentCheckIcon className="h-4 w-4" />
+                                    <span>Covering</span>
                                 </Button>
-                                <div>
-                                    <h3 className="text-lg font-medium text-gray-900">
-                                        {selectedHistoryTeacher.name} - Select Group
-                                    </h3>
-                                    <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
-                                </div>
                             </div>
 
                             {/* Groups Table */}
@@ -2120,6 +2182,16 @@ export default function TeachersPage() {
                                         +{selectedGroupSalary.present_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
                                     </span>
                                 </div>
+                                {selectedGroupSalary.covering_sessions && selectedGroupSalary.covering_sessions > 0 && (
+                                    <div className="flex justify-between">
+                                        <span className="text-green-700 font-semibold">
+                                            🔄 Covering Sessions ({selectedGroupSalary.covering_sessions}):
+                                        </span>
+                                        <span className="font-medium text-green-900">
+                                            +{selectedGroupSalary.covering_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between">
                                     <span className="text-blue-700">Late Sessions ({selectedGroupSalary.late_sessions}):</span>
                                     <span className="font-medium text-blue-900">
@@ -2289,6 +2361,192 @@ export default function TeachersPage() {
                         }}
                     >
                         Close
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Covering Sessions Modal */}
+            <Modal
+                isOpen={showCoveringModal}
+                onClose={() => {
+                    setShowCoveringModal(false);
+                    setCoveringSessions([]);
+                }}
+                title="Covering Sessions"
+                maxWidth="4xl"
+            >
+                <div className="space-y-6">
+                    {selectedHistoryTeacher && (
+                        <div className="mb-4">
+                            <h3 className="text-lg font-medium text-gray-900">
+                                {selectedHistoryTeacher.name} - Covering Sessions
+                            </h3>
+                            <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
+                        </div>
+                    )}
+
+                    {coveringSessions.length === 0 ? (
+                        <div className="text-center py-8">
+                            <ClipboardDocumentCheckIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                            <p className="text-gray-500">No covering sessions found for this teacher.</p>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Date
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Group
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Session Time
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Notes
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {coveringSessions.map((session) => (
+                                        <tr key={session.id} className="hover:bg-orange-50 transition-colors">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                {new Date(session.cover_date).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                <div>
+                                                    <div className="font-medium">{session.groups?.name || 'Unknown Group'}</div>
+                                                    <div className="text-xs text-gray-500">
+                                                        #{session.group_id?.toString().padStart(6, '0')}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                {session.sessions?.start_time && session.sessions?.end_time ? (
+                                                    `${session.sessions.start_time} - ${session.sessions.end_time}`
+                                                ) : (
+                                                    'N/A'
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                {session.notes || '-'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setShowCoveringModal(false);
+                            setCoveringSessions([]);
+                        }}
+                    >
+                        Close
+                    </Button>
+                </div>
+            </Modal>
+
+            {/* Covering Popup Modal */}
+            <Modal
+                isOpen={showCoveringPopup}
+                onClose={() => {
+                    setShowCoveringPopup(false);
+                    setCoveringData(null);
+                }}
+                title="Assign Covering Teacher"
+                maxWidth="lg"
+            >
+                <div className="space-y-6">
+                    {coveringData && (
+                        <>
+                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                <h3 className="text-lg font-medium text-orange-900 mb-2">
+                                    Teacher Marked as {coveringData.status === 'absent' ? 'Absent' : 'Justified'}
+                                </h3>
+                                <div className="space-y-2 text-sm text-orange-800">
+                                    <p><strong>Group:</strong> {coveringData.groupName}</p>
+                                    <p><strong>Date:</strong> {new Date(coveringData.date).toLocaleDateString()}</p>
+                                    <p><strong>Group ID:</strong> #{coveringData.groupId.toString().padStart(6, '0')}</p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Select Covering Teacher:
+                                </label>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {teachers
+                                        .filter(teacher => teacher.id !== coveringData.originalTeacherId)
+                                        .map(teacher => (
+                                            <div
+                                                key={teacher.id}
+                                                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-orange-50 cursor-pointer transition-colors"
+                                                onClick={async () => {
+                                                    try {
+                                                        // Create covering record
+                                                        await coveringService.createCovering({
+                                                            originalTeacherId: coveringData.originalTeacherId,
+                                                            coveringTeacherId: teacher.id,
+                                                            sessionId: coveringData.sessionId,
+                                                            groupId: coveringData.groupId,
+                                                            coverDate: new Date(coveringData.date),
+                                                            notes: `Covering for ${coveringData.status} teacher`
+                                                        });
+
+                                                        // Close popup
+                                                        setShowCoveringPopup(false);
+                                                        setCoveringData(null);
+
+                                                        alert(`Successfully assigned ${teacher.name} as covering teacher!`);
+                                                    } catch (error) {
+                                                        console.error('Error creating covering record:', error);
+                                                        alert('Failed to assign covering teacher. Please try again.');
+                                                    }
+                                                }}
+                                            >
+                                                <div className="flex items-center">
+                                                    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                        <UsersIcon className="h-4 w-4 text-orange-600" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium text-gray-900">{teacher.name}</p>
+                                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</p>
+                                                    </div>
+                                                </div>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                                >
+                                                    Assign
+                                                </Button>
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setShowCoveringPopup(false);
+                            setCoveringData(null);
+                        }}
+                    >
+                        Skip
                     </Button>
                 </div>
             </Modal>

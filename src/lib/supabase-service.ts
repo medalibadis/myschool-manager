@@ -1827,9 +1827,9 @@ export const sessionService = {
 
       console.log(`=== BULK ATTENDANCE UPDATE COMPLETED ===`);
 
-      // Add a small delay to ensure database changes are committed
-      console.log(`⏳ Waiting 500ms for database changes to be committed...`);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Add a longer delay to ensure database changes are committed
+      console.log(`⏳ Waiting 1000ms for database changes to be committed...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       console.log(`✅ Database commit delay completed`);
 
     } catch (error) {

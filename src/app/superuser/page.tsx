@@ -36,6 +36,11 @@ function ReportsSection() {
     const fetchReportsData = async () => {
         console.log(`🚀 FORCE REFRESH: Starting fetchReportsData - ${new Date().toISOString()}`);
         setLoading(true);
+
+        // Clear any cached data first
+        setReportsData([]);
+        setShowReports(false);
+
         try {
             // Fetch all groups with basic info
             const { data: groups, error: groupsError } = await supabase
@@ -129,9 +134,22 @@ function ReportsSection() {
                 // Count sessions taught (sessions with actual attendance records)
                 const sessionsTaught = groupSessions.filter(session => {
                     const sessionAttendance = groupAttendance.filter(att => att.session_id === session.id);
+                    console.log(`🔍 Group ${group.id} Session ${session.id}: ${sessionAttendance.length} attendance records`);
+                    if (sessionAttendance.length > 0) {
+                        console.log(`📊 Sample attendance record:`, sessionAttendance[0]);
+                    }
                     // A session is considered taught if at least one student has non-default attendance
-                    return sessionAttendance.some(att => att.status !== 'default');
+                    const hasNonDefaultAttendance = sessionAttendance.some(att => att.status !== 'default');
+                    console.log(`✅ Session ${session.id} has non-default attendance: ${hasNonDefaultAttendance}`);
+                    return hasNonDefaultAttendance;
                 }).length;
+
+                console.log(`📈 Group ${group.id} (${group.name}): ${sessionsTaught} sessions taught out of ${groupSessions.length} total sessions`);
+
+                // Debug: Show all unique status values in attendance data
+                const allStatuses = groupAttendance.map(att => att.status);
+                const uniqueStatuses = [...new Set(allStatuses)];
+                console.log(`🔍 Group ${group.id} unique attendance statuses:`, uniqueStatuses);
 
                 // Count paid students using the same logic as group details page
                 const groupPayments = payments?.filter(p => p.group_id === group.id) || [];
@@ -180,6 +198,11 @@ function ReportsSection() {
 
             console.log(`🔍 DEBUG: Processed data:`, processedData);
             console.log(`🔍 DEBUG: Processed data length: ${processedData.length}`);
+
+            // Debug: Log the first group's data to see what we're working with
+            if (processedData.length > 0) {
+                console.log(`🔍 DEBUG: First group data:`, processedData[0]);
+            }
 
             setReportsData(processedData);
             setShowReports(true);

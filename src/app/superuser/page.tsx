@@ -130,7 +130,7 @@ function ReportsSection() {
                 const sessionsTaught = groupSessions.filter(session => {
                     const sessionAttendance = groupAttendance.filter(att => att.session_id === session.id);
                     // A session is considered taught if at least one student has non-default attendance
-                    return sessionAttendance.some(att => att.attended !== 'default');
+                    return sessionAttendance.some(att => att.status !== 'default');
                 }).length;
 
                 // Count paid students using the same logic as group details page

@@ -181,47 +181,6 @@ function ReportsSection() {
             console.log(`🔍 DEBUG: Processed data:`, processedData);
             console.log(`🔍 DEBUG: Processed data length: ${processedData.length}`);
 
-            // Always create a test entry to ensure table shows
-            console.log(`🔍 DEBUG: Adding test entry to ensure table visibility - ${new Date().toISOString()}`);
-            processedData.push({
-                gid: 'TEST',
-                name: 'Test Group',
-                language: 'English',
-                level: 'A1',
-                category: 'Adults',
-                teacher: 'Test Teacher',
-                totalStudents: 5,
-                activeStudents: 5,
-                stoppedStudents: 0,
-                sessionsTaught: 3,
-                totalSessions: 16,
-                paidStudents: 3,
-                unpaidStudents: 2,
-                freeStudents: 0,
-                totalRevenue: 18000,
-                price: 6000
-            });
-
-            // Add a second test entry to ensure we have multiple rows
-            processedData.push({
-                gid: 'TEST2',
-                name: 'Test Group 2',
-                language: 'French',
-                level: 'B1',
-                category: 'Teens',
-                teacher: 'Test Teacher 2',
-                totalStudents: 8,
-                activeStudents: 7,
-                stoppedStudents: 1,
-                sessionsTaught: 5,
-                totalSessions: 20,
-                paidStudents: 4,
-                unpaidStudents: 3,
-                freeStudents: 1,
-                totalRevenue: 24000,
-                price: 6000
-            });
-
             setReportsData(processedData);
             setShowReports(true);
         } catch (error) {

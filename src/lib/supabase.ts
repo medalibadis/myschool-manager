@@ -16,23 +16,29 @@ export interface Database {
       teachers: {
         Row: {
           id: string;
+          custom_id?: string;
           name: string;
           email: string;
           phone?: string;
+          price_per_session?: number;
           created_at: string;
         };
         Insert: {
           id?: string;
+          custom_id?: string;
           name: string;
           email: string;
           phone?: string;
+          price_per_session?: number;
           created_at?: string;
         };
         Update: {
           id?: string;
+          custom_id?: string;
           name?: string;
           email?: string;
           phone?: string;
+          price_per_session?: number;
           created_at?: string;
         };
       };

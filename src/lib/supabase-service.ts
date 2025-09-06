@@ -465,23 +465,49 @@ export const groupService = {
       }) || []
     );
 
-    // Fetch attendance data for all sessions
+    // Fetch attendance data for all sessions with batching to avoid URL length issues
     const sessionIds = groupsWithStudents.flatMap(group =>
       group.sessions?.map((session: any) => session.id) || []
     );
 
     let attendanceData: any[] = [];
     if (sessionIds.length > 0) {
-      const { data: attendance, error: attendanceError } = await supabase
-        .from('attendance')
-        .select('session_id, student_id, status')
-        .in('session_id', sessionIds);
+      console.log(`📊 Fetching attendance for ${sessionIds.length} sessions...`);
 
-      if (attendanceError) {
-        console.error('Error fetching attendance:', attendanceError);
-      } else {
-        attendanceData = attendance || [];
+      // Batch the session IDs to avoid URL length limits
+      const batchSize = 50; // Reduced batch size to avoid URL length issues
+      const batches = [];
+      for (let i = 0; i < sessionIds.length; i += batchSize) {
+        batches.push(sessionIds.slice(i, i + batchSize));
       }
+
+      console.log(`📦 Processing ${batches.length} batches of attendance data...`);
+
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        console.log(`🔄 Fetching batch ${i + 1}/${batches.length} (${batch.length} sessions)...`);
+
+        try {
+          const { data: attendance, error: attendanceError } = await supabase
+            .from('attendance')
+            .select('session_id, student_id, status')
+            .in('session_id', batch)
+            .order('updated_at', { ascending: false }); // Add ordering to ensure fresh data
+
+          if (attendanceError) {
+            console.error(`❌ Error fetching attendance batch ${i + 1}:`, attendanceError);
+            // Continue with other batches even if one fails
+          } else {
+            attendanceData = [...attendanceData, ...(attendance || [])];
+            console.log(`✅ Batch ${i + 1} completed: ${attendance?.length || 0} records`);
+          }
+        } catch (error) {
+          console.error(`❌ Exception in batch ${i + 1}:`, error);
+          // Continue with other batches
+        }
+      }
+
+      console.log(`📊 Total attendance records fetched: ${attendanceData.length}`);
     }
 
     return groupsWithStudents.map(group => ({
@@ -1800,6 +1826,12 @@ export const sessionService = {
       }
 
       console.log(`=== BULK ATTENDANCE UPDATE COMPLETED ===`);
+
+      // Add a small delay to ensure database changes are committed
+      console.log(`⏳ Waiting 500ms for database changes to be committed...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log(`✅ Database commit delay completed`);
+
     } catch (error) {
       console.error('Error in bulk attendance update:', error);
       throw error;

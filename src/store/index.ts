@@ -226,9 +226,12 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     fetchGroups: async () => {
         set({ loading: true, error: null });
         try {
+            console.log('🔄 Fetching fresh groups data...');
             const groups = await groupService.getAll();
+            console.log(`✅ Successfully loaded ${groups.length} groups`);
             set({ groups, loading: false });
         } catch (error) {
+            console.error('❌ Error fetching groups:', error);
             set({ error: (error as Error).message, loading: false });
         }
     },

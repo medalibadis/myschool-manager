@@ -105,7 +105,7 @@ export default function TeachersPage() {
                 teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 teacher.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                formatTeacherId(teacher.id).toLowerCase().includes(searchTerm.toLowerCase());
+                formatTeacherId(teacher).toLowerCase().includes(searchTerm.toLowerCase());
 
             return matchesSearch;
         });
@@ -285,10 +285,15 @@ export default function TeachersPage() {
         setShowTeacherDetailModal(true);
     };
 
-    const formatTeacherId = (id: string) => {
-        // Convert UUID to a number and format as T01, T02, etc.
+    const formatTeacherId = (teacher: Teacher) => {
+        // Use custom_id if available, otherwise fallback to UUID-based format
+        if (teacher.custom_id) {
+            return teacher.custom_id;
+        }
+
+        // Fallback: Convert UUID to a number and format as T01, T02, etc.
         // This is a simple hash-based approach for demo purposes
-        const hash = id.split('').reduce((a, b) => {
+        const hash = teacher.id.split('').reduce((a, b) => {
             a = ((a << 5) - a) + b.charCodeAt(0);
             return a & a;
         }, 0);
@@ -872,7 +877,7 @@ export default function TeachersPage() {
                                                                         </div>
                                                                         <div>
                                                                             <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
-                                                                            <div className="text-sm text-gray-500">Teacher ID: #{formatTeacherId(teacher.id)}</div>
+                                                                            <div className="text-sm text-gray-500">Teacher ID: #{formatTeacherId(teacher)}</div>
                                                                         </div>
                                                                     </div>
                                                                 </td>
@@ -1177,7 +1182,7 @@ export default function TeachersPage() {
                                     <UsersIcon className="h-4 w-4 text-orange-500" />
                                     <div>
                                         <div className="text-xs font-medium text-orange-700">Teacher ID</div>
-                                        <div className="text-sm text-gray-900">#{formatTeacherId(selectedTeacher.id)}</div>
+                                        <div className="text-sm text-gray-900">#{formatTeacherId(selectedTeacher)}</div>
                                     </div>
                                 </div>
                             </div>
@@ -1341,7 +1346,7 @@ export default function TeachersPage() {
                                                         </div>
                                                         <div>
                                                             <h4 className="font-medium text-gray-900">{teacher.name}</h4>
-                                                            <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</p>
+                                                            <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1573,7 +1578,7 @@ export default function TeachersPage() {
                                                 .filter(teacher => {
                                                     const matchesSearch = historySearchTerm === '' ||
                                                         teacher.name.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-                                                        formatTeacherId(teacher.id).toLowerCase().includes(historySearchTerm.toLowerCase());
+                                                        formatTeacherId(teacher).toLowerCase().includes(historySearchTerm.toLowerCase());
                                                     return matchesSearch;
                                                 })
                                                 .map(teacher => {
@@ -1597,7 +1602,7 @@ export default function TeachersPage() {
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {formatTeacherId(teacher.id)}
+                                                                {formatTeacherId(teacher)}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {teacherGroups.length}
@@ -1629,7 +1634,7 @@ export default function TeachersPage() {
                                         <h3 className="text-lg font-medium text-gray-900">
                                             {selectedHistoryTeacher.name} - Select Group
                                         </h3>
-                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
+                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
                                     </div>
                                 </div>
                                 <Button
@@ -1939,7 +1944,7 @@ export default function TeachersPage() {
                                             const filteredTeachers = teachers.filter(teacher => {
                                                 const matchesSearch = salarySearchTerm === '' ||
                                                     teacher.name.toLowerCase().includes(salarySearchTerm.toLowerCase()) ||
-                                                    formatTeacherId(teacher.id).toLowerCase().includes(salarySearchTerm.toLowerCase());
+                                                    formatTeacherId(teacher).toLowerCase().includes(salarySearchTerm.toLowerCase());
                                                 return matchesSearch;
                                             });
 
@@ -1958,7 +1963,7 @@ export default function TeachersPage() {
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <div>
                                                             <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
-                                                            <div className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</div>
+                                                            <div className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</div>
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -2022,7 +2027,7 @@ export default function TeachersPage() {
                                         {selectedSalaryTeacher.name} - Unpaid Groups
                                     </h3>
                                     <p className="text-sm text-gray-500">
-                                        ID: {formatTeacherId(selectedSalaryTeacher.id)} •
+                                        ID: {formatTeacherId(selectedSalaryTeacher)} •
                                         Price per session: {selectedSalaryTeacher.price_per_session ? `${selectedSalaryTeacher.price_per_session} DA` : 'Not set'}
                                     </p>
                                 </div>
@@ -2381,7 +2386,7 @@ export default function TeachersPage() {
                             <h3 className="text-lg font-medium text-gray-900">
                                 {selectedHistoryTeacher.name} - Covering Sessions
                             </h3>
-                            <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher.id)}</p>
+                            <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
                         </div>
                     )}
 
@@ -2519,7 +2524,7 @@ export default function TeachersPage() {
                                                     </div>
                                                     <div>
                                                         <p className="font-medium text-gray-900">{teacher.name}</p>
-                                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher.id)}</p>
+                                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
                                                     </div>
                                                 </div>
                                                 <Button

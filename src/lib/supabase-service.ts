@@ -2392,13 +2392,20 @@ export const paymentService = {
       // Get payments for this specific group
       const groupPayments = payments.filter(p => p.group_id === groupIdVal);
 
-      // FIXED: Count all valid payments for this group
+      // 🆕 UPDATED: Properly handle attendance-based payment adjustments
       const validGroupPayments = groupPayments.filter(p => {
-        // Skip payments that look like they were created automatically
+        // Include attendance-based payment adjustments
+        if (p.notes && p.notes.includes('Attendance-based payment update')) return true;
+        if (p.notes && p.notes.includes('Retroactive attendance adjustment')) return true;
+        if (p.notes && p.notes.includes('Permanent balance correction')) return true;
+
+        // Skip old automatic/system payments
         if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
-        if (p.notes && p.notes.toLowerCase().includes('system')) return false;
+        if (p.notes && p.notes.toLowerCase().includes('system') && !p.notes.includes('Attendance')) return false;
         if (p.notes && p.notes.toLowerCase().includes('default')) return false;
-        return true; // Include all other payments
+
+        // Include all other regular payments
+        return true;
       });
 
       console.log(`  🚨 DEBUG: Group ${group.name} payment filtering:`);

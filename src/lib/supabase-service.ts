@@ -2291,33 +2291,93 @@ export const paymentService = {
       const appliedDiscount = groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount;
       const discountedGroupFee = appliedDiscount > 0 ? groupFee * (1 - appliedDiscount / 100) : groupFee;
 
+      // 🆕 ATTENDANCE-BASED FEE CALCULATION
+      // Calculate the actual amount owed based on attendance status
+      let actualGroupFee = discountedGroupFee;
+
+      try {
+        // Get all sessions for this group
+        const { data: groupSessions, error: sessionsError } = await supabase
+          .from('sessions')
+          .select('id, date')
+          .eq('group_id', groupIdVal)
+          .order('date', { ascending: true });
+
+        if (!sessionsError && groupSessions && groupSessions.length > 0) {
+          // Get attendance records for this student in this group
+          const sessionIds = groupSessions.map(s => s.id);
+          const { data: attendanceRecords, error: attendanceError } = await supabase
+            .from('attendance')
+            .select('session_id, status')
+            .eq('student_id', studentId)
+            .in('session_id', sessionIds);
+
+          if (!attendanceError && attendanceRecords) {
+            // Count sessions by payment obligation
+            let obligatorySessions = 0; // present, absent, too_late = MUST PAY
+            let freeSessions = 0; // justified, change, new, stop = NOT COUNTED
+
+            for (const session of groupSessions) {
+              const attendance = attendanceRecords.find(a => a.session_id === session.id);
+              const status = attendance?.status || 'default';
+
+              if (['present', 'absent', 'too_late'].includes(status)) {
+                obligatorySessions++; // MUST PAY
+              } else {
+                freeSessions++; // NOT COUNTED
+              }
+            }
+
+            // Calculate actual fee based on obligatory sessions only
+            const totalSessions = groupSessions.length;
+            const pricePerSession = discountedGroupFee / totalSessions;
+            actualGroupFee = obligatorySessions * pricePerSession;
+
+            console.log(`  📊 ATTENDANCE-BASED CALCULATION:`);
+            console.log(`    Total sessions: ${totalSessions}`);
+            console.log(`    Obligatory sessions: ${obligatorySessions} (must pay)`);
+            console.log(`    Free sessions: ${freeSessions} (justified/new/change/stop)`);
+            console.log(`    Price per session: ${pricePerSession}`);
+            console.log(`    Original group fee: ${discountedGroupFee}`);
+            console.log(`    Actual fee owed: ${actualGroupFee}`);
+
+            if (freeSessions > 0) {
+              console.log(`  🎉 Student saved ${freeSessions * pricePerSession} DA due to free sessions!`);
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`  ⚠️ Could not calculate attendance-based fee, using full fee:`, error);
+        // Keep using the original discountedGroupFee if attendance calculation fails
+      }
+
       console.log(`  🎯 Discount calculation for group ${group.name}:`);
       console.log(`    Student default discount: ${studentDefaultDiscount}%`);
       console.log(`    Group-specific discount: ${groupSpecificDiscount}%`);
       console.log(`    Applied discount: ${appliedDiscount}%`);
-      console.log(`    Original fee: ${groupFee}, Discounted fee: ${discountedGroupFee}`);
+      console.log(`    Original fee: ${groupFee}, Discounted fee: ${discountedGroupFee}, Actual fee: ${actualGroupFee}`);
 
-      // Calculate remaining amount for this group
-      const remainingAmount = Math.max(0, discountedGroupFee - amountPaid);
+      // Calculate remaining amount for this group using ACTUAL fee (attendance-based)
+      const remainingAmount = Math.max(0, actualGroupFee - amountPaid);
 
       // Round to 2 decimal places to avoid floating-point precision issues
       const roundedRemainingAmount = Math.round(remainingAmount * 100) / 100;
 
       console.log(`  🚨 DEBUG: Group ${group.name} remaining amount calculation:`);
-      console.log(`    Discounted group fee: ${discountedGroupFee}`);
+      console.log(`    Actual group fee (attendance-based): ${actualGroupFee}`);
       console.log(`    Amount paid: ${amountPaid}`);
-      console.log(`    Remaining amount: ${discountedGroupFee} - ${amountPaid} = ${remainingAmount}`);
-      console.log(`    Group fee: ${groupFee}, Discount: ${appliedDiscount}%, Final fee: ${discountedGroupFee}, Remaining: ${remainingAmount}`);
+      console.log(`    Remaining amount: ${actualGroupFee} - ${amountPaid} = ${remainingAmount}`);
+      console.log(`    Group fee: ${groupFee}, Discount: ${appliedDiscount}%, Actual fee: ${actualGroupFee}, Remaining: ${remainingAmount}`);
 
-      // IMPORTANT: Always add group fee to total balance (student owes this unless paid)
+      // IMPORTANT: Add ACTUAL group fee to total balance (student owes this unless paid)
       // The remainingAmount calculation will handle partial payments correctly
-      totalBalance += discountedGroupFee;
+      totalBalance += actualGroupFee;
       totalPaid += amountPaid;
 
       if (appliedDiscount === 100) {
         console.log(`  🎉 Group is FREE (100% discount) - no payment required`);
-      } else if (amountPaid < discountedGroupFee) {
-        console.log(`  ✅ Student owes money for this group: ${discountedGroupFee} (added to total balance)`);
+      } else if (amountPaid < actualGroupFee) {
+        console.log(`  ✅ Student owes money for this group: ${actualGroupFee} (added to total balance)`);
       } else {
         console.log(`  ✅ Group is fully paid, but still included in balance calculation`);
       }
@@ -2326,7 +2386,7 @@ export const paymentService = {
       groupBalances.push({
         groupId: groupIdVal,
         groupName: appliedDiscount === 100 ? `${group.name} (FREE - 100% discount)` : (group.name || 'Unknown Group'),
-        groupFees: discountedGroupFee,
+        groupFees: actualGroupFee, // Use actual fee instead of discounted fee
         amountPaid: amountPaid,
         remainingAmount: roundedRemainingAmount,
         discount: appliedDiscount,

@@ -172,9 +172,9 @@ export default function EnhancedAttendanceTable({
         if (status.isPaid) {
             return 'Paid';
         } else if (status.groupBalance > 0) {
-            return `$${status.groupBalance.toFixed(2)} / $${(status.groupBalance + status.remainingAmount).toFixed(2)}`;
+            return `${status.groupBalance.toFixed(2)} DZD / ${(status.groupBalance + status.remainingAmount).toFixed(2)} DZD`;
         } else {
-            return `$${status.remainingAmount.toFixed(2)}`;
+            return `${status.remainingAmount.toFixed(2)} DZD`;
         }
     };
 

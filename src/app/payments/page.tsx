@@ -480,7 +480,7 @@ export default function PaymentsPage() {
         receiptText += `Date: ${date} at ${time}\n`;
         receiptText += `Student: ${studentName}\n`;
         receiptText += `Payment Type: ${paymentType}\n`;
-        receiptText += `Amount Paid: $${paymentAmount.toFixed(2)}\n`;
+        receiptText += `Amount Paid: ${paymentAmount.toFixed(2)} DZD\n`;
 
         if (groupName) {
             receiptText += `For: ${groupName}\n`;
@@ -493,11 +493,11 @@ export default function PaymentsPage() {
         }
 
         if (remainingAmount && remainingAmount > 0) {
-            receiptText += `Remaining Amount: $${remainingAmount.toFixed(2)}\n`;
+            receiptText += `Remaining Amount: ${remainingAmount.toFixed(2)} DZD\n`;
         }
 
         if (extraAmount && extraAmount > 0) {
-            receiptText += `Extra Credit: $${extraAmount.toFixed(2)}\n`;
+            receiptText += `Extra Credit: ${extraAmount.toFixed(2)} DZD\n`;
         }
 
         receiptText += `\nThank you for your payment!\n`;
@@ -534,7 +534,7 @@ export default function PaymentsPage() {
                 (p.payment_type === 'attendance_credit' && p.group_id === null))
             ) || [];
             const totalCredits = balanceCredits.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-            console.log(`💰 Found ${balanceCredits.length} balance credit payments totaling $${totalCredits}`);
+            console.log(`💰 Found ${balanceCredits.length} balance credit payments totaling ${totalCredits} DZD`);
             console.log(`🔍 Balance credit details:`, balanceCredits.map(p => ({
                 type: p.payment_type,
                 amount: p.amount,
@@ -643,9 +643,9 @@ export default function PaymentsPage() {
             const effectiveRegistrationPaid = directRegistrationPaid + creditsAppliedToRegistration;
 
             console.log(`💳 Registration Fee Payment Breakdown:`);
-            console.log(`   - Direct payments: $${directRegistrationPaid}`);
-            console.log(`   - Credits applied: $${creditsAppliedToRegistration}`);
-            console.log(`   - Total paid: $${effectiveRegistrationPaid}`);
+            console.log(`   - Direct payments: ${directRegistrationPaid} DZD`);
+            console.log(`   - Credits applied: ${creditsAppliedToRegistration} DZD`);
+            console.log(`   - Total paid: ${effectiveRegistrationPaid} DZD`);
 
             groupBalances.push({
                 groupId: 0,
@@ -661,7 +661,7 @@ export default function PaymentsPage() {
 
             // Calculate remaining credits after registration fee
             const remainingCredits = Math.max(0, totalCredits - creditsAppliedToRegistration);
-            console.log(`💳 Credits Summary: Total=$${totalCredits}, Used for registration=$${creditsAppliedToRegistration}, Remaining=$${remainingCredits}`);
+            console.log(`💳 Credits Summary: Total=${totalCredits} DZD, Used for registration=${creditsAppliedToRegistration} DZD, Remaining=${remainingCredits} DZD`);
 
             // Group fees - automatically include all enrolled groups as unpaid until paid
             console.log('🚨 DEBUG: Processing student groups:', studentGroups);
@@ -722,10 +722,10 @@ export default function PaymentsPage() {
             const unusedCredits = Math.max(0, totalCredits - totalCreditsUsed);
 
             console.log(`💳 Final Credits Breakdown:`);
-            console.log(`   - Total credits available: $${totalCredits}`);
-            console.log(`   - Used for registration: $${creditsAppliedToRegistration}`);
-            console.log(`   - Used for groups: $${creditsUsedForGroups}`);
-            console.log(`   - Unused credits: $${unusedCredits}`);
+            console.log(`   - Total credits available: ${totalCredits} DZD`);
+            console.log(`   - Used for registration: ${creditsAppliedToRegistration} DZD`);
+            console.log(`   - Used for groups: ${creditsUsedForGroups} DZD`);
+            console.log(`   - Unused credits: ${unusedCredits} DZD`);
 
             // remainingBalance should represent what the student owes (negative) or has as credit (positive)
             // If totalPaid < totalBalance: student owes money (negative balance)
@@ -962,8 +962,8 @@ export default function PaymentsPage() {
         }
 
         setSelectedStudent(student);
-        setIsSearchModalOpen(false);
-        setIsAddPaymentModalOpen(true);
+        // Don't automatically open payment modal - let user decide
+        // setIsAddPaymentModalOpen(true);
         setHistorySelectedStudent(null);
     };
 
@@ -1167,7 +1167,7 @@ export default function PaymentsPage() {
         }
 
         try {
-            console.log(`📤 Sending refund request for ${selectedRefundStudent.studentName}: $${refundData.amount}`);
+            console.log(`📤 Sending refund request for ${selectedRefundStudent.studentName}: ${refundData.amount} DZD`);
 
             // Create refund request record
             console.log('📤 Attempting to insert refund request:', {
@@ -1204,7 +1204,7 @@ export default function PaymentsPage() {
             });
 
             // Show success message
-            alert(`✅ Refund request of $${refundData.amount} sent to superadmin for approval!\n\nThe superadmin will review this request and approve or reject it. Once approved, you can process the refund in the payments page.`);
+            alert(`✅ Refund request of ${refundData.amount} DZD sent to superadmin for approval!\n\nThe superadmin will review this request and approve or reject it. Once approved, you can process the refund in the payments page.`);
 
             // Refresh the refund list to remove this student (since request is now pending)
             await loadRefundList();
@@ -1223,7 +1223,7 @@ export default function PaymentsPage() {
         }
 
         try {
-            console.log(`💰 Processing approved refund for ${selectedRefundStudent.studentName}: $${refundData.amount}`);
+            console.log(`💰 Processing approved refund for ${selectedRefundStudent.studentName}: ${refundData.amount} DZD`);
             const refundAmount = parseFloat(refundData.amount);
 
             // Step 1: Create a refund payment record (reduces student's credit balance)
@@ -1259,7 +1259,7 @@ export default function PaymentsPage() {
             const receiptText = `REFUND RECEIPT
 Student: ${selectedRefundStudent.studentName}
 ${selectedRefundStudent.customId ? `Student ID: ${selectedRefundStudent.customId}` : ''}
-Refund Amount: $${refundAmount.toFixed(2)}
+Refund Amount: ${refundAmount.toFixed(2)} DZD
 Date: ${new Date(refundData.date).toLocaleDateString()}
 Time: ${new Date().toLocaleTimeString()}
 Reason: ${selectedRefundStudent.adminReason || 'Student stopped in all groups'}
@@ -1336,7 +1336,7 @@ Thank you!`;
             }
 
             // Show success message
-            alert(`✅ Refund of $${refundAmount.toFixed(2)} processed successfully for ${selectedRefundStudent.studentName}!\n\n📄 Receipt generated\n💰 Student balance updated\n🔄 Student removed from refund list`);
+            alert(`✅ Refund of ${refundAmount.toFixed(2)} DZD processed successfully for ${selectedRefundStudent.studentName}!\n\n📄 Receipt generated\n💰 Student balance updated\n🔄 Student removed from refund list`);
 
         } catch (error) {
             console.error('❌ Error processing approved refund:', error);
@@ -1526,7 +1526,7 @@ Thank you!`;
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="text-sm font-medium text-green-600">
-                                                                ${receipt.amount?.toFixed(2)}
+                                                                {receipt.amount?.toFixed(2)} DZD
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1553,7 +1553,7 @@ Thank you!`;
                                                 <strong>💡 To test the receipt system:</strong>
                                             </p>
                                             <ul className="text-xs text-blue-600 mt-2 text-left list-disc list-inside">
-                                                <li>Add a new student (will have unpaid $500 registration fee)</li>
+                                                <li>Add a new student (will have unpaid 500 DZD registration fee)</li>
                                                 <li>Add existing student to a new group (will have unpaid group fee)</li>
                                                 <li>Make a payment for any unpaid fees</li>
                                             </ul>
@@ -1648,7 +1648,7 @@ Thank you!`;
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <div className="text-lg font-bold text-green-800">
-                                                                        ${refund.balance.toFixed(2)}
+                                                                        {refund.balance.toFixed(2)} DZD
                                                                     </div>
                                                                     <div className="text-xs text-green-600">Refund Amount</div>
                                                                 </div>
@@ -1708,7 +1708,7 @@ Thank you!`;
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <div className="text-lg font-bold text-red-800">
-                                                                        ${debt.balance.toFixed(2)}
+                                                                        {debt.balance.toFixed(2)} DZD
                                                                     </div>
                                                                     <div className="text-xs text-red-600">Debt Amount</div>
                                                                 </div>
@@ -1734,7 +1734,7 @@ Thank you!`;
                     isOpen={isSearchModalOpen}
                     onClose={() => {
                         setIsSearchModalOpen(false);
-                        setSearchTerm('');
+                        // Don't clear search term - keep it for next time
                         setSearchResults([]);
                     }}
                     title="Search for Student"
@@ -1763,28 +1763,75 @@ Thank you!`;
                                 {searchResults.map((student) => (
                                     <div
                                         key={student.id}
-                                        className="p-3 border border-gray-200 rounded-lg hover:border-orange-300 hover:bg-orange-50 cursor-pointer transition-colors"
-                                        onClick={() => handleStudentSelect(student)}
+                                        className="p-4 border border-gray-200 rounded-lg hover:border-orange-300 hover:bg-orange-50 transition-colors"
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="font-medium text-gray-900">
-                                                    {student.name}
-                                                </div>
-                                                <div className="text-sm text-gray-500">
-                                                    ID: {student.custom_id || student.id.substring(0, 4) + '...'} • Groups: {student.groups.length} • Balance:
-                                                    {/* 
-                                                        Color Logic:
-                                                        - Red (text-red-600): remainingBalance < 0 (student owes money)
-                                                        - Green (text-green-600): remainingBalance > 0 (student has credit)
-                                                        - Gray (text-gray-600): remainingBalance === 0 (balanced)
-                                                    */}
-                                                    <span className={`font-medium ${student.remainingBalance > 0 ? 'text-green-600' : student.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                                        {student.remainingBalance > 0 ? '+' : ''}{Math.abs(student.remainingBalance).toFixed(2)}
-                                                    </span>
+                                        <div className="space-y-3">
+                                            {/* Student Info */}
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <div className="font-medium text-gray-900">
+                                                        {student.name}
+                                                    </div>
+                                                    <div className="text-sm text-gray-500">
+                                                        ID: {student.custom_id || student.id.substring(0, 4) + '...'} • Groups: {student.groups.length} • Balance:
+                                                        <span className={`font-medium ${student.remainingBalance > 0 ? 'text-green-600' : student.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                                                            {student.remainingBalance > 0 ? '+' : ''}{Math.abs(student.remainingBalance).toFixed(2)}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <PlusIcon className="h-5 w-5 text-orange-600" />
+
+                                            {/* Student Details */}
+                                            <div className="text-sm text-gray-600 space-y-1">
+                                                <div>Email: {student.email}</div>
+                                                <div>Phone: {student.phone}</div>
+                                                <div>Total Paid: {student.totalPaid.toFixed(2)} DA</div>
+                                                <div>Default Discount: {student.defaultDiscount}%</div>
+                                            </div>
+
+                                            {/* Groups Info */}
+                                            {student.groups.length > 0 && (
+                                                <div className="text-sm">
+                                                    <div className="font-medium text-gray-700 mb-1">Groups:</div>
+                                                    <div className="space-y-1">
+                                                        {student.groups.map((group) => (
+                                                            <div key={group.id} className="flex justify-between items-center text-xs bg-gray-50 p-2 rounded">
+                                                                <span>{group.name}</span>
+                                                                <span className={`font-medium ${group.remainingAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                                    {group.remainingAmount > 0 ? `-${group.remainingAmount.toFixed(2)}` : `+${Math.abs(group.remainingAmount).toFixed(2)}`}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Action Buttons */}
+                                            <div className="flex gap-2 pt-2">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStudentSelect(student);
+                                                        setIsAddPaymentModalOpen(true);
+                                                        setIsSearchModalOpen(false);
+                                                    }}
+                                                    className="flex-1"
+                                                >
+                                                    <PlusIcon className="h-4 w-4 mr-1" />
+                                                    Add Payment
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStudentSelect(student);
+                                                    }}
+                                                >
+                                                    View Details
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -1819,6 +1866,30 @@ Thank you!`;
                                 </p>
                             </div>
                         )}
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end gap-2 pt-4 border-t border-gray-200">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setSearchTerm('');
+                                    setSearchResults([]);
+                                }}
+                            >
+                                Clear Search
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setIsSearchModalOpen(false);
+                                    // Don't clear search term - keep it for next time
+                                    setSearchResults([]);
+                                    setSelectedStudent(null);
+                                }}
+                            >
+                                Close Search
+                            </Button>
+                        </div>
                     </div>
                 </Modal>
 
@@ -1919,7 +1990,7 @@ Thank you!`;
                                                             </div>
                                                             {g.discount > 0 && (
                                                                 <div className="text-xs text-blue-600 mt-1">
-                                                                    💰 Original: ${g.originalPrice.toFixed(2)} | Discount: {g.discount}% | Final: ${g.remaining.toFixed(2)}
+                                                                    💰 Original: {g.originalPrice.toFixed(2)} DZD | Discount: {g.discount}% | Final: {g.remaining.toFixed(2)} DZD
                                                                 </div>
                                                             )}
                                                         </div>
@@ -2027,7 +2098,7 @@ Thank you!`;
                     onClose={() => {
                         setIsAllocationModalOpen(false);
                         setAllocationResult(null);
-                        // Keep payment modal open, just reset the form for next payment
+                        // Automatically keep payment modal open with clean form
                         setSelectedStudent(null);
                         setSelectedGroup(null);
                         setPaymentData({
@@ -2036,6 +2107,7 @@ Thank you!`;
                             notes: '',
                             date: new Date().toISOString().split('T')[0],
                         });
+                        // Keep payment modal open - don't close it
                     }}
                     title="Allocation Summary"
                 >
@@ -2070,11 +2142,11 @@ Thank you!`;
                                                     </div>
                                                     <div className="text-right">
                                                         <div className="font-bold text-green-600">
-                                                            +${(a.amountAllocated || 0).toFixed(2)}
+                                                            +{(a.amountAllocated || 0).toFixed(2)} DZD
                                                         </div>
                                                         {a.remainingAfterPayment > 0 && (
                                                             <div className="text-xs text-red-600">
-                                                                Remaining: ${(a.remainingAfterPayment || 0).toFixed(2)}
+                                                                Remaining: {(a.remainingAfterPayment || 0).toFixed(2)} DZD
                                                             </div>
                                                         )}
                                                     </div>
@@ -2117,7 +2189,7 @@ Thank you!`;
                                             <div className="flex items-center gap-2">
                                                 <span className="text-green-600">💰</span>
                                                 <span className="text-sm text-green-700">
-                                                    <strong>Credit Balance:</strong> ${(allocationResult.remainingCredit || 0).toFixed(2)}
+                                                    <strong>Credit Balance:</strong> {(allocationResult.remainingCredit || 0).toFixed(2)} DZD
                                                 </span>
                                             </div>
                                             <p className="text-xs text-green-600 mt-1">
@@ -2136,7 +2208,7 @@ Thank you!`;
                                     onClick={() => {
                                         setIsAllocationModalOpen(false);
                                         setAllocationResult(null);
-                                        // Keep payment modal open, just reset the form for next payment
+                                        // Automatically keep payment modal open with clean form
                                         setSelectedStudent(null);
                                         setSelectedGroup(null);
                                         setPaymentData({
@@ -2145,6 +2217,7 @@ Thank you!`;
                                             notes: '',
                                             date: new Date().toISOString().split('T')[0],
                                         });
+                                        // Keep payment modal open - don't close it
                                     }}
                                 >
                                     Add Another Payment
@@ -2238,7 +2311,7 @@ Thank you!`;
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">Amount:</span>
                                         <span className="font-bold text-lg text-green-600">
-                                            ${selectedReceipt.amount.toFixed(2)}
+                                            {selectedReceipt.amount.toFixed(2)} DZD
                                         </span>
                                     </div>
 
@@ -2518,7 +2591,7 @@ Thank you!`;
                                                         </div>
                                                         <div className="text-right">
                                                             <div className="text-lg font-bold text-green-600">
-                                                                +${student.balance.toFixed(2)}
+                                                                +{student.balance.toFixed(2)} DZD
                                                             </div>
                                                             <div className="text-sm text-gray-500">Available for refund</div>
                                                         </div>
@@ -2932,11 +3005,11 @@ Thank you!`;
                                     </div>
                                     <div>
                                         <div className="text-xs font-medium text-blue-700">Original Price</div>
-                                        <div className="text-sm text-blue-900">${selectedGroupForPayment.originalPrice.toFixed(2)}</div>
+                                        <div className="text-sm text-blue-900">{selectedGroupForPayment.originalPrice.toFixed(2)} DZD</div>
                                     </div>
                                     <div>
                                         <div className="text-xs font-medium text-blue-700">Remaining Amount</div>
-                                        <div className="text-sm text-blue-900 font-medium">${selectedGroupForPayment.remaining.toFixed(2)}</div>
+                                        <div className="text-sm text-blue-900 font-medium">{selectedGroupForPayment.remaining.toFixed(2)} DZD</div>
                                     </div>
                                     <div>
                                         <div className="text-xs font-medium text-blue-700">Current Discount</div>
@@ -2992,17 +3065,17 @@ Thank you!`;
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-gray-600">Original Fee:</span>
-                                            <span className="font-medium">${parseFloat(groupPaymentData.amount || '0').toFixed(2)}</span>
+                                            <span className="font-medium">{parseFloat(groupPaymentData.amount || '0').toFixed(2)} DZD</span>
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-gray-600">Discount ({groupPaymentData.discount}%):</span>
-                                            <span className="font-medium text-green-600">-${(parseFloat(groupPaymentData.amount || '0') * parseFloat(groupPaymentData.discount || '0') / 100).toFixed(2)}</span>
+                                            <span className="font-medium text-green-600">-{(parseFloat(groupPaymentData.amount || '0') * parseFloat(groupPaymentData.discount || '0') / 100).toFixed(2)} DZD</span>
                                         </div>
                                         <div className="border-t pt-2 mt-2">
                                             <div className="flex justify-between items-center">
                                                 <span className="text-sm font-medium text-gray-700">New Group Fee:</span>
                                                 <span className="font-bold text-lg text-green-600">
-                                                    ${(parseFloat(groupPaymentData.amount || '0') * (1 - parseFloat(groupPaymentData.discount || '0') / 100)).toFixed(2)}
+                                                    {(parseFloat(groupPaymentData.amount || '0') * (1 - parseFloat(groupPaymentData.discount || '0') / 100)).toFixed(2)} DZD
                                                 </span>
                                             </div>
                                         </div>

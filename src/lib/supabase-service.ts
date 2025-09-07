@@ -1483,7 +1483,7 @@ export const sessionService = {
                   // Create new adjustment
                   const paymentType = adjustmentNeeded > 0 ? 'attendance_credit' : 'balance_credit';
                   const adjustmentAmount = Math.abs(adjustmentNeeded);
-                  const paymentNotes = `Attendance-based payment update: ${obligatorySessions} obligatory sessions, ${freeSessions} free sessions. Adjustment: ${adjustmentAmount} DA`;
+                  const paymentNotes = `Attendance-based payment update: ${obligatorySessions} obligatory sessions, ${freeSessions} free sessions. Adjustment: ${adjustmentAmount} DZD`;
 
                   const { data: payment, error: paymentError } = await supabase
                     .from('payments')
@@ -1502,7 +1502,7 @@ export const sessionService = {
                   if (paymentError) {
                     console.error('❌ Error creating attendance-based payment adjustment:', paymentError);
                   } else {
-                    console.log(`✅ Created attendance-based payment adjustment: ${paymentType} of ${adjustmentAmount} DA`);
+                    console.log(`✅ Created attendance-based payment adjustment: ${paymentType} of ${adjustmentAmount} DZD`);
                     console.log(`📝 Notes: ${paymentNotes}`);
                   }
                 } else {
@@ -2553,11 +2553,11 @@ export const paymentService = {
 
       if (p.payment_type === 'refund' || notes.includes('refund')) {
         // Refunds are negative amounts that reduce the balance
-        console.log(`💸 Refund found: ${amount} DA (${p.notes}) - Type: ${p.payment_type}`);
+        console.log(`💸 Refund found: ${amount} DZD (${p.notes}) - Type: ${p.payment_type}`);
         return sum + amount; // amount is already negative, so this subtracts
       } else {
         // Regular deposits are positive amounts
-        console.log(`💰 Deposit found: ${amount} DA (${p.notes}) - Type: ${p.payment_type}`);
+        console.log(`💰 Deposit found: ${amount} DZD (${p.notes}) - Type: ${p.payment_type}`);
         if (notes.includes('cross-group refund credit')) {
           console.log(`🔄 Cross-group refund credit included in balance calculation: ${amount} DA`);
         }
@@ -2593,7 +2593,7 @@ export const paymentService = {
     if (totalDebtReduction > 0) {
       console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
       debtReductionPayments.forEach((p, index) => {
-        console.log(`  Debt Reduction ${index + 1}: Amount=${Math.abs(p.amount)} DA, Notes=${p.notes}`);
+        console.log(`  Debt Reduction ${index + 1}: Amount=${Math.abs(p.amount)} DZD, Notes=${p.notes}`);
       });
 
       // Apply debt reduction directly to balance
@@ -2932,7 +2932,7 @@ export const paymentService = {
         // Create a debt reduction payment that will be applied to reduce the overall debt
         const debtAmount = Math.min(available, Math.abs(currentBalance.remainingBalance));
 
-        console.log(`🔢 Calculated debt amount: ${debtAmount} DA (min of ${available} and ${Math.abs(currentBalance.remainingBalance)})`);
+        console.log(`🔢 Calculated debt amount: ${debtAmount} DZD (min of ${available} and ${Math.abs(currentBalance.remainingBalance)})`);
 
         if (debtAmount > 0) {
           console.log(`💳 Creating debt reduction payment of ${debtAmount} DA`);
@@ -2996,7 +2996,7 @@ export const paymentService = {
           });
 
           available -= debtAmount;
-          console.log(`✅ Debt reduction payment created: ${debtAmount} DA, remaining available: ${available} DA`);
+          console.log(`✅ Debt reduction payment created: ${debtAmount} DZD, remaining available: ${available} DZD`);
           console.log(`📊 Payment ID: ${debtPay.id}, Student ID: ${debtPay.student_id}`);
         } else {
           console.log(`⚠️ Debt amount is 0 or negative, skipping debt reduction payment`);
@@ -3055,7 +3055,7 @@ export const paymentService = {
       console.log(`   - Original: ${toPay}, Final: ${discountedAmount}`);
       const remainingAfter = group.remainingAmount - toPay;
 
-      console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DA (discounted: ${discountedAmount} DA)`);
+      console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DZD (discounted: ${discountedAmount} DZD)`);
       console.log(`   - Remaining before: ${group.remainingAmount} DA`);
       console.log(`   - Remaining after: ${remainingAfter} DA`);
 
@@ -3068,7 +3068,7 @@ export const paymentService = {
           amount: discountedAmount,
           date: date.toISOString().split('T')[0],
           notes: remainingAfter > 0
-            ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`
+            ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`
             : `Group fully paid${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`,
           admin_name: adminName || 'Dalila',
           discount: discount > 0 ? discount : studentDefaultDiscount,
@@ -3094,7 +3094,7 @@ export const paymentService = {
             payment_type: 'group_payment',
             group_name: group.groupName,
             notes: remainingAfter > 0
-              ? `Partial group payment. Remaining: $${remainingAfter.toFixed(2)}${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`
+              ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`
               : `Group fully paid${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`,
             created_at: new Date().toISOString()
           });
@@ -3181,7 +3181,7 @@ export const paymentService = {
     console.log(`Payment allocation complete. Allocations: ${allocations.length}, Balance credit: ${available}`);
     console.log(`📊 Final allocation summary:`);
     allocations.forEach((allocation, index) => {
-      console.log(`  ${index + 1}. Group ${allocation.groupId}: ${allocation.amount} DA - ${allocation.notes}`);
+      console.log(`  ${index + 1}. Group ${allocation.groupId}: ${allocation.amount} DZD - ${allocation.notes}`);
     });
 
     console.log(`🎯 RETURNING RESULT:`, { depositId, allocations: allocations.length });
@@ -4202,7 +4202,7 @@ export const paymentService = {
       console.log(`📋 Found ${allPayments.length} total payments for stopped student`);
       console.log(`💳 All payments detailed:`);
       allPayments.forEach((p, index) => {
-        console.log(`  Payment ${index + 1}: Amount=${p.amount} DA, Type="${p.payment_type}", GroupID=${p.group_id}, Date=${p.date}`);
+        console.log(`  Payment ${index + 1}: Amount=${p.amount} DZD, Type="${p.payment_type}", GroupID=${p.group_id}, Date=${p.date}`);
       });
 
       // Get student groups with attendance data
@@ -4369,7 +4369,7 @@ export const paymentService = {
         const freeAmount = freeSessions * pricePerSession;
 
         console.log(`📈 Group ${groupInfo.name}: Total=${totalSessions}, Obligatory=${obligatorySessions}, Free=${freeSessions}`);
-        console.log(`💰 Fee breakdown: Must pay=${actualGroupFee} DA, Free=${freeAmount} DA, Full=${fullGroupPrice} DA`);
+        console.log(`💰 Fee breakdown: Must pay=${actualGroupFee} DZD, Free=${freeAmount} DZD, Full=${fullGroupPrice} DZD`);
 
         // Get actual money payments for this group (exclude only registration fee)
         // Include group_payment, attendance_credit, and balance_addition as valid payments
@@ -4387,7 +4387,7 @@ export const paymentService = {
 
         console.log(`💰 Group ${groupId} payments detailed:`);
         groupPayments.forEach((p, index) => {
-          console.log(`    Group Payment ${index + 1}: Amount=${p.amount} DA, Type="${p.payment_type}", Date=${p.date}`);
+          console.log(`    Group Payment ${index + 1}: Amount=${p.amount} DZD, Type="${p.payment_type}", Date=${p.date}`);
         });
         console.log(`💰 Total paid for group ${groupId}: ${groupPaid} DA`);
 
@@ -4429,7 +4429,7 @@ export const paymentService = {
 
       console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
       debtReductionPayments.forEach((p, index) => {
-        console.log(`  Debt Reduction ${index + 1}: Amount=${p.amount} DA, Date=${p.date}, Notes=${p.notes}`);
+        console.log(`  Debt Reduction ${index + 1}: Amount=${p.amount} DZD, Date=${p.date}, Notes=${p.notes}`);
       });
 
       // For stopped students: Balance = What they owe for sessions (negative = debt) - debt reduction payments
@@ -4784,7 +4784,7 @@ export const paymentService = {
         if (unpaidAmount > 0) {
           const transferAmount = Math.min(refundAmount, unpaidAmount);
 
-          console.log(`🔄 Transferring ${transferAmount} DA from stopped group to active group ${groupId} (${groupName})`);
+          console.log(`🔄 Transferring ${transferAmount} DZD from stopped group to active group ${groupId} (${groupName})`);
           console.log(`   - Group price: ${groupPrice} DA`);
           console.log(`   - Already paid: ${totalPaidToActiveGroup} DA`);
           console.log(`   - Unpaid amount: ${unpaidAmount} DA`);

@@ -330,7 +330,7 @@ function ReportsSection() {
                                     <td className="px-3 py-2 text-center text-sm text-red-600 font-medium">{group.unpaidStudents}</td>
                                     <td className="px-3 py-2 text-center text-sm text-blue-600 font-medium">{group.freeStudents}</td>
                                     <td className="px-3 py-2 text-right text-sm font-medium text-gray-900">
-                                        ${group.totalRevenue.toFixed(2)}
+                                        {group.totalRevenue.toFixed(2)} DZD
                                     </td>
                                 </tr>
                             ))}
@@ -349,7 +349,7 @@ function ReportsSection() {
                                     <td className="px-3 py-2 text-center text-sm text-red-600">{totals.totalUnpaidStudents}</td>
                                     <td className="px-3 py-2 text-center text-sm text-blue-600">{totals.totalFreeStudents}</td>
                                     <td className="px-3 py-2 text-right text-sm text-gray-900">
-                                        ${totals.totalRevenue.toFixed(2)}
+                                        {totals.totalRevenue.toFixed(2)} DZD
                                     </td>
                                 </tr>
                             )}
@@ -559,7 +559,7 @@ function RefundRequestsSection() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm font-bold text-green-600">
-                                                ${request.requested_amount.toFixed(2)}
+                                                {request.requested_amount.toFixed(2)} DZD
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -618,7 +618,7 @@ function RefundRequestsSection() {
                                 </div>
                                 <div>
                                     <span className="text-sm font-medium text-gray-700">Requested Amount:</span>
-                                    <p className="text-lg font-bold text-green-600">${selectedRequest.requested_amount.toFixed(2)}</p>
+                                    <p className="text-lg font-bold text-green-600">{selectedRequest.requested_amount.toFixed(2)} DZD</p>
                                 </div>
                                 <div>
                                     <span className="text-sm font-medium text-gray-700">Status:</span>

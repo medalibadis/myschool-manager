@@ -1470,7 +1470,7 @@ export default function GroupDetailPage() {
                                             </label>
                                             <div className="bg-red-50 p-3 rounded-md border border-red-200">
                                                 <p className="text-sm text-red-800">
-                                                    {groupRemainingFees !== null ? `$${groupRemainingFees.toFixed(2)}` : 'Loading...'}
+                                                    {groupRemainingFees !== null ? `${groupRemainingFees.toFixed(2)} DZD` : 'Loading...'}
                                                 </p>
                                             </div>
                                         </div>

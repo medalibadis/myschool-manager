@@ -137,7 +137,7 @@ export class ReceiptGenerator {
     }
 
     private static formatCurrency(amount: number): string {
-        return `$${Math.abs(amount).toFixed(2)}`;
+        return `${Math.abs(amount).toFixed(2)} DZD`;
     }
 
     private static wrapText(text: string, maxLength: number): string {
@@ -465,12 +465,12 @@ export class CallLogManager {
         const unpaidGroups = groupBalances.filter(gb => gb.remainingAmount > tolerance);
 
         let summary = `Call Summary for ${student.name} (${student.custom_id || student.id})\n`;
-        summary += `Total Outstanding: $${totalRemaining.toFixed(2)}\n\n`;
+        summary += `Total Outstanding: ${totalRemaining.toFixed(2)} DZD\n\n`;
         summary += `Unpaid Items:\n`;
 
         unpaidGroups.forEach((gb, index) => {
             const itemType = gb.isRegistrationFee ? 'Registration Fee' : gb.groupName;
-            summary += `${index + 1}. ${itemType}: $${gb.remainingAmount.toFixed(2)}\n`;
+            summary += `${index + 1}. ${itemType}: ${gb.remainingAmount.toFixed(2)} DZD\n`;
         });
 
         return summary;

@@ -1357,31 +1357,164 @@ export const sessionService = {
         throw new Error(`Failed to update attendance: ${upsertError.message}`);
       }
 
-      // Handle financial adjustments for certain statuses
-      console.log(`🔍 Checking if status '${status}' requires financial adjustment...`);
-      if (['justified', 'new', 'change', 'stop'].includes(status)) {
-        console.log(`✅ Status '${status}' requires financial adjustment. Starting payment processing...`);
-        try {
-          // Import and use the new attendance payment service
-          console.log(`📦 Attempting to import attendance payment service...`);
-          const { attendancePaymentService } = await import('./attendance-payment-service');
-          console.log(`📦 Attendance payment service imported successfully.`);
-          console.log(`🔄 Calling processAttendanceAdjustment for session ${sessionId}, student ${studentId}, status ${status}`);
-          const result = await attendancePaymentService.processAttendanceAdjustment(sessionId, studentId, status);
-          console.log(`💰 Payment adjustment result:`, result);
+      // 🆕 ALWAYS UPDATE PAYMENT BASED ON ATTENDANCE
+      // This ensures that every attendance change automatically updates the student's balance
+      console.log(`🔄 ATTENDANCE-PAYMENT LINK: Updating payment based on attendance change...`);
 
-          if (result) {
-            console.log(`✅ Payment adjustment completed successfully for ${status} status`);
-          } else {
-            console.log(`⚠️ Payment adjustment returned null for ${status} status`);
+      try {
+        // Get session and group details
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select(`
+            id,
+            date,
+            group_id,
+            groups!inner(
+              id,
+              name,
+              price,
+              total_sessions
+            )
+          `)
+          .eq('id', sessionId)
+          .single();
+
+        if (sessionError || !sessionData) {
+          console.error('❌ Error fetching session data for payment update:', sessionError);
+        } else {
+          const group = Array.isArray(sessionData.groups) ? sessionData.groups[0] : sessionData.groups;
+          const groupId = group.id;
+          const groupName = group.name;
+          const groupPrice = group.price;
+          const totalSessions = group.total_sessions;
+          const pricePerSession = groupPrice / totalSessions;
+
+          console.log(`📍 Payment update for: ${groupName} (${groupId}), Price per session: ${pricePerSession}`);
+
+          // Get all attendance records for this student in this group
+          const { data: allSessions, error: sessionsError } = await supabase
+            .from('sessions')
+            .select('id, date')
+            .eq('group_id', groupId)
+            .order('date', { ascending: true });
+
+          if (!sessionsError && allSessions) {
+            const sessionIds = allSessions.map(s => s.id);
+            const { data: attendanceRecords, error: attendanceError } = await supabase
+              .from('attendance')
+              .select('session_id, status')
+              .eq('student_id', studentId)
+              .in('session_id', sessionIds);
+
+            if (!attendanceError && attendanceRecords) {
+              // Count sessions by payment obligation
+              let obligatorySessions = 0; // present, absent, too_late = MUST PAY
+              let freeSessions = 0; // justified, change, new, stop = NOT COUNTED
+
+              for (const session of allSessions) {
+                const attendance = attendanceRecords.find(a => a.session_id === session.id);
+                const attendanceStatus = attendance?.status || 'default';
+
+                if (['present', 'absent', 'too_late'].includes(attendanceStatus)) {
+                  obligatorySessions++; // MUST PAY
+                } else {
+                  freeSessions++; // NOT COUNTED
+                }
+              }
+
+              // Calculate actual fee based on obligatory sessions only
+              const actualFeeOwed = obligatorySessions * pricePerSession;
+              const freeAmount = freeSessions * pricePerSession;
+
+              console.log(`📊 ATTENDANCE-BASED PAYMENT CALCULATION:`);
+              console.log(`  Total sessions: ${allSessions.length}`);
+              console.log(`  Obligatory sessions: ${obligatorySessions} (must pay)`);
+              console.log(`  Free sessions: ${freeSessions} (justified/new/change/stop)`);
+              console.log(`  Original group fee: ${groupPrice}`);
+              console.log(`  Actual fee owed: ${actualFeeOwed}`);
+              console.log(`  Free amount: ${freeAmount}`);
+
+              // Check current payments for this group
+              const { data: payments, error: paymentsError } = await supabase
+                .from('payments')
+                .select('amount, payment_type, notes')
+                .eq('student_id', studentId)
+                .eq('group_id', groupId);
+
+              if (!paymentsError && payments) {
+                const regularPayments = payments
+                  .filter(p => !p.payment_type?.includes('attendance_credit') && !p.payment_type?.includes('balance_credit'))
+                  .reduce((sum, p) => sum + p.amount, 0);
+
+                const existingAdjustments = payments
+                  .filter(p => p.notes?.includes('Attendance-based payment update'))
+                  .reduce((sum, p) => sum + p.amount, 0);
+
+                console.log(`💳 Current payment status:`);
+                console.log(`  Regular payments: ${regularPayments}`);
+                console.log(`  Existing adjustments: ${existingAdjustments}`);
+                console.log(`  Total paid: ${regularPayments + existingAdjustments}`);
+
+                // Calculate the adjustment needed
+                const totalPaid = regularPayments + existingAdjustments;
+                const adjustmentNeeded = actualFeeOwed - totalPaid;
+
+                console.log(`🎯 Adjustment calculation:`);
+                console.log(`  Actual fee owed: ${actualFeeOwed}`);
+                console.log(`  Total paid: ${totalPaid}`);
+                console.log(`  Adjustment needed: ${adjustmentNeeded}`);
+
+                // Only create adjustment if there's a meaningful difference
+                if (Math.abs(adjustmentNeeded) > 0.01) {
+                  // Remove any existing attendance-based adjustments
+                  const { error: deleteError } = await supabase
+                    .from('payments')
+                    .delete()
+                    .eq('student_id', studentId)
+                    .eq('group_id', groupId)
+                    .like('notes', '%Attendance-based payment update%');
+
+                  if (deleteError) {
+                    console.error('❌ Error deleting existing adjustments:', deleteError);
+                  } else {
+                    console.log(`🗑️ Deleted existing attendance-based adjustments`);
+                  }
+
+                  // Create new adjustment
+                  const paymentType = adjustmentNeeded > 0 ? 'attendance_credit' : 'balance_credit';
+                  const adjustmentAmount = Math.abs(adjustmentNeeded);
+                  const paymentNotes = `Attendance-based payment update: ${obligatorySessions} obligatory sessions, ${freeSessions} free sessions. Adjustment: ${adjustmentAmount} DA`;
+
+                  const { data: payment, error: paymentError } = await supabase
+                    .from('payments')
+                    .insert({
+                      student_id: studentId,
+                      group_id: groupId,
+                      amount: adjustmentAmount,
+                      payment_type: paymentType,
+                      date: new Date().toISOString().split('T')[0],
+                      notes: paymentNotes,
+                      admin_name: 'System - Attendance Update'
+                    })
+                    .select()
+                    .single();
+
+                  if (paymentError) {
+                    console.error('❌ Error creating attendance-based payment adjustment:', paymentError);
+                  } else {
+                    console.log(`✅ Created attendance-based payment adjustment: ${paymentType} of ${adjustmentAmount} DA`);
+                    console.log(`📝 Notes: ${paymentNotes}`);
+                  }
+                } else {
+                  console.log(`✅ No adjustment needed - balance is already correct`);
+                }
+              }
+            }
           }
-        } catch (error) {
-          console.error(`❌ Error in attendance payment processing:`, error);
-          console.error(`❌ Error details:`, error instanceof Error ? error.message : String(error));
-          console.error(`❌ Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
         }
-      } else {
-        console.log(`⏭️ Status '${status}' does not require financial adjustment.`);
+      } catch (error) {
+        console.error(`❌ Error in attendance-payment link:`, error);
+        console.error(`❌ Error details:`, error instanceof Error ? error.message : String(error));
       }
 
       // If status is 'stop', mark student as stopped in this group

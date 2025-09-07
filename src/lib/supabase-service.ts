@@ -1415,10 +1415,10 @@ export const sessionService = {
                 const attendance = attendanceRecords.find(a => a.session_id === session.id);
                 const attendanceStatus = attendance?.status || 'default';
 
-                if (['present', 'absent', 'too_late'].includes(attendanceStatus)) {
+                if (['present', 'absent', 'too_late', 'default'].includes(attendanceStatus)) {
                   obligatorySessions++; // MUST PAY
                 } else {
-                  freeSessions++; // NOT COUNTED
+                  freeSessions++; // NOT COUNTED (justified, new, change, stop)
                 }
               }
 
@@ -2461,10 +2461,10 @@ export const paymentService = {
               const attendance = attendanceRecords.find(a => a.session_id === session.id);
               const status = attendance?.status || 'default';
 
-              if (['present', 'absent', 'too_late'].includes(status)) {
+              if (['present', 'absent', 'too_late', 'default'].includes(status)) {
                 obligatorySessions++; // MUST PAY
               } else {
-                freeSessions++; // NOT COUNTED
+                freeSessions++; // NOT COUNTED (justified, new, change, stop)
               }
             }
 
@@ -4353,10 +4353,10 @@ export const paymentService = {
         for (const session of sessions || []) {
           const status = attendanceMap.get(session.id) || 'default';
 
-          if (['present', 'absent', 'too_late'].includes(status)) {
+          if (['present', 'absent', 'too_late', 'default'].includes(status)) {
             obligatorySessions++; // MUST PAY
           } else {
-            freeSessions++; // NOT COUNTED (justified, change, new, stop, default)
+            freeSessions++; // NOT COUNTED (justified, new, change, stop)
           }
         }
 

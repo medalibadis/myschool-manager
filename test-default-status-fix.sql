@@ -9,7 +9,7 @@ WITH student_attendance_summary AS (
     s.custom_id,
     g.id as group_id,
     g.name as group_name,
-    g.price as group_price,
+    g.price as group_price,en 
     g.total_sessions,
     COUNT(*) as total_sessions_count,
     COUNT(CASE WHEN att.status = 'present' THEN 1 END) as present_sessions,

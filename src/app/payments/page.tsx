@@ -1734,7 +1734,7 @@ Thank you!`;
                     isOpen={isSearchModalOpen}
                     onClose={() => {
                         setIsSearchModalOpen(false);
-                        // Don't clear search term - keep it for next time
+                        setSearchTerm('');
                         setSearchResults([]);
                     }}
                     title="Search for Student"
@@ -1882,7 +1882,7 @@ Thank you!`;
                                 variant="outline"
                                 onClick={() => {
                                     setIsSearchModalOpen(false);
-                                    // Don't clear search term - keep it for next time
+                                    setSearchTerm('');
                                     setSearchResults([]);
                                     setSelectedStudent(null);
                                 }}
@@ -1898,6 +1898,8 @@ Thank you!`;
                     isOpen={isAddPaymentModalOpen}
                     onClose={() => {
                         setIsAddPaymentModalOpen(false);
+                        // Go back to search modal instead of closing everything
+                        setIsSearchModalOpen(true);
                         setSelectedStudent(null);
                         setSelectedGroup(null);
                         setPaymentData({
@@ -2071,6 +2073,8 @@ Thank you!`;
                             variant="outline"
                             onClick={() => {
                                 setIsAddPaymentModalOpen(false);
+                                // Go back to search modal instead of closing everything
+                                setIsSearchModalOpen(true);
                                 setSelectedStudent(null);
                                 setSelectedGroup(null);
                                 setPaymentData({
@@ -2098,7 +2102,9 @@ Thank you!`;
                     onClose={() => {
                         setIsAllocationModalOpen(false);
                         setAllocationResult(null);
-                        // Automatically keep payment modal open with clean form
+                        // Go directly back to search modal (skip payment modal)
+                        setIsAddPaymentModalOpen(false);
+                        setIsSearchModalOpen(true);
                         setSelectedStudent(null);
                         setSelectedGroup(null);
                         setPaymentData({
@@ -2107,7 +2113,6 @@ Thank you!`;
                             notes: '',
                             date: new Date().toISOString().split('T')[0],
                         });
-                        // Keep payment modal open - don't close it
                     }}
                     title="Allocation Summary"
                 >
@@ -2208,7 +2213,9 @@ Thank you!`;
                                     onClick={() => {
                                         setIsAllocationModalOpen(false);
                                         setAllocationResult(null);
-                                        // Automatically keep payment modal open with clean form
+                                        // Go directly back to search modal (skip payment modal)
+                                        setIsAddPaymentModalOpen(false);
+                                        setIsSearchModalOpen(true);
                                         setSelectedStudent(null);
                                         setSelectedGroup(null);
                                         setPaymentData({
@@ -2217,7 +2224,6 @@ Thank you!`;
                                             notes: '',
                                             date: new Date().toISOString().split('T')[0],
                                         });
-                                        // Keep payment modal open - don't close it
                                     }}
                                 >
                                     Add Another Payment
@@ -2226,8 +2232,9 @@ Thank you!`;
                                     onClick={() => {
                                         setIsAllocationModalOpen(false);
                                         setAllocationResult(null);
-                                        // Close payment modal completely
+                                        // Close payment modal completely and go back to search
                                         setIsAddPaymentModalOpen(false);
+                                        setIsSearchModalOpen(true);
                                         setSelectedStudent(null);
                                         setSelectedGroup(null);
                                         setPaymentData({

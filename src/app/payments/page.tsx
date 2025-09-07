@@ -2027,6 +2027,15 @@ Thank you!`;
                     onClose={() => {
                         setIsAllocationModalOpen(false);
                         setAllocationResult(null);
+                        // Keep payment modal open, just reset the form for next payment
+                        setSelectedStudent(null);
+                        setSelectedGroup(null);
+                        setPaymentData({
+                            amount: '',
+                            discount: '',
+                            notes: '',
+                            date: new Date().toISOString().split('T')[0],
+                        });
                     }}
                     title="Allocation Summary"
                 >
@@ -2127,9 +2136,36 @@ Thank you!`;
                                     onClick={() => {
                                         setIsAllocationModalOpen(false);
                                         setAllocationResult(null);
+                                        // Keep payment modal open, just reset the form for next payment
+                                        setSelectedStudent(null);
+                                        setSelectedGroup(null);
+                                        setPaymentData({
+                                            amount: '',
+                                            discount: '',
+                                            notes: '',
+                                            date: new Date().toISOString().split('T')[0],
+                                        });
                                     }}
                                 >
-                                    Close
+                                    Add Another Payment
+                                </Button>
+                                <Button
+                                    onClick={() => {
+                                        setIsAllocationModalOpen(false);
+                                        setAllocationResult(null);
+                                        // Close payment modal completely
+                                        setIsAddPaymentModalOpen(false);
+                                        setSelectedStudent(null);
+                                        setSelectedGroup(null);
+                                        setPaymentData({
+                                            amount: '',
+                                            discount: '',
+                                            notes: '',
+                                            date: new Date().toISOString().split('T')[0],
+                                        });
+                                    }}
+                                >
+                                    Close Payment Modal
                                 </Button>
                             </div>
                         </div>

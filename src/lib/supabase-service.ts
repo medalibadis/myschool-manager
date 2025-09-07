@@ -1363,12 +1363,22 @@ export const sessionService = {
         console.log(`✅ Status '${status}' requires financial adjustment. Starting payment processing...`);
         try {
           // Import and use the new attendance payment service
+          console.log(`📦 Attempting to import attendance payment service...`);
           const { attendancePaymentService } = await import('./attendance-payment-service');
           console.log(`📦 Attendance payment service imported successfully.`);
+          console.log(`🔄 Calling processAttendanceAdjustment for session ${sessionId}, student ${studentId}, status ${status}`);
           const result = await attendancePaymentService.processAttendanceAdjustment(sessionId, studentId, status);
           console.log(`💰 Payment adjustment result:`, result);
+
+          if (result) {
+            console.log(`✅ Payment adjustment completed successfully for ${status} status`);
+          } else {
+            console.log(`⚠️ Payment adjustment returned null for ${status} status`);
+          }
         } catch (error) {
           console.error(`❌ Error in attendance payment processing:`, error);
+          console.error(`❌ Error details:`, error instanceof Error ? error.message : String(error));
+          console.error(`❌ Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
         }
       } else {
         console.log(`⏭️ Status '${status}' does not require financial adjustment.`);

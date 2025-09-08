@@ -31,8 +31,8 @@ import { formatTimeSimple } from '../../../utils/timeUtils';
 import { getAttendanceClasses, getAttendanceDisplayLetter, getAttendanceTitle } from '../../../utils/attendanceUtils';
 import { supabase } from '../../../lib/supabase';
 
-// Component to check and display student status in the group
-const StudentStatusBadge = ({ studentId, groupId }: { studentId: string; groupId: number }) => {
+// Component to check and display student status in the group - OPTIMIZED
+const StudentStatusBadge = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
     const [status, setStatus] = React.useState<'active' | 'stopped' | 'loading'>('loading');
     const [stopReason, setStopReason] = React.useState<string | null>(null);
 
@@ -94,10 +94,10 @@ const StudentStatusBadge = ({ studentId, groupId }: { studentId: string; groupId
             ✅ Active
         </span>
     );
-};
+});
 
-// PaymentStatusCell component - FIXED VERSION
-const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId: number }) => {
+// PaymentStatusCell component - OPTIMIZED VERSION
+const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
     const [isPending, setIsPending] = React.useState(true);
     const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'unknown'>('unknown');
 
@@ -143,13 +143,7 @@ const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId:
                         setPaymentStatus('pending');
                     }
 
-                    console.log(`🚨 DEBUG PaymentStatusCell: Student ${studentId}, Group ${groupId}:`, {
-                        totalPaid,
-                        groupPrice,
-                        actualPayments: actualPayments.length,
-                        status: totalPaid >= groupPrice ? 'paid' : 'pending',
-                        allPayments: payments
-                    });
+                    // Debug log removed for performance
                 }
             } catch (error) {
                 console.error('Error getting payment status:', error);
@@ -190,7 +184,7 @@ const PaymentStatusCell = ({ studentId, groupId }: { studentId: string; groupId:
             )}
         </div>
     );
-};
+});
 
 export default function GroupDetailPage() {
     const params = useParams();
@@ -238,7 +232,7 @@ export default function GroupDetailPage() {
     React.useEffect(() => {
         const interval = setInterval(() => {
             fetchGroups();
-        }, 5000); // Refresh every 5 seconds
+        }, 30000); // Refresh every 30 seconds instead of 5 seconds
 
         return () => clearInterval(interval);
     }, [fetchGroups]);
@@ -395,7 +389,16 @@ export default function GroupDetailPage() {
                 endTime: editGroupFormData.endTime,
             };
 
+            // Check if totalSessions changed
+            const sessionsChanged = editingGroup && editingGroup.totalSessions !== editGroupFormData.totalSessions;
+
             await updateGroup(editingGroup.id, updatedGroup);
+
+            // If session count changed, regenerate sessions
+            if (sessionsChanged) {
+                await generateSessions(editingGroup.id);
+            }
+
             await fetchGroups();
 
             // Reset form

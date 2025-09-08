@@ -1068,7 +1068,6 @@ export const studentService = {
 // Session operations
 export const sessionService = {
   async generateSessions(groupId: number): Promise<Session[]> {
-    alert(`generateSessions called with groupId: ${groupId}`);
     console.log('=== GENERATE SESSIONS FUNCTION CALLED ===');
     console.log(`Starting generateSessions for group ${groupId} (type: ${typeof groupId})`);
 
@@ -1246,15 +1245,35 @@ export const sessionService = {
       throw new Error(`Failed to check existing sessions: ${existingError.message}`);
     }
 
-    // If sessions already exist, return them
+    // Check if we need to regenerate sessions based on total_sessions count
     if (existingSessions && existingSessions.length > 0) {
-      console.log('Sessions already exist for group', groupId, 'returning existing sessions');
-      return existingSessions.map((session: { id: any; date: any }) => ({
-        id: session.id,
-        date: new Date(session.date),
-        groupId: groupId,
-        attendance: {},
-      }));
+      console.log('Sessions already exist for group', groupId, 'checking if regeneration needed');
+      console.log('Existing sessions count:', existingSessions.length, 'Required sessions count:', group.total_sessions);
+
+      // If the count matches, return existing sessions
+      if (existingSessions.length === group.total_sessions) {
+        console.log('Session count matches, returning existing sessions');
+        return existingSessions.map((session: { id: any; date: any }) => ({
+          id: session.id,
+          date: new Date(session.date),
+          groupId: groupId,
+          attendance: {},
+        }));
+      } else {
+        console.log('Session count mismatch, deleting existing sessions and regenerating');
+        // Delete existing sessions to regenerate with correct count
+        const { error: deleteError } = await supabase
+          .from('sessions')
+          .delete()
+          .eq('group_id', groupId);
+
+        if (deleteError) {
+          console.error('Error deleting existing sessions:', deleteError);
+          throw new Error(`Failed to delete existing sessions: ${deleteError.message}`);
+        }
+
+        console.log('Successfully deleted existing sessions, proceeding with regeneration');
+      }
     }
 
     const sessions: Session[] = [];

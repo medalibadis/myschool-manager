@@ -43,6 +43,8 @@ export default function GroupsPage() {
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+    const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
     const [editingGroup, setEditingGroup] = useState<any>(null);
     const [formData, setFormData] = useState({
         teacherId: '',
@@ -159,7 +161,14 @@ export default function GroupsPage() {
             return;
         }
 
+        // Prevent double-clicking
+        if (isCreatingGroup) {
+            console.log('Group creation already in progress, ignoring click');
+            return;
+        }
+
         try {
+            setIsCreatingGroup(true);
             const newGroup = {
                 name: generateGroupName(),
                 teacherId: formData.teacherId,
@@ -202,6 +211,8 @@ export default function GroupsPage() {
         } catch (error) {
             console.error('Error creating group:', error);
             alert('Failed to create group. Please try again.');
+        } finally {
+            setIsCreatingGroup(false);
         }
     };
 
@@ -230,7 +241,14 @@ export default function GroupsPage() {
             return;
         }
 
+        // Prevent double-clicking
+        if (isUpdatingGroup) {
+            console.log('Group update already in progress, ignoring click');
+            return;
+        }
+
         try {
+            setIsUpdatingGroup(true);
             const updatedGroup = {
                 name: generateGroupName(),
                 teacherId: formData.teacherId,
@@ -267,6 +285,8 @@ export default function GroupsPage() {
         } catch (error) {
             console.error('Error updating group:', error);
             alert('Failed to update group. Please try again.');
+        } finally {
+            setIsUpdatingGroup(false);
         }
     };
 
@@ -726,8 +746,8 @@ export default function GroupsPage() {
                             >
                                 Cancel
                             </Button>
-                            <Button onClick={handleCreateGroup}>
-                                Create Group
+                            <Button onClick={handleCreateGroup} disabled={isCreatingGroup}>
+                                {isCreatingGroup ? 'Creating...' : 'Create Group'}
                             </Button>
                         </div>
                     </div>
@@ -921,8 +941,8 @@ export default function GroupsPage() {
                             >
                                 Cancel
                             </Button>
-                            <Button onClick={handleUpdateGroup}>
-                                Update Group
+                            <Button onClick={handleUpdateGroup} disabled={isUpdatingGroup}>
+                                {isUpdatingGroup ? 'Updating...' : 'Update Group'}
                             </Button>
                         </div>
                     </div>

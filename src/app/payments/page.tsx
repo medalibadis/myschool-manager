@@ -121,6 +121,8 @@ export default function PaymentsPage() {
         notes: ''
     });
     const [isSavingGroupDiscount, setIsSavingGroupDiscount] = useState(false);
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+    const [isProcessingRefund, setIsProcessingRefund] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [historySearchTerm, setHistorySearchTerm] = useState('');
     const [historySelectedStudent, setHistorySelectedStudent] = useState<{ id: string; name: string; custom_id?: string } | null>(null);
@@ -1012,6 +1014,12 @@ export default function PaymentsPage() {
     const handleGroupPayment = async () => {
         if (!selectedGroupForPayment || !selectedStudent) return;
 
+        // Prevent double-clicking
+        if (isSavingGroupDiscount) {
+            console.log('Group payment already in progress, ignoring click');
+            return;
+        }
+
         try {
             setIsSavingGroupDiscount(true);
             const originalAmount = parseFloat(groupPaymentData.amount);
@@ -1065,7 +1073,14 @@ export default function PaymentsPage() {
             return;
         }
 
+        // Prevent double-clicking
+        if (isProcessingPayment) {
+            console.log('Payment already in progress, ignoring click');
+            return;
+        }
+
         try {
+            setIsProcessingPayment(true);
             const depositAmount = Math.abs(parseFloat(paymentData.amount || '0'));
 
             console.log('Processing payment:', {
@@ -1142,6 +1157,8 @@ export default function PaymentsPage() {
             console.error('Error adding payment:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             throw error;
+        } finally {
+            setIsProcessingPayment(false);
         }
     };
 
@@ -1166,7 +1183,14 @@ export default function PaymentsPage() {
             return;
         }
 
+        // Prevent double-clicking
+        if (isProcessingRefund) {
+            console.log('Refund already in progress, ignoring click');
+            return;
+        }
+
         try {
+            setIsProcessingRefund(true);
             console.log(`📤 Sending refund request for ${selectedRefundStudent.studentName}: ${refundData.amount} DZD`);
 
             // Create refund request record
@@ -1212,6 +1236,8 @@ export default function PaymentsPage() {
         } catch (error) {
             console.error('❌ Error sending refund request:', error);
             alert('Failed to send refund request. Please try again.');
+        } finally {
+            setIsProcessingRefund(false);
         }
     };
 
@@ -1222,7 +1248,14 @@ export default function PaymentsPage() {
             return;
         }
 
+        // Prevent double-clicking
+        if (isProcessingRefund) {
+            console.log('Refund already in progress, ignoring click');
+            return;
+        }
+
         try {
+            setIsProcessingRefund(true);
             console.log(`💰 Processing approved refund for ${selectedRefundStudent.studentName}: ${refundData.amount} DZD`);
             const refundAmount = parseFloat(refundData.amount);
 
@@ -1342,6 +1375,8 @@ Thank you!`;
             console.error('❌ Error processing approved refund:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             alert(`Failed to process approved refund: ${errorMessage}. Please try again.`);
+        } finally {
+            setIsProcessingRefund(false);
         }
     };
 
@@ -2089,9 +2124,9 @@ Thank you!`;
                         </Button>
                         <Button
                             onClick={handleAddPayment}
-                            disabled={!selectedStudent || !paymentData.amount}
+                            disabled={!selectedStudent || !paymentData.amount || isProcessingPayment}
                         >
-                            Deposit & Auto-Allocate
+                            {isProcessingPayment ? 'Processing...' : 'Deposit & Auto-Allocate'}
                         </Button>
                     </div>
                 </Modal>
@@ -2740,10 +2775,10 @@ Thank you!`;
                                     </Button>
                                     <Button
                                         onClick={selectedRefundStudent?.isApprovedRequest ? handleProcessApprovedRefund : handleSendRefundRequest}
-                                        disabled={!refundData.amount || parseFloat(refundData.amount) <= 0}
+                                        disabled={!refundData.amount || parseFloat(refundData.amount) <= 0 || isProcessingRefund}
                                         className={selectedRefundStudent?.isApprovedRequest ? "bg-green-600 hover:bg-green-700" : "bg-orange-600 hover:bg-orange-700"}
                                     >
-                                        {selectedRefundStudent?.isApprovedRequest ?
+                                        {isProcessingRefund ? 'Processing...' : selectedRefundStudent?.isApprovedRequest ?
                                             "💰 Process Approved Refund" :
                                             "📤 Send Refund Request to Superadmin"
                                         }

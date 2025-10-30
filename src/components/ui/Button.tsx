@@ -31,14 +31,56 @@ export interface ButtonProps
     extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
     asChild?: boolean;
+    /**
+     * If provided, the button will show disabled state while this async handler is running
+     * and prevent subsequent clicks until it resolves/rejects.
+     */
+    onClickAsync?: (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => Promise<unknown>;
+    /** External loading state to force-disable the button */
+    isLoading?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-    ({ className, variant, size, ...props }, ref) => {
+    ({ className, variant, size, onClick, onClickAsync, disabled, isLoading, ...props }, ref) => {
+        const [internalLoading, setInternalLoading] = React.useState(false);
+
+        const handleClick = async (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+            // If an explicit async handler is provided, run it with a lock
+            if (onClickAsync) {
+                if (internalLoading) return;
+                try {
+                    setInternalLoading(true);
+                    await onClickAsync(event);
+                } finally {
+                    setInternalLoading(false);
+                }
+                return;
+            }
+
+            // Fallback: if regular onClick returns a Promise, lock until it settles
+            if (onClick) {
+                const result = onClick(event);
+                // Detect promise-like return and lock
+                if (result && typeof (result as unknown as Promise<unknown>).then === 'function') {
+                    if (internalLoading) return;
+                    try {
+                        setInternalLoading(true);
+                        await (result as unknown as Promise<unknown>);
+                    } finally {
+                        setInternalLoading(false);
+                    }
+                }
+            }
+        };
+
+        const isDisabled = disabled || isLoading || internalLoading;
+
         return (
             <button
                 className={buttonVariants({ variant, size, className })}
                 ref={ref}
+                disabled={isDisabled}
+                onClick={handleClick}
                 {...props}
             />
         );

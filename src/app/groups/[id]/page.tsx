@@ -105,23 +105,38 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
         const checkPaymentStatus = async () => {
             try {
                 // 🚨 FIX: Use direct database query to check actual payments
+                // CRITICAL: Only get payments for THIS specific group
                 const { data: payments, error } = await supabase
                     .from('payments')
-                    .select('amount, notes, payment_type')
+                    .select('amount, notes, payment_type, group_id')
                     .eq('student_id', studentId)
-                    .eq('group_id', groupId);
+                    .eq('group_id', groupId); // CRITICAL: Only payments for this specific group
 
                 if (error) {
                     console.error('Error checking payments:', error);
                     setPaymentStatus('unknown');
                 } else {
-                    // 🚨 FIX: Only count actual payments with proper notes and positive amounts
-                    const actualPayments = payments.filter(p =>
-                        p.amount > 0 &&
-                        p.notes &&
-                        p.notes.trim() !== '' &&
-                        p.notes !== 'Registration fee' // Exclude registration fees from group payment calculation
-                    );
+                    // 🚨 FIX: Strict filtering - only count actual group payments
+                    // Exclude registration fees, balance additions, and any payments without proper type
+                    const actualPayments = payments.filter(p => {
+                        // Must have positive amount
+                        if (!p.amount || Number(p.amount) <= 0) return false;
+                        
+                        // Must have group_id matching this group (double check)
+                        if (p.group_id !== groupId) return false;
+                        
+                        // Exclude registration fees
+                        if (p.payment_type === 'registration_fee') return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
+                        
+                        // Exclude balance additions
+                        if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
+                        
+                        // Must be group payment type
+                        if (p.payment_type && p.payment_type !== 'group_payment' && p.payment_type !== 'attendance_credit') return false;
+                        
+                        return true;
+                    });
 
                     const totalPaid = actualPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
@@ -134,8 +149,8 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
 
                     const groupPrice = Number(groupData?.price || 0);
 
-                    // 🚨 FIX: If no group price is set, or if student was just added, show as pending
-                    if (groupPrice === 0 || groupPrice === null) {
+                    // 🚨 FIX: If no payments found or no group price, show as pending
+                    if (actualPayments.length === 0 || groupPrice === 0 || groupPrice === null) {
                         setPaymentStatus('pending');
                     } else if (totalPaid >= groupPrice) {
                         setPaymentStatus('paid');
@@ -143,7 +158,10 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         setPaymentStatus('pending');
                     }
 
-                    // Debug log removed for performance
+                    // Debug log for troubleshooting
+                    if (actualPayments.length > 0) {
+                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: ${actualPayments.length} payments, Total: ${totalPaid}, Group Price: ${groupPrice}, Status: ${totalPaid >= groupPrice ? 'paid' : 'pending'}`);
+                    }
                 }
             } catch (error) {
                 console.error('Error getting payment status:', error);

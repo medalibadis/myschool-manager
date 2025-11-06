@@ -45,9 +45,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         const [internalLoading, setInternalLoading] = React.useState(false);
 
         const handleClick = async (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+            // CRITICAL FIX: Check loading state BEFORE calling handlers to prevent double-clicks
+            if (internalLoading || isLoading || disabled) return;
+
             // If an explicit async handler is provided, run it with a lock
             if (onClickAsync) {
-                if (internalLoading) return;
                 try {
                     setInternalLoading(true);
                     await onClickAsync(event);
@@ -59,16 +61,16 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
             // Fallback: if regular onClick returns a Promise, lock until it settles
             if (onClick) {
-                const result = onClick(event);
-                // Detect promise-like return and lock
-                if (result && typeof (result as unknown as Promise<unknown>).then === 'function') {
-                    if (internalLoading) return;
-                    try {
-                        setInternalLoading(true);
+                // CRITICAL FIX: Set loading state BEFORE calling onClick to prevent race conditions
+                setInternalLoading(true);
+                try {
+                    const result = onClick(event);
+                    // Detect promise-like return and await it
+                    if (result && typeof (result as unknown as Promise<unknown>).then === 'function') {
                         await (result as unknown as Promise<unknown>);
-                    } finally {
-                        setInternalLoading(false);
                     }
+                } finally {
+                    setInternalLoading(false);
                 }
             }
         };

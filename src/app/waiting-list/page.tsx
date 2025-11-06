@@ -72,6 +72,8 @@ export default function WaitingListPage() {
     const [showStudentConfirmationModal, setShowStudentConfirmationModal] = useState(false);
     const [showFinalConfirmationModal, setShowFinalConfirmationModal] = useState(false);
     const [selectedGroup, setSelectedGroup] = useState<typeof suggestedGroups[0] | null>(null);
+    const [isLaunchingGroup, setIsLaunchingGroup] = useState(false);
+    const [isAddingStudent, setIsAddingStudent] = useState(false);
     const [studentConfirmations, setStudentConfirmations] = useState<Array<{
         studentId: string;
         name: string;
@@ -290,7 +292,10 @@ export default function WaitingListPage() {
     };
 
     const handleAddStudent = async () => {
+        if (isAddingStudent) return; // Prevent double-clicks
+        
         try {
+            setIsAddingStudent(true);
             // Email is optional, phone is required
             if (!formData.name.trim() || !formData.phone.trim() || !formData.language || !formData.level || !formData.category) {
                 alert('Please fill in all required fields: Name, Phone, Language, Level, and Category');
@@ -385,6 +390,7 @@ export default function WaitingListPage() {
                                 admin_name: 'Dalila',
                                 discount: 0,
                                 original_amount: studentData.registrationFeeAmount || 500,
+                                payment_type: 'registration_fee', // ✅ CRITICAL FIX: Add payment_type to prevent it from being counted as group payment
                             });
                         await supabase
                             .from('students')
@@ -402,6 +408,8 @@ export default function WaitingListPage() {
             await fetchSuggestedGroups();
         } catch (error) {
             console.error('Error adding student to waiting list:', error);
+        } finally {
+            setIsAddingStudent(false);
         }
     };
 
@@ -920,9 +928,10 @@ export default function WaitingListPage() {
     };
 
     const handleLaunchGroup = async () => {
-        if (!selectedGroup) return;
+        if (!selectedGroup || isLaunchingGroup) return; // Prevent double-clicks
 
         try {
+            setIsLaunchingGroup(true);
             console.log('=== LAUNCH GROUP START ===');
             console.log('Selected group:', selectedGroup);
             console.log('Final student selections:', finalStudentSelections);
@@ -1213,6 +1222,8 @@ Thank you for your payment!`,
             console.error('Error launching group:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             alert(`Error launching group: ${errorMessage}`);
+        } finally {
+            setIsLaunchingGroup(false);
         }
     };
 
@@ -2014,8 +2025,12 @@ Thank you for your payment!`,
                                             >
                                                 Clear Selection
                                             </Button>
-                                            <Button onClick={handleAddStudent}>
-                                                Add Student
+                                            <Button 
+                                                onClick={handleAddStudent}
+                                                disabled={isAddingStudent}
+                                                isLoading={isAddingStudent}
+                                            >
+                                                {isAddingStudent ? 'Adding...' : 'Add Student'}
                                             </Button>
                                         </div>
                                     </div>
@@ -2665,8 +2680,10 @@ Thank you for your payment!`,
                                     <Button
                                         onClick={handleLaunchGroup}
                                         className="bg-green-600 hover:bg-green-700"
+                                        disabled={isLaunchingGroup}
+                                        isLoading={isLaunchingGroup}
                                     >
-                                        Launch Group
+                                        {isLaunchingGroup ? 'Launching...' : 'Launch Group'}
                                     </Button>
                                 </div>
                             </div>

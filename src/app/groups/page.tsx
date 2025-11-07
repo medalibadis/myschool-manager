@@ -746,7 +746,11 @@ export default function GroupsPage() {
                             >
                                 Cancel
                             </Button>
-                            <Button onClick={handleCreateGroup} disabled={isCreatingGroup}>
+                            <Button 
+                                onClick={handleCreateGroup} 
+                                disabled={isCreatingGroup}
+                                isLoading={isCreatingGroup}
+                            >
                                 {isCreatingGroup ? 'Creating...' : 'Create Group'}
                             </Button>
                         </div>
@@ -941,7 +945,11 @@ export default function GroupsPage() {
                             >
                                 Cancel
                             </Button>
-                            <Button onClick={handleUpdateGroup} disabled={isUpdatingGroup}>
+                            <Button 
+                                onClick={handleUpdateGroup} 
+                                disabled={isUpdatingGroup}
+                                isLoading={isUpdatingGroup}
+                            >
                                 {isUpdatingGroup ? 'Updating...' : 'Update Group'}
                             </Button>
                         </div>

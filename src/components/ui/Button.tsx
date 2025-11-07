@@ -42,40 +42,53 @@ export interface ButtonProps
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ({ className, variant, size, onClick, onClickAsync, disabled, isLoading, ...props }, ref) => {
+        // CRITICAL FIX: Use ref for synchronous lock to prevent race conditions
+        const isProcessingRef = React.useRef(false);
         const [internalLoading, setInternalLoading] = React.useState(false);
 
         const handleClick = async (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
-            // CRITICAL FIX: Check loading state BEFORE calling handlers to prevent double-clicks
-            if (internalLoading || isLoading || disabled) return;
-
-            // If an explicit async handler is provided, run it with a lock
-            if (onClickAsync) {
-                try {
-                    setInternalLoading(true);
-                    await onClickAsync(event);
-                } finally {
-                    setInternalLoading(false);
-                }
+            // CRITICAL FIX: Check ref-based lock FIRST (synchronous, no React state delay)
+            if (isProcessingRef.current || isLoading || disabled) {
+                console.warn('⚠️ Button click ignored - operation already in progress');
+                event.preventDefault();
+                event.stopPropagation();
+                // Show user-friendly error message
+                alert('Please wait - an operation is already in progress. Do not click again.');
                 return;
             }
 
-            // Fallback: if regular onClick returns a Promise, lock until it settles
-            if (onClick) {
-                // CRITICAL FIX: Set loading state BEFORE calling onClick to prevent race conditions
-                setInternalLoading(true);
-                try {
+            // Set lock IMMEDIATELY (synchronous) - this prevents any subsequent clicks
+            isProcessingRef.current = true;
+            setInternalLoading(true);
+
+            try {
+                // If an explicit async handler is provided, run it with a lock
+                if (onClickAsync) {
+                    await onClickAsync(event);
+                    return;
+                }
+
+                // Fallback: if regular onClick returns a Promise, lock until it settles
+                if (onClick) {
                     const result = onClick(event);
                     // Detect promise-like return and await it
                     if (result && typeof (result as unknown as Promise<unknown>).then === 'function') {
                         await (result as unknown as Promise<unknown>);
                     }
-                } finally {
-                    setInternalLoading(false);
                 }
+            } catch (error) {
+                // Log error but don't prevent cleanup
+                console.error('Button click handler error:', error);
+                // Re-throw to allow error handling in the handler
+                throw error;
+            } finally {
+                // Always release lock immediately
+                isProcessingRef.current = false;
+                setInternalLoading(false);
             }
         };
 
-        const isDisabled = disabled || isLoading || internalLoading;
+        const isDisabled = disabled || isLoading || internalLoading || isProcessingRef.current;
 
         return (
             <button

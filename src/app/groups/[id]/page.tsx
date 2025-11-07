@@ -132,14 +132,20 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         // Exclude balance additions and credits
                         if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
                         
-                        // 🚨 CRITICAL FIX: Exclude attendance-based payment adjustments
-                        // These are created automatically and should NOT count as actual payments
+                        // 🚨 CRITICAL FIX: Exclude ALL attendance-based payment adjustments
+                        // These are created automatically by database triggers and should NOT count as actual payments
                         if (p.payment_type === 'attendance_credit') return false;
                         if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
                         if (p.notes && String(p.notes).toLowerCase().includes('attendance adjustment')) return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('session refund')) return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('stop refund')) return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('stop credit')) return false;
                         if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
+                        if (p.admin_name && String(p.admin_name) === 'System') return false; // System-generated payments
+                        if (p.admin_name && String(p.admin_name).includes('System')) return false;
                         
-                        // Must be group payment type (actual money received)
+                        // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
+                        // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
                         if (p.payment_type && p.payment_type !== 'group_payment') return false;
                         
                         return true;

@@ -2418,19 +2418,42 @@ export const paymentService = {
       // Get payments for this specific group
       const groupPayments = payments.filter(p => p.group_id === groupIdVal);
 
-      // 🆕 UPDATED: Properly handle attendance-based payment adjustments
+      // 🚨 CRITICAL FIX: EXCLUDE attendance-based payment adjustments
+      // These are NOT real payments - they're automatic adjustments that should NOT count
       const validGroupPayments = groupPayments.filter(p => {
-        // Include attendance-based payment adjustments
-        if (p.notes && p.notes.includes('Attendance-based payment update')) return true;
-        if (p.notes && p.notes.includes('Retroactive attendance adjustment')) return true;
-        if (p.notes && p.notes.includes('Permanent balance correction')) return true;
-
+        // Must have positive amount
+        if (!p.amount || Number(p.amount) <= 0) return false;
+        
+        // EXCLUDE registration fees
+        if (p.payment_type === 'registration_fee') return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
+        
+        // EXCLUDE balance additions and credits
+        if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
+        
+        // 🚨 CRITICAL: EXCLUDE ALL attendance-based payment adjustments
+        if (p.payment_type === 'attendance_credit') return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('attendance adjustment')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('retroactive attendance adjustment')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('session refund')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('stop refund')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('stop credit')) return false;
+        if (p.notes && String(p.notes).toLowerCase().includes('permanent balance correction')) return false;
+        if (p.admin_name && String(p.admin_name) === 'System') return false;
+        if (p.admin_name && String(p.admin_name).includes('System')) return false;
+        if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
+        
         // Skip old automatic/system payments
         if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
         if (p.notes && p.notes.toLowerCase().includes('system') && !p.notes.includes('Attendance')) return false;
         if (p.notes && p.notes.toLowerCase().includes('default')) return false;
-
-        // Include all other regular payments
+        
+        // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
+        // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
+        if (p.payment_type && p.payment_type !== 'group_payment') return false;
+        
+        // Include regular group payments (actual money received)
         return true;
       });
 

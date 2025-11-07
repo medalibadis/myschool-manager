@@ -1376,10 +1376,16 @@ export const sessionService = {
         throw new Error(`Failed to update attendance: ${upsertError.message}`);
       }
 
-      // 🆕 ALWAYS UPDATE PAYMENT BASED ON ATTENDANCE
-      // This ensures that every attendance change automatically updates the student's balance
-      console.log(`🔄 ATTENDANCE-PAYMENT LINK: Updating payment based on attendance change...`);
+      // 🚨 FIX: DISABLED automatic payment creation on attendance update
+      // This was causing students to appear as "paid" when attendance was saved
+      // Payments should only be created when actual money is received, not when attendance is marked
+      // If you need attendance-based payment adjustments, they should be done manually or through a separate process
+      console.log(`🚨 FIX: Attendance updated - NO automatic payment creation`);
+      console.log(`🚨 FIX: Student payment status will remain unchanged by attendance updates`);
 
+      // DISABLED: Automatic payment creation on attendance update
+      // This code is commented out to prevent false "paid" status
+      /*
       try {
         // Get session and group details
         const { data: sessionData, error: sessionError } = await supabase
@@ -1535,6 +1541,7 @@ export const sessionService = {
         console.error(`❌ Error in attendance-payment link:`, error);
         console.error(`❌ Error details:`, error instanceof Error ? error.message : String(error));
       }
+      */
 
       // If status is 'stop', mark student as stopped in this group
       if (status === 'stop') {

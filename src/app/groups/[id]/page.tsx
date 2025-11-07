@@ -108,7 +108,7 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                 // CRITICAL: Only get payments for THIS specific group
                 const { data: payments, error } = await supabase
                     .from('payments')
-                    .select('amount, notes, payment_type, group_id')
+                    .select('amount, notes, payment_type, group_id, admin_name')
                     .eq('student_id', studentId)
                     .eq('group_id', groupId); // CRITICAL: Only payments for this specific group
 
@@ -117,7 +117,7 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                     setPaymentStatus('unknown');
                 } else {
                     // 🚨 FIX: Strict filtering - only count actual group payments
-                    // Exclude registration fees, balance additions, and any payments without proper type
+                    // Exclude registration fees, balance additions, attendance credits, and any payments without proper type
                     const actualPayments = payments.filter(p => {
                         // Must have positive amount
                         if (!p.amount || Number(p.amount) <= 0) return false;
@@ -129,11 +129,18 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         if (p.payment_type === 'registration_fee') return false;
                         if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
                         
-                        // Exclude balance additions
+                        // Exclude balance additions and credits
                         if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
                         
-                        // Must be group payment type
-                        if (p.payment_type && p.payment_type !== 'group_payment' && p.payment_type !== 'attendance_credit') return false;
+                        // 🚨 CRITICAL FIX: Exclude attendance-based payment adjustments
+                        // These are created automatically and should NOT count as actual payments
+                        if (p.payment_type === 'attendance_credit') return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
+                        if (p.notes && String(p.notes).toLowerCase().includes('attendance adjustment')) return false;
+                        if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
+                        
+                        // Must be group payment type (actual money received)
+                        if (p.payment_type && p.payment_type !== 'group_payment') return false;
                         
                         return true;
                     });

@@ -10,7 +10,11 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
         const setInputRef = useCallback((element: HTMLInputElement | null) => {
             // Clean up previous listener if exists
             if (inputRef.current && wheelHandlerRef.current) {
-                inputRef.current.removeEventListener('wheel', wheelHandlerRef.current);
+                const prevElement = inputRef.current;
+                const prevHandler = wheelHandlerRef.current;
+                prevElement.removeEventListener('wheel', prevHandler, true);
+                prevElement.removeEventListener('mousewheel', prevHandler as any, true);
+                prevElement.removeEventListener('DOMMouseScroll', prevHandler as any, true);
             }
 
             inputRef.current = element;
@@ -20,14 +24,26 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
                 const wheelHandler = (e: WheelEvent) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    e.stopImmediatePropagation();
                     // Blur to prevent any further interactions
                     if (document.activeElement === element) {
                         element.blur();
                     }
+                    return false;
                 };
                 
+                // CRITICAL FIX: Add multiple event listeners for cross-platform compatibility
+                // Windows browsers may handle wheel events differently
                 wheelHandlerRef.current = wheelHandler;
-                element.addEventListener('wheel', wheelHandler, { passive: false });
+                
+                // Add wheel event (standard)
+                element.addEventListener('wheel', wheelHandler, { passive: false, capture: true });
+                
+                // Add mousewheel event (legacy support for older browsers/Windows)
+                element.addEventListener('mousewheel', wheelHandler as any, { passive: false, capture: true });
+                
+                // Add DOMMouseScroll event (Firefox legacy)
+                element.addEventListener('DOMMouseScroll', wheelHandler as any, { passive: false, capture: true });
             } else {
                 wheelHandlerRef.current = null;
             }
@@ -44,7 +60,11 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
         useEffect(() => {
             return () => {
                 if (inputRef.current && wheelHandlerRef.current) {
-                    inputRef.current.removeEventListener('wheel', wheelHandlerRef.current);
+                    const element = inputRef.current;
+                    const handler = wheelHandlerRef.current;
+                    element.removeEventListener('wheel', handler, true);
+                    element.removeEventListener('mousewheel', handler as any, true);
+                    element.removeEventListener('DOMMouseScroll', handler as any, true);
                 }
             };
         }, []);

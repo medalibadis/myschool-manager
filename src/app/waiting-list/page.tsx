@@ -74,6 +74,7 @@ export default function WaitingListPage() {
     const [selectedGroup, setSelectedGroup] = useState<typeof suggestedGroups[0] | null>(null);
     const [isLaunchingGroup, setIsLaunchingGroup] = useState(false);
     const [isAddingStudent, setIsAddingStudent] = useState(false);
+    const isAddingStudentRef = React.useRef(false);
     const [studentConfirmations, setStudentConfirmations] = useState<Array<{
         studentId: string;
         name: string;
@@ -292,15 +293,21 @@ export default function WaitingListPage() {
     };
 
     const handleAddStudent = async () => {
-        if (isAddingStudent) return; // Prevent double-clicks
-        
+        // Email is optional, phone is required
+        if (!formData.name.trim() || !formData.phone.trim() || !formData.language || !formData.level || !formData.category) {
+            alert('Please fill in all required fields: Name, Phone, Language, Level, and Category');
+            return;
+        }
+
+        if (isAddingStudentRef.current || isAddingStudent) {
+            alert('Please wait - a student is already being added. Do not click twice.');
+            return;
+        }
+
+        isAddingStudentRef.current = true;
+        setIsAddingStudent(true);
+
         try {
-            setIsAddingStudent(true);
-            // Email is optional, phone is required
-            if (!formData.name.trim() || !formData.phone.trim() || !formData.language || !formData.level || !formData.category) {
-                alert('Please fill in all required fields: Name, Phone, Language, Level, and Category');
-                return;
-            }
 
             const studentData = {
                 name: formData.name.trim(),
@@ -408,7 +415,10 @@ export default function WaitingListPage() {
             await fetchSuggestedGroups();
         } catch (error) {
             console.error('Error adding student to waiting list:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error occurred';
+            alert(`Error adding student: ${message}`);
         } finally {
+            isAddingStudentRef.current = false;
             setIsAddingStudent(false);
         }
     };

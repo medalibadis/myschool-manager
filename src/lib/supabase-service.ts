@@ -831,7 +831,7 @@ export const studentService = {
         .insert({
           name: student.name,
           email: emailValue,
-          phone: student.phone,
+          phone: trimmedPhone,
           address: student.address,
           birth_date: student.birthDate ? student.birthDate.toISOString().split('T')[0] : null,
           courseFee: student.courseFee,
@@ -5005,6 +5005,25 @@ export const waitingListService = {
       }
       if (!student.phone || student.phone.trim() === '') {
         throw new Error('Phone is required');
+      }
+
+      // Prevent duplicate entries by phone
+      const trimmedPhone = student.phone.trim();
+      const { data: existingWaiting, error: existingWaitingError } = await supabase
+        .from('waiting_list')
+        .select('id, name')
+        .eq('phone', trimmedPhone)
+        .limit(1);
+
+      if (existingWaitingError) {
+        console.error('Error checking existing waiting list entries:', existingWaitingError);
+        throw existingWaitingError;
+      }
+
+      if (existingWaiting && existingWaiting.length > 0) {
+        const existingStudent = existingWaiting[0];
+        const existingName = existingStudent.name ? ` (${existingStudent.name})` : '';
+        throw new Error(`A student with this phone number already exists in the waiting list${existingName}.`);
       }
 
       const { data, error } = await supabase

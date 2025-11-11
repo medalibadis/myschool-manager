@@ -731,6 +731,7 @@ Thank you for your payment!`,
             }));
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+            throw error;
         }
     },
 

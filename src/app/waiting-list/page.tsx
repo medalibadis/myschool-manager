@@ -73,6 +73,7 @@ export default function WaitingListPage() {
     const [showFinalConfirmationModal, setShowFinalConfirmationModal] = useState(false);
     const [selectedGroup, setSelectedGroup] = useState<typeof suggestedGroups[0] | null>(null);
     const [isLaunchingGroup, setIsLaunchingGroup] = useState(false);
+    const isLaunchingGroupRef = React.useRef(false);
     const [isAddingStudent, setIsAddingStudent] = useState(false);
     const isAddingStudentRef = React.useRef(false);
     const [studentConfirmations, setStudentConfirmations] = useState<Array<{
@@ -938,10 +939,20 @@ export default function WaitingListPage() {
     };
 
     const handleLaunchGroup = async () => {
-        if (!selectedGroup || isLaunchingGroup) return; // Prevent double-clicks
+        if (!selectedGroup) {
+            alert('No group selected. Please choose a group to launch.');
+            return;
+        }
+
+        if (isLaunchingGroupRef.current || isLaunchingGroup) {
+            alert('Please wait - the group launch is already in progress.');
+            return;
+        }
+
+        isLaunchingGroupRef.current = true;
+        setIsLaunchingGroup(true);
 
         try {
-            setIsLaunchingGroup(true);
             console.log('=== LAUNCH GROUP START ===');
             console.log('Selected group:', selectedGroup);
             console.log('Final student selections:', finalStudentSelections);
@@ -1233,6 +1244,7 @@ Thank you for your payment!`,
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             alert(`Error launching group: ${errorMessage}`);
         } finally {
+            isLaunchingGroupRef.current = false;
             setIsLaunchingGroup(false);
         }
     };

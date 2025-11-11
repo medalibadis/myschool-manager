@@ -1,6 +1,9 @@
 import React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+    Boolean(value) && typeof (value as { then?: unknown }).then === 'function';
+
 const buttonVariants = cva(
     'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background',
     {
@@ -70,10 +73,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
                 // Fallback: if regular onClick returns a Promise, lock until it settles
                 if (onClick) {
-                    const result = onClick(event);
+                    const result = onClick(event) as unknown;
                     // Detect promise-like return and await it
-                    if (result && typeof (result as unknown as Promise<unknown>).then === 'function') {
-                        await (result as unknown as Promise<unknown>);
+                    if (isPromiseLike(result)) {
+                        await result;
                     }
                 }
             } catch (error) {

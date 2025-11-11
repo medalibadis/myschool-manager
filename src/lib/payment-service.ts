@@ -216,39 +216,14 @@ export class PaymentService {
         oldStatus: AttendanceStatus,
         newStatus: AttendanceStatus
     ): Promise<void> {
-        try {
-            const group = await this.getGroup(groupId);
-            if (!group) return;
-
-            const sessionPrice = group.price / group.totalSessions;
-
-            if (['justified', 'change', 'new'].includes(newStatus)) {
-                // Check if group is fully paid
-                const balance = await this.getStudentBalance(studentId);
-                const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
-
-                if (groupBalance && groupBalance.remainingAmount <= 0) {
-                    // Group is fully paid - refund session price to balance
-                    await this.createPayment({
-                        studentId,
-                        groupId: undefined,
-                        amount: -sessionPrice, // Negative amount for refund
-                        date: new Date(),
-                        notes: `Session refund for ${newStatus} status - Group: ${group.name}`,
-                        adminName: 'System',
-                        paymentType: 'balance_addition',
-                        discount: 0,
-                        originalAmount: sessionPrice,
-                    });
-                } else {
-                    // Group not fully paid - reduce total fee
-                    await this.adjustGroupFee(studentId, groupId, -sessionPrice);
-                }
-            }
-        } catch (error) {
-            console.error('Error handling attendance adjustment:', error);
-            throw new Error(`Failed to handle attendance adjustment: ${error}`);
-        }
+        console.log('Attendance adjustment skipped - automatic payment adjustments are disabled', {
+            studentId,
+            groupId,
+            sessionId,
+            oldStatus,
+            newStatus,
+        });
+        return;
     }
 
     // 5. Stop Attendance Case

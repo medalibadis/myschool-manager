@@ -825,13 +825,15 @@ export const studentService = {
           .eq('id', studentId);
       }
     } else {
+      const trimmedPhone = student.phone?.trim() || '';
+
       // Create new student
       const { data: newStudent, error: createError } = await supabase
         .from('students')
         .insert({
           name: student.name,
           email: emailValue,
-          phone: trimmedPhone,
+          phone: trimmedPhone === '' ? null : trimmedPhone,
           address: student.address,
           birth_date: student.birthDate ? student.birthDate.toISOString().split('T')[0] : null,
           courseFee: student.courseFee,
@@ -5031,7 +5033,7 @@ export const waitingListService = {
         .insert({
           name: student.name,
           email: emailValue,
-          phone: student.phone,
+          phone: trimmedPhone || null,
           address: student.address,
           birth_date: student.birthDate,
           language: student.language,

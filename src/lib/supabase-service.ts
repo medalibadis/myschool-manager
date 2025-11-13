@@ -5009,12 +5009,14 @@ export const waitingListService = {
         throw new Error('Phone is required');
       }
 
-      // Prevent duplicate entries by phone
+      // 🚨 FIX: Prevent duplicate entries by name + phone (not just phone)
+      // This allows siblings to share the same phone number, but prevents the same student from being added twice
       const trimmedPhone = student.phone.trim();
       const { data: existingWaiting, error: existingWaitingError } = await supabase
         .from('waiting_list')
         .select('id, name')
         .eq('phone', trimmedPhone)
+        .eq('name', student.name)
         .limit(1);
 
       if (existingWaitingError) {
@@ -5024,8 +5026,7 @@ export const waitingListService = {
 
       if (existingWaiting && existingWaiting.length > 0) {
         const existingStudent = existingWaiting[0];
-        const existingName = existingStudent.name ? ` (${existingStudent.name})` : '';
-        throw new Error(`A student with this phone number already exists in the waiting list${existingName}.`);
+        throw new Error(`A student with the same name and phone number already exists in the waiting list (${existingStudent.name}).`);
       }
 
       const { data, error } = await supabase

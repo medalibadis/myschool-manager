@@ -153,28 +153,65 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
 
                     const totalPaid = actualPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
-                    // 🚨 FIX: Get group price to determine if fully paid
-                    const { data: groupData } = await supabase
-                        .from('groups')
-                        .select('price')
-                        .eq('id', groupId)
-                        .single();
+                    // 🚨 NEW: Get group-specific discount info (per student) + group price
+                    let groupPrice = 0;
+                    let groupSpecificDiscount = 0;
+                    let studentDefaultDiscount = 0;
 
-                    const groupPrice = Number(groupData?.price || 0);
+                    try {
+                        const { data: studentGroupData, error: studentGroupError } = await supabase
+                            .from('student_groups')
+                            .select(`
+                                group_discount,
+                                groups (
+                                    price
+                                ),
+                                students!inner(
+                                    default_discount
+                                )
+                            `)
+                            .eq('student_id', studentId)
+                            .eq('group_id', groupId)
+                            .single();
 
-                    // 🚨 FIX: If no payments found or no group price, show as pending
-                    if (actualPayments.length === 0 || groupPrice === 0 || groupPrice === null) {
-                        setPaymentStatus('pending');
-                    } else if (totalPaid >= groupPrice) {
+                        if (studentGroupError) {
+                            console.warn('PaymentStatusCell: Could not load student_groups entry, falling back to base group price', studentGroupError);
+                        } else if (studentGroupData) {
+                            groupPrice = Number(studentGroupData.groups?.price || 0);
+                            groupSpecificDiscount = Number(studentGroupData.group_discount || 0);
+                            studentDefaultDiscount = Number(studentGroupData.students?.default_discount || 0);
+                        }
+                    } catch (discountError) {
+                        console.warn('PaymentStatusCell: Error fetching discount info', discountError);
+                    }
+
+                    // Fallback: if price still missing, fetch directly from groups table
+                    if (!groupPrice) {
+                        const { data: groupData } = await supabase
+                            .from('groups')
+                            .select('price')
+                            .eq('id', groupId)
+                            .single();
+
+                        groupPrice = Number(groupData?.price || 0);
+                    }
+
+                    const appliedDiscount = groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount;
+                    const discountedGroupPrice = appliedDiscount > 0 ? groupPrice * (1 - appliedDiscount / 100) : groupPrice;
+                    const normalizedGroupPrice = Math.max(0, Math.round(discountedGroupPrice * 100) / 100);
+
+                    // 🚨 FIX: Students with 100% discount (price becomes 0) should be treated as PAID automatically
+                    if (normalizedGroupPrice === 0) {
+                        setPaymentStatus('paid');
+                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: 100% discount detected, marking as paid.`);
+                    } else if (totalPaid >= normalizedGroupPrice) {
                         setPaymentStatus('paid');
                     } else {
                         setPaymentStatus('pending');
                     }
 
                     // Debug log for troubleshooting
-                    if (actualPayments.length > 0) {
-                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: ${actualPayments.length} payments, Total: ${totalPaid}, Group Price: ${groupPrice}, Status: ${totalPaid >= groupPrice ? 'paid' : 'pending'}`);
-                    }
+                    console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: payments=${actualPayments.length}, totalPaid=${totalPaid}, groupPrice=${groupPrice}, discount=${appliedDiscount}%, effectivePrice=${normalizedGroupPrice}, status=${totalPaid >= normalizedGroupPrice || normalizedGroupPrice === 0 ? 'paid' : 'pending'}`);
                 }
             } catch (error) {
                 console.error('Error getting payment status:', error);

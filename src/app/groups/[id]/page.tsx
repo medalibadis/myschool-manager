@@ -177,9 +177,16 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         if (studentGroupError) {
                             console.warn('PaymentStatusCell: Could not load student_groups entry, falling back to base group price', studentGroupError);
                         } else if (studentGroupData) {
-                            groupPrice = Number(studentGroupData.groups?.price || 0);
+                            const groupRecord = Array.isArray(studentGroupData.groups)
+                                ? studentGroupData.groups[0]
+                                : studentGroupData.groups;
+                            const studentRecord = Array.isArray(studentGroupData.students)
+                                ? studentGroupData.students[0]
+                                : studentGroupData.students;
+
+                            groupPrice = Number(groupRecord?.price || 0);
                             groupSpecificDiscount = Number(studentGroupData.group_discount || 0);
-                            studentDefaultDiscount = Number(studentGroupData.students?.default_discount || 0);
+                            studentDefaultDiscount = Number(studentRecord?.default_discount || 0);
                         }
                     } catch (discountError) {
                         console.warn('PaymentStatusCell: Error fetching discount info', discountError);

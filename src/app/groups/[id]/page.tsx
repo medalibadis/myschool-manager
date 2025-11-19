@@ -98,6 +98,8 @@ const StudentStatusBadge = React.memo(({ studentId, groupId }: { studentId: stri
 
 // PaymentStatusCell component - OPTIMIZED VERSION
 const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
+    // Re-run status check whenever groups data refreshes (e.g. after discount change)
+    const groupsSnapshot = useMySchoolStore(state => state.groups);
     const [isPending, setIsPending] = React.useState(true);
     const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'unknown'>('unknown');
 
@@ -229,7 +231,7 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
         };
 
         checkPaymentStatus();
-    }, [studentId, groupId]);
+    }, [studentId, groupId, groupsSnapshot]);
 
     if (isPending) {
         return (

@@ -3076,7 +3076,9 @@ export const paymentService = {
 
       const toPay = Math.min(available, group.remainingAmount);
 
-      // 🆕 NEW DISCOUNT LOGIC: Get group-specific discount from student_groups table
+      // 🚨 FIX: remainingAmount is ALREADY discounted (from getStudentBalance)
+      // We should NOT apply the discount again - just use toPay directly
+      // Get discount info for reference only
       let groupSpecificDiscount = 0;
       try {
         const { data: studentGroupData, error: sgError } = await supabase
@@ -3093,20 +3095,26 @@ export const paymentService = {
         console.log(`Could not fetch group-specific discount for group ${group.groupId}:`, error);
       }
 
-      // 🆕 DISCOUNT PRIORITY: Custom discount > Group-specific discount > Student default discount
+      // Get discount info for reference (but don't apply it - remainingAmount is already discounted)
       const studentDefaultDiscount = group.discount || 0; // From getStudentBalance
       const appliedDiscount = discount > 0 ? discount : (groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount);
-      const discountedAmount = appliedDiscount > 0 ? toPay * (1 - appliedDiscount / 100) : toPay;
+      
+      // 🚨 CRITICAL FIX: Use toPay directly - it's already the discounted amount
+      // Calculate original amount for reference: if discount > 0, original = toPay / (1 - discount/100)
+      const paymentAmount = toPay; // Already discounted, don't apply discount again
+      const originalGroupFee = appliedDiscount > 0 && appliedDiscount < 100 
+        ? toPay / (1 - appliedDiscount / 100) 
+        : toPay;
 
-      console.log(`🎯 Group ${group.groupName} discount calculation:`);
-      console.log(`   - Student default: ${studentDefaultDiscount}%`);
-      console.log(`   - Group-specific: ${groupSpecificDiscount}%`);
-      console.log(`   - Custom payment: ${discount}%`);
-      console.log(`   - Applied: ${appliedDiscount}%`);
-      console.log(`   - Original: ${toPay}, Final: ${discountedAmount}`);
+      console.log(`🎯 Group ${group.groupName} payment allocation:`);
+      console.log(`   - Remaining amount (already discounted): ${toPay} DZD`);
+      console.log(`   - Applied discount: ${appliedDiscount}%`);
+      console.log(`   - Payment amount: ${paymentAmount} DZD (no additional discount applied)`);
+      console.log(`   - Original group fee (for reference): ${originalGroupFee.toFixed(2)} DZD`);
+      
       const remainingAfter = group.remainingAmount - toPay;
 
-      console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${toPay} DZD (discounted: ${discountedAmount} DZD)`);
+      console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${paymentAmount} DZD`);
       console.log(`   - Remaining before: ${group.remainingAmount} DA`);
       console.log(`   - Remaining after: ${remainingAfter} DA`);
 
@@ -3116,14 +3124,14 @@ export const paymentService = {
         .insert({
           student_id: studentId,
           group_id: group.groupId,
-          amount: discountedAmount,
+          amount: paymentAmount, // Use toPay directly - already discounted
           date: date.toISOString().split('T')[0],
           notes: remainingAfter > 0
-            ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`
-            : `Group fully paid${discount > 0 ? ` - ${discount}% custom discount applied` : studentDefaultDiscount > 0 ? ` - ${studentDefaultDiscount}% default discount applied` : ''}`,
+            ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount already applied` : ''}`
+            : `Group fully paid${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount already applied` : ''}`,
           admin_name: adminName || 'Dalila',
-          discount: discount > 0 ? discount : studentDefaultDiscount,
-          original_amount: originalAmount || toPay,
+          discount: appliedDiscount, // Store discount for reference
+          original_amount: originalGroupFee, // Original group fee before discount
           payment_type: 'group_payment'
         })
         .select()
@@ -3141,12 +3149,12 @@ export const paymentService = {
             student_id: studentId,
             student_name: (await supabase.from('students').select('name').eq('id', studentId).single()).data?.name || 'Unknown Student',
             payment_id: groupPay.id,
-            amount: discountedAmount,
+            amount: paymentAmount, // Use paymentAmount (already discounted)
             payment_type: 'group_payment',
             group_name: group.groupName,
             notes: remainingAfter > 0
-              ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`
-              : `Group fully paid${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount applied` : ''}`,
+              ? `Partial group payment. Remaining: ${remainingAfter.toFixed(2)} DZD${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount already applied` : ''}`
+              : `Group fully paid${appliedDiscount > 0 ? ` - ${appliedDiscount}% discount already applied` : ''}`,
             created_at: new Date().toISOString()
           });
 
@@ -3171,8 +3179,8 @@ export const paymentService = {
         originalAmount: groupPay.original_amount || groupPay.amount,
       });
 
-      available -= discountedAmount;
-      console.log(`Group ${group.groupName} paid: ${discountedAmount}, remaining available: ${available}`);
+      available -= paymentAmount; // Use paymentAmount (already discounted)
+      console.log(`Group ${group.groupName} paid: ${paymentAmount}, remaining available: ${available}`);
     }
 
     // PRIORITY 3: Any remaining amount becomes balance credit

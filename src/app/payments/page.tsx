@@ -826,8 +826,80 @@ export default function PaymentsPage() {
                 studentId: selectedStudent.id,
                 depositAmount,
                 date: paymentData.date,
-                notes: paymentData.notes
+                notes: paymentData.notes,
+                selectedGroupForPayment: selectedGroupForPayment
             });
+
+            // Check if a specific group was selected for payment
+            if (selectedGroupForPayment && selectedGroupForPayment.id !== 0) {
+                // Direct payment to the selected group
+                console.log(`💰 Creating direct payment to group: ${selectedGroupForPayment.name} (ID: ${selectedGroupForPayment.id})`);
+
+                const { data: paymentRecord, error: paymentError } = await supabase
+                    .from('payments')
+                    .insert({
+                        student_id: selectedStudent.id,
+                        group_id: selectedGroupForPayment.id,
+                        amount: depositAmount,
+                        date: paymentData.date,
+                        notes: paymentData.notes || `Payment for ${selectedGroupForPayment.name}`,
+                        admin_name: 'Dalila',
+                        payment_type: 'group_payment'
+                    })
+                    .select()
+                    .single();
+
+                if (paymentError) {
+                    throw new Error(`Failed to create payment: ${paymentError.message}`);
+                }
+
+                console.log('✅ Direct payment created:', paymentRecord);
+
+                // Create a simple allocation result
+                const formattedResult = {
+                    depositId: paymentRecord.id,
+                    allocations: [{
+                        groupId: selectedGroupForPayment.id,
+                        groupName: selectedGroupForPayment.name,
+                        amountAllocated: depositAmount,
+                        wasFullyPaid: depositAmount >= selectedGroupForPayment.remaining,
+                        remainingAfterPayment: Math.max(0, selectedGroupForPayment.remaining - depositAmount),
+                        paymentId: paymentRecord.id,
+                        notes: `Payment for ${selectedGroupForPayment.name}`
+                    }],
+                    totalPaid: depositAmount,
+                    remainingCredit: 0,
+                    receipts: []
+                };
+
+                // Clear the selected group
+                setSelectedGroupForPayment(null);
+
+                // Refresh and show results
+                const updatedBalance = await getStudentBalance(selectedStudent.id);
+                setSelectedStudent(prev => prev ? {
+                    ...prev,
+                    remainingBalance: updatedBalance.remainingBalance
+                } : null);
+
+                await refreshSelectedStudentData();
+                setPaymentData({
+                    amount: '',
+                    discount: '',
+                    notes: '',
+                    date: new Date().toISOString().split('T')[0],
+                });
+
+                await loadRecentPayments();
+                await loadReceipts();
+                await fetchPayments();
+
+                setAllocationResult(formattedResult);
+                setIsAllocationModalOpen(true);
+
+                console.log('✅ Direct payment process completed successfully!');
+                return;
+            }
 
             // Use the backend service to properly allocate payments and reduce debt
             console.log('🔍 Student ID format check:', {

@@ -123,17 +123,17 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                     const actualPayments = payments.filter(p => {
                         // Must have positive amount
                         if (!p.amount || Number(p.amount) <= 0) return false;
-                        
+
                         // Must have group_id matching this group (double check)
                         if (p.group_id !== groupId) return false;
-                        
+
                         // Exclude registration fees
                         if (p.payment_type === 'registration_fee') return false;
                         if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
-                        
+
                         // Exclude balance additions and credits
                         if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
-                        
+
                         // 🚨 CRITICAL FIX: Exclude ALL attendance-based payment adjustments
                         // These are created automatically by database triggers and should NOT count as actual payments
                         if (p.payment_type === 'attendance_credit') return false;
@@ -145,11 +145,11 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
                         if (p.admin_name && String(p.admin_name) === 'System') return false; // System-generated payments
                         if (p.admin_name && String(p.admin_name).includes('System')) return false;
-                        
+
                         // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
                         // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
                         if (p.payment_type && p.payment_type !== 'group_payment') return false;
-                        
+
                         return true;
                     });
 
@@ -1080,11 +1080,80 @@ export default function GroupDetailPage() {
                                                             <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                 Status
                                                             </th>
-                                                            {group.sessions.map((session) => (
-                                                                <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                    {format(session.date, 'MMM dd')}
-                                                                </th>
-                                                            ))}
+                                                            {group.sessions.map((session, index) => {
+                                                                const canMoveLeft = index > 0;
+                                                                const canMoveRight = index < group.sessions.length - 1;
+
+                                                                const handleMoveSession = async (direction: 'left' | 'right') => {
+                                                                    try {
+                                                                        const currentSession = group.sessions[index];
+                                                                        const targetIndex = direction === 'left' ? index - 1 : index + 1;
+                                                                        const targetSession = group.sessions[targetIndex];
+
+                                                                        if (!currentSession.sessionNumber || !targetSession.sessionNumber) {
+                                                                            alert('Session numbers not set. Please run the session order fix script first.');
+                                                                            return;
+                                                                        }
+
+                                                                        // Swap session numbers in the database
+                                                                        const { error: error1 } = await supabase
+                                                                            .from('sessions')
+                                                                            .update({ session_number: targetSession.sessionNumber })
+                                                                            .eq('id', currentSession.id);
+
+                                                                        const { error: error2 } = await supabase
+                                                                            .from('sessions')
+                                                                            .update({ session_number: currentSession.sessionNumber })
+                                                                            .eq('id', targetSession.id);
+
+                                                                        if (error1 || error2) {
+                                                                            console.error('Error swapping sessions:', error1 || error2);
+                                                                            alert('Failed to reorder sessions. Please try again.');
+                                                                            return;
+                                                                        }
+
+                                                                        // Refresh the group data
+                                                                        await fetchGroups();
+                                                                        alert('Session order updated successfully!');
+                                                                    } catch (error) {
+                                                                        console.error('Error reordering session:', error);
+                                                                        alert('Failed to reorder session. Please try again.');
+                                                                    }
+                                                                };
+
+                                                                return (
+                                                                    <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                        <div className="flex flex-col items-center gap-1">
+                                                                            <div className="flex items-center gap-1">
+                                                                                <button
+                                                                                    onClick={() => handleMoveSession('left')}
+                                                                                    disabled={!canMoveLeft}
+                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${!canMoveLeft ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                                    title="Move left"
+                                                                                >
+                                                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                                                                    </svg>
+                                                                                </button>
+                                                                                <span>{format(session.date, 'MMM dd')}</span>
+                                                                                <button
+                                                                                    onClick={() => handleMoveSession('right')}
+                                                                                    disabled={!canMoveRight}
+                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${!canMoveRight ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                                    title="Move right"
+                                                                                >
+                                                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                                                    </svg>
+                                                                                </button>
+                                                                            </div>
+                                                                            {session.sessionNumber && (
+                                                                                <span className="text-[10px] text-gray-400">#{session.sessionNumber}</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </th>
+                                                                );
+                                                            })}
                                                             <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                 Call Log
                                                             </th>

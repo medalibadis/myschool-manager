@@ -559,12 +559,11 @@ export const groupService = {
             const sessionAttendance = attendanceData.filter(
               (att: any) => att.session_id === session.id
             );
-            // A session is considered studied if at least one student has non-default attendance
-            // We also exclude 'stopped' and 'new' statuses to ensure we track actual class progress
-            return sessionAttendance.some((att: any) => 
-              att.status !== 'default' && 
-              att.status !== 'stopped' && 
-              att.status !== 'new'
+            // A session is considered studied if at least one student has a "participation" status
+            // Positive statuses: present, absent, justified, late
+            // Excluded statuses: default, stopped, new, change
+            return sessionAttendance.some((att: any) =>
+              ['present', 'absent', 'justified', 'too_late'].includes(att.status)
             );
           }) || [];
           return studiedSessions.length;
@@ -575,11 +574,9 @@ export const groupService = {
               const sessionAttendance = attendanceData.filter(
                 (att: any) => att.session_id === session.id
               );
-              // Same logic here: exclude default, stopped, and new
-              return sessionAttendance.some((att: any) => 
-                att.status !== 'default' && 
-                att.status !== 'stopped' && 
-                att.status !== 'new'
+              // Same positive logic here
+              return sessionAttendance.some((att: any) =>
+                ['present', 'absent', 'justified', 'too_late'].includes(att.status)
               );
             }) || [];
             return studiedSessions.length;
@@ -2435,14 +2432,14 @@ export const paymentService = {
       const validGroupPayments = groupPayments.filter(p => {
         // Must have positive amount
         if (!p.amount || Number(p.amount) <= 0) return false;
-        
+
         // EXCLUDE registration fees
         if (p.payment_type === 'registration_fee') return false;
         if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
-        
+
         // EXCLUDE balance additions and credits
         if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
-        
+
         // 🚨 CRITICAL: EXCLUDE ALL attendance-based payment adjustments
         if (p.payment_type === 'attendance_credit') return false;
         if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
@@ -2455,16 +2452,16 @@ export const paymentService = {
         if (p.admin_name && String(p.admin_name) === 'System') return false;
         if (p.admin_name && String(p.admin_name).includes('System')) return false;
         if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
-        
+
         // Skip old automatic/system payments
         if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
         if (p.notes && p.notes.toLowerCase().includes('system') && !p.notes.includes('Attendance')) return false;
         if (p.notes && p.notes.toLowerCase().includes('default')) return false;
-        
+
         // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
         // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
         if (p.payment_type && p.payment_type !== 'group_payment') return false;
-        
+
         // Include regular group payments (actual money received)
         return true;
       });
@@ -3108,12 +3105,12 @@ export const paymentService = {
       // Get discount info for reference (but don't apply it - remainingAmount is already discounted)
       const studentDefaultDiscount = group.discount || 0; // From getStudentBalance
       const appliedDiscount = discount > 0 ? discount : (groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount);
-      
+
       // 🚨 CRITICAL FIX: Use toPay directly - it's already the discounted amount
       // Calculate original amount for reference: if discount > 0, original = toPay / (1 - discount/100)
       const paymentAmount = toPay; // Already discounted, don't apply discount again
-      const originalGroupFee = appliedDiscount > 0 && appliedDiscount < 100 
-        ? toPay / (1 - appliedDiscount / 100) 
+      const originalGroupFee = appliedDiscount > 0 && appliedDiscount < 100
+        ? toPay / (1 - appliedDiscount / 100)
         : toPay;
 
       console.log(`🎯 Group ${group.groupName} payment allocation:`);
@@ -3121,7 +3118,7 @@ export const paymentService = {
       console.log(`   - Applied discount: ${appliedDiscount}%`);
       console.log(`   - Payment amount: ${paymentAmount} DZD (no additional discount applied)`);
       console.log(`   - Original group fee (for reference): ${originalGroupFee.toFixed(2)} DZD`);
-      
+
       const remainingAfter = group.remainingAmount - toPay;
 
       console.log(`💰 Paying group ${group.groupName} (ID: ${group.groupId}): ${paymentAmount} DZD`);

@@ -733,7 +733,7 @@ export class PaymentService {
             // Get student information
             const { data: student, error: studentError } = await supabase
                 .from('students')
-                .select('id, name, custom_id, default_discount')
+                .select('id, name, custom_id, default_discount, registration_fee_paid')
                 .eq('id', studentId)
                 .single();
 
@@ -780,19 +780,19 @@ export class PaymentService {
                 originalAmountProcessed: number;
             }[] = [];
 
-            // Add Registration Fee Debt
-            // Default 500, but checking if there's a custom logic might be needed later
-            // For now, assuming 500 is the standard registration fee
-            debts.push({
-                id: 'reg',
-                name: 'Registration Fee',
-                amount: 500,
-                date: 0, // Priority 0 (Oldest)
-                groupId: 0,
-                isRegistration: true,
-                discount: 0,
-                originalAmountProcessed: 0, // Placeholder
-            });
+            // Add Registration Fee Debt ONLY if not already paid
+            if (!student.registration_fee_paid) {
+                debts.push({
+                    id: 'reg',
+                    name: 'Registration Fee',
+                    amount: 500,
+                    date: 0, // Priority 0 (Oldest)
+                    groupId: 0,
+                    isRegistration: true,
+                    discount: 0,
+                    originalAmountProcessed: 0, // Placeholder
+                });
+            }
 
             // Add Group Debts
             for (const sg of studentGroups || []) {

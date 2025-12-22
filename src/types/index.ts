@@ -102,6 +102,7 @@ export interface Session {
     id: string;
     date: Date;
     groupId: number; // Changed from string to number
+    sessionNumber?: number; // Original sequence number (independent of rescheduling)
     attendance: Record<string, AttendanceStatus>; // studentId -> attendance status
 }
 

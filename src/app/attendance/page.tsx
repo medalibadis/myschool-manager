@@ -196,6 +196,11 @@ export default function AttendancePage() {
         });
 
         return Array.from(uniqueSessionsMap.values()).sort((a, b) => {
+            // Primary sort: by session_number (if available)
+            if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
+                return a.sessionNumber - b.sessionNumber;
+            }
+            // Fallback: sort by date if session_number is not available
             const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
             const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
             return dateA.getTime() - dateB.getTime();

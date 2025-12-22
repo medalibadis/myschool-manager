@@ -308,7 +308,7 @@ export const groupService = {
       .select(`
         *,
         teachers (id, name, email, phone),
-        sessions (id, date)
+        sessions (id, date, session_number)
       `)
       .order('created_at', { ascending: false });
 
@@ -547,6 +547,7 @@ export const groupService = {
           id: session.id,
           date: new Date(session.date),
           groupId: session.group_id,
+          sessionNumber: session.session_number, // Include session number for proper ordering
           attendance: attendanceMap,
         };
       }) || [],

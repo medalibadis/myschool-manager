@@ -781,7 +781,10 @@ export class PaymentService {
             }[] = [];
 
             // Add Registration Fee Debt ONLY if not already paid
-            if (!student.registration_fee_paid) {
+            // AND the student is essentially "new" (has no groups enrolled yet)
+            // This prevents legacy students (who have groups but false/null registration_fee_paid)
+            // from having their group payments virtually cannibalized by a retroactive registration fee.
+            if (!student.registration_fee_paid && (!studentGroups || studentGroups.length === 0)) {
                 debts.push({
                     id: 'reg',
                     name: 'Registration Fee',

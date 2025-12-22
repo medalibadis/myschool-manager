@@ -2662,9 +2662,22 @@ export const paymentService = {
     const totalOwed = totalBalance; // This already includes registration fee + all group fees
 
     // Calculate total amount paid (all positive payments)
+    // CRITICAL: If we waived the registration fee, exclude registration payments from the total
+    // Otherwise they become "free credit" toward group fees
     const totalPaidAmount = payments.reduce((sum, p) => {
       // Only count actual payments (positive amounts)
       if (p.amount > 0) {
+        // If registration fee was waived, exclude registration fee payments
+        if (!shouldChargeRegistrationFee) {
+          const notes = String(p.notes || '').toLowerCase();
+          const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
+          const mentionsRegistration = notes.includes('registration fee');
+
+          if (isRegistrationType || mentionsRegistration) {
+            console.log(`  ⚠️ Excluding registration payment from total (waived): ${p.amount} DZD`);
+            return sum; // Don't add this payment
+          }
+        }
         return sum + p.amount;
       }
       return sum;

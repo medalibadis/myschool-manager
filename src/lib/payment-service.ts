@@ -733,7 +733,7 @@ export class PaymentService {
             // Get student information
             const { data: student, error: studentError } = await supabase
                 .from('students')
-                .select('id, name, custom_id')
+                .select('id, name, custom_id, default_discount')
                 .eq('id', studentId)
                 .single();
 
@@ -746,11 +746,13 @@ export class PaymentService {
           group_id,
           status,
           enrollment_date,
+          group_discount,
           groups (
             id,
             name,
             price,
-            total_sessions
+            total_sessions,
+            start_date
           )
         `)
                 .eq('student_id', studentId)
@@ -766,68 +768,121 @@ export class PaymentService {
 
             if (paymentsError) throw paymentsError;
 
-            // Calculate balances
-            const groupBalances: GroupBalance[] = [];
-            let totalBalance = 500; // Registration fee
-            let totalPaid = 0;
+            // --- 1. Calculate Initial Debts (Costs) ---
+            const debts: {
+                id: string; // 'reg' or group_id
+                name: string;
+                amount: number;
+                date: number; // timestamp for sorting
+                groupId: number;
+                isRegistration: boolean;
+                discount: number;
+                originalAmountProcessed: number;
+            }[] = [];
 
-            // Add registration fee to group balances
-            const registrationPayments = payments?.filter(p => p.payment_type === 'registration_fee') || [];
-            const registrationPaid = registrationPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-            groupBalances.push({
-                groupId: 0, // Special ID for registration fee
-                groupName: 'Registration Fee',
-                groupFees: 500,
-                amountPaid: registrationPaid,
-                remainingAmount: Math.max(0, 500 - registrationPaid),
-                isRegistrationFee: true,
-                status: 'active',
-                sessionsCount: 1,
-                attendedSessions: 1,
+            // Add Registration Fee Debt
+            // Default 500, but checking if there's a custom logic might be needed later
+            // For now, assuming 500 is the standard registration fee
+            debts.push({
+                id: 'reg',
+                name: 'Registration Fee',
+                amount: 500,
+                date: 0, // Priority 0 (Oldest)
+                groupId: 0,
+                isRegistration: true,
+                discount: 0,
+                originalAmountProcessed: 0, // Placeholder
             });
 
-            totalPaid += registrationPaid;
-
-            // Process group fees
+            // Add Group Debts
             for (const sg of studentGroups || []) {
-                const group = sg.groups[0]; // Get first group from array
+                const group = sg.groups[0];
                 if (!group) continue;
 
-                const groupPayments = payments?.filter(p =>
-                    (p.payment_type === 'group_payment' || p.payment_type === 'attendance_credit') && p.group_id === group.id
-                ) || [];
+                // Apply Discount Logic
+                // Priority: Group Specific Discount > Student Default Discount
+                let applicableDiscount = 0;
+                if (sg.group_discount !== null && sg.group_discount !== undefined) {
+                    applicableDiscount = sg.group_discount;
+                } else if (student.default_discount) {
+                    applicableDiscount = student.default_discount;
+                }
 
-                const groupPaid = groupPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-                const remainingAmount = Math.max(0, (group.price || 0) - groupPaid);
+                const basePrice = group.price || 0;
+                const discountedPrice = applicableDiscount > 0
+                    ? basePrice * (1 - applicableDiscount / 100)
+                    : basePrice;
 
-                groupBalances.push({
+                // Normalize price (round to 2 decimals)
+                const finalPrice = Math.max(0, Math.round(discountedPrice * 100) / 100);
+
+                debts.push({
+                    id: String(group.id),
+                    name: group.name,
+                    amount: finalPrice,
+                    date: group.start_date ? new Date(group.start_date).getTime() : new Date().getTime(),
                     groupId: group.id,
-                    groupName: group.name,
-                    groupFees: group.price || 0,
-                    amountPaid: groupPaid,
-                    remainingAmount,
-                    status: sg.status as any,
-                    startDate: sg.enrollment_date,
-                    sessionsCount: group.total_sessions || 0,
-                    attendedSessions: 0, // This would need to be calculated from attendance
+                    isRegistration: false,
+                    discount: applicableDiscount,
+                    originalAmountProcessed: 0,
                 });
-
-                totalBalance += group.price || 0;
-                totalPaid += groupPaid;
             }
 
-            // Calculate remaining balance
-            const remainingBalance = totalBalance - totalPaid;
+            // Sort debts by date (Registration first, then by group start date)
+            debts.sort((a, b) => a.date - b.date);
+
+            // --- 2. Calculate Total Paid (Pool of Money) ---
+            // We sum ALL payments relative to this student
+            const totalPaid = payments?.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0) || 0;
+
+            // --- 3. Virtual Allocation Logic ---
+            // We flow the Total Paid amount into the debts one by one
+            let remainingMoney = totalPaid;
+            const groupBalances: GroupBalance[] = [];
+            let totalBalanceCalculated = 0;
+
+            for (const debt of debts) {
+                totalBalanceCalculated += debt.amount;
+
+                // How much of the remaining money can cover this debt?
+                const amountAllocated = Math.min(remainingMoney, debt.amount);
+                remainingMoney -= amountAllocated;
+
+                const remainingDebt = Math.max(0, debt.amount - amountAllocated);
+
+                // Find the original student_group status if it's a group
+                const status = debt.isRegistration
+                    ? 'active'
+                    : (studentGroups?.find((sg: any) => sg.group_id === debt.groupId)?.status || 'active');
+
+                groupBalances.push({
+                    groupId: debt.groupId,
+                    groupName: debt.name,
+                    groupFees: debt.amount, // This is the DISCOUNTED price, the effective fee
+                    amountPaid: amountAllocated,
+                    remainingAmount: remainingDebt,
+                    discount: debt.discount,
+                    isRegistrationFee: debt.isRegistration,
+                    status: status as any,
+                    startDate: debt.isRegistration ? null : (studentGroups?.find((sg: any) => sg.group_id === debt.groupId)?.enrollment_date),
+                    sessionsCount: 0, // Placeholder
+                    attendedSessions: 0, // Placeholder
+                });
+            }
+
+            // If there is still money left after covering all debts, it's a credit
+            // We don't have a "Credit Item" in groupBalances typically, but the Global Balance will reflect it
+            const globalRemainingBalance = totalBalanceCalculated - totalPaid;
 
             return {
                 studentId: student.id,
                 studentName: student.name,
-                totalBalance,
+                totalBalance: totalBalanceCalculated,
                 totalPaid,
-                remainingBalance,
+                remainingBalance: globalRemainingBalance,
                 groupBalances,
             };
+
         } catch (error) {
             console.error('Error getting student balance:', error);
             throw new Error(`Failed to get student balance: ${error}`);

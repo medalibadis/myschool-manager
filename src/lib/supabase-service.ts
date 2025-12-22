@@ -560,7 +560,12 @@ export const groupService = {
               (att: any) => att.session_id === session.id
             );
             // A session is considered studied if at least one student has non-default attendance
-            return sessionAttendance.some((att: any) => att.status !== 'default');
+            // We also exclude 'stopped' and 'new' statuses to ensure we track actual class progress
+            return sessionAttendance.some((att: any) => 
+              att.status !== 'default' && 
+              att.status !== 'stopped' && 
+              att.status !== 'new'
+            );
           }) || [];
           return studiedSessions.length;
         })(),
@@ -570,7 +575,12 @@ export const groupService = {
               const sessionAttendance = attendanceData.filter(
                 (att: any) => att.session_id === session.id
               );
-              return sessionAttendance.some((att: any) => att.status !== 'default');
+              // Same logic here: exclude default, stopped, and new
+              return sessionAttendance.some((att: any) => 
+                att.status !== 'default' && 
+                att.status !== 'stopped' && 
+                att.status !== 'new'
+              );
             }) || [];
             return studiedSessions.length;
           })();

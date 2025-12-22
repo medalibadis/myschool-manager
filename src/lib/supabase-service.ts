@@ -2243,7 +2243,7 @@ export const paymentService = {
     // Get student info
     const { data: student, error: studentError } = await supabase
       .from('students')
-      .select('name, default_discount')
+      .select('name, default_discount, registration_fee_paid')
       .eq('id', studentId)
       .single();
 
@@ -2369,26 +2369,57 @@ export const paymentService = {
 
     console.log(`  Registration payments found: ${registrationPayments.length}, Total paid: ${registrationPaid}`);
 
-    // Calculate remaining registration fee
-    const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaid);
+    // Determine if we should charge the registration fee debt
+    // 1. If explicitly marked as paid in DB -> NO DEBT
+    // 2. If student is existing/legacy (has groups) but flag is false -> NO DEBT (Virtual Waiver)
+    // 3. Otherwise (New student) -> DEBT
+    const hasActiveGroups = studentGroups && studentGroups.length > 0;
+    const shouldChargeRegistrationFee = !student.registration_fee_paid && !hasActiveGroups;
 
-    console.log(`  Registration fee remaining: ${regRemaining}`);
+    if (shouldChargeRegistrationFee) {
+      // Calculate remaining registration fee
+      const regRemaining = Math.max(0, discountedRegistrationAmount - registrationPaid);
 
-    // IMPORTANT: Always add registration fee to balance (student owes this unless paid)
-    totalBalance += discountedRegistrationAmount;
-    totalPaid += registrationPaid;
+      console.log(`  Registration fee remaining: ${regRemaining}`);
 
-    // Add registration fee to group balances (always first)
-    groupBalances.push({
-      groupId: 0,
-      groupName: 'Registration Fee',
-      groupFees: discountedRegistrationAmount,
-      amountPaid: registrationPaid,
-      remainingAmount: regRemaining,
-      discount: 0,
-      isRegistrationFee: true,
-      startDate: undefined,
-    });
+      // IMPORTANT: Always add registration fee to balance (student owes this unless paid)
+      totalBalance += discountedRegistrationAmount;
+      totalPaid += registrationPaid;
+
+      // Add registration fee to group balances (always first)
+      groupBalances.push({
+        groupId: 0,
+        groupName: 'Registration Fee',
+        groupFees: discountedRegistrationAmount,
+        amountPaid: registrationPaid,
+        remainingAmount: regRemaining,
+        discount: 0,
+        isRegistrationFee: true,
+        startDate: undefined,
+      });
+    } else {
+      console.log(`  ✅ Registration fee logic skipped (Paid: ${student.registration_fee_paid}, Active Groups: ${hasActiveGroups})`);
+
+      // Ensure paid registration fees are accounted for in totalPaid if we tracked them
+      // BUT, if we are waiving the debt, we shouldn't count the specific registration payment towards the general pool
+      // because that would effectively give them a credit towards groups for a fee they didn't get charged.
+      // However, if they have a payment explicitly for Reg Fee, and we say they don't owe Reg Fee,
+      // technically that money IS "extra" and could cover future debts.
+      // But usually in this system, "Reg Fee Paid = True" implies the historical payment settled it.
+      // So we do NOT add `registrationPaid` to `totalPaid` here, effectively neutralizing it.
+
+      // NOTE: We do check if there is a surplus? No.
+      groupBalances.push({
+        groupId: 0,
+        groupName: 'Registration Fee',
+        groupFees: 500,
+        amountPaid: 500, // Visual only
+        remainingAmount: 0,
+        discount: 0,
+        isRegistrationFee: true,
+        startDate: undefined,
+      });
+    }
 
     // STEP 2: Group Fees (ordered by start date - oldest first)
     const sortedStudentGroups = studentGroups

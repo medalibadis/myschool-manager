@@ -2284,6 +2284,7 @@ export const paymentService = {
       if (pError) throw pError;
 
       const previousGroupId = payment.group_id;
+      const amountToReturn = payment.amount;
 
       // Get group name for notes
       let groupName = 'Unknown';
@@ -2292,29 +2293,65 @@ export const paymentService = {
         groupName = gData?.name || `ID: ${previousGroupId}`;
       }
 
-      // 2. Unlink from group and change type to balance addition
-      const { error: updateError } = await supabase
+      // 2. Create a REVERSAL entry for the group (The "MINUS")
+      // We convert the original payment into a reversal if possible, or just add a new one.
+      // Better: Update original to be a 'return' (negative) and add a new 'balance_addition' (positive).
+      const { error: reversalError } = await supabase
         .from('payments')
         .update({
-          group_id: null,
-          payment_type: 'balance_addition',
-          notes: `${payment.notes || ''} (Undo: unlinked from course "${groupName}")`.trim()
+          amount: -amountToReturn,
+          notes: `Return: unlinked from course "${groupName}" - ${payment.notes || ''}`.trim(),
+          payment_type: 'refund' // Use refund/return type
         })
         .eq('id', paymentId);
 
-      if (updateError) throw updateError;
+      if (reversalError) throw reversalError;
 
-      // 3. Update receipt if it exists
+      // 3. Create a NEW entry for the Balance Credit (The "RETURN TO BALANCE")
+      const { data: creditPay, error: creditError } = await supabase
+        .from('payments')
+        .insert({
+          student_id: payment.student_id,
+          group_id: null,
+          amount: amountToReturn,
+          date: new Date().toISOString().split('T')[0],
+          payment_type: 'balance_addition',
+          notes: `Credit: returned from course "${groupName}"`.trim(),
+          admin_name: payment.admin_name || 'Admin'
+        })
+        .select()
+        .single();
+
+      if (creditError) throw creditError;
+
+      // 4. Update the original receipt to reflect the return (minus sign)
       await supabase
         .from('receipts')
         .update({
-          group_name: 'Balance Credit (Unlinked)',
-          payment_type: 'balance_addition',
-          notes: `${payment.notes || ''} (Undo: unlinked from course "${groupName}")`.trim()
+          amount: -amountToReturn,
+          notes: `RETURNED: unlinked from course "${groupName}"`.trim(),
+          payment_type: 'refund'
         })
         .eq('payment_id', paymentId);
 
-      console.log(`🔄 UNDO PAYMENT ALLOCATION: Completed successfully`);
+      // 4b. Generate a NEW receipt for the credit balance addition
+      try {
+        const { data: studentData } = await supabase.from('students').select('name').eq('id', payment.student_id).single();
+        await supabase.from('receipts').insert({
+          student_id: payment.student_id,
+          student_name: studentData?.name || 'Unknown Student',
+          payment_id: creditPay.id,
+          amount: amountToReturn,
+          payment_type: 'balance_addition',
+          group_name: 'Balance Credit',
+          notes: `Credit received from course "${groupName}" return`,
+          created_at: new Date().toISOString()
+        });
+      } catch (e) {
+        console.warn('Failed to Create Credit Receipt:', e);
+      }
+
+      console.log(`🔄 UNDO PAYMENT ALLOCATION: Completed successfully with reversal entries`);
     } catch (error) {
       console.error('Error in undoPaymentAllocation:', error);
       throw error;
@@ -2327,6 +2364,7 @@ export const paymentService = {
     totalPaid: number;
     remainingBalance: number;
     availableCredit?: number;
+    totalGroupDebt?: number;
     groupBalances: Array<{
       groupId: number;
       groupName: string;
@@ -2870,11 +2908,17 @@ export const paymentService = {
     console.log(`  Total paid: ${totalPaidAmount}`);
     console.log(`  Remaining balance: ${remainingBalance}`);
 
+    // Calculate totalGroupDebt (sum of all group debts, which are negative remainingAmount)
+    const totalGroupDebt = groupBalances.reduce((sum, gb) => {
+      return sum + (gb.remainingAmount < 0 ? gb.remainingAmount : 0);
+    }, 0);
+
     return {
       totalBalance,
       totalPaid: totalPaidAmount, // Use the correct total paid amount
       remainingBalance,
       availableCredit: totalCredits, // Sum of unallocated payments
+      totalGroupDebt,
       groupBalances,
     };
   },

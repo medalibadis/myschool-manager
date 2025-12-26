@@ -42,6 +42,7 @@ interface StudentWithGroups {
     totalPaid: number;
     remainingBalance: number;
     availableCredit?: number; // Total unallocated credit
+    totalGroupDebt?: number; // Total group debt (negative)
     defaultDiscount: number;
 }
 
@@ -419,7 +420,8 @@ export default function PaymentsPage() {
             setSelectedStudent(prev => prev ? {
                 ...prev,
                 remainingBalance: balance.remainingBalance,
-                availableCredit: (balance as any).availableCredit || 0
+                availableCredit: (balance as any).availableCredit || 0,
+                totalGroupDebt: (balance as any).totalGroupDebt || 0
             } : null);
 
             // Update unpaid groups with proper priority ordering
@@ -1785,11 +1787,22 @@ Thank you!`;
                                     </Button>
                                 </div>
                                 <div className="text-sm text-gray-700 flex flex-col gap-1">
-                                    <div>
-                                        <span className="font-medium">Balance:</span>
-                                        <span className={`ml-2 font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                            {selectedStudent.remainingBalance > 0 ? '+' : selectedStudent.remainingBalance < 0 ? '-' : ''}
-                                            {Math.abs(selectedStudent.remainingBalance).toFixed(2)} DZD
+                                    {/* 1. Total Debt (Groups) */}
+                                    {selectedStudent.totalGroupDebt !== undefined && selectedStudent.totalGroupDebt < 0 && (
+                                        <div className="flex justify-between items-center bg-red-50 p-2 rounded border border-red-100 mb-1">
+                                            <span className="font-medium text-red-700">Outstanding Debt:</span>
+                                            <span className="font-bold text-red-600">
+                                                {selectedStudent.totalGroupDebt.toFixed(2)} DZD
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Net Balance Status */}
+                                    <div className="flex justify-between items-center px-2 py-1">
+                                        <span className="font-medium text-xs text-gray-500 uppercase tracking-wider">Overall Net Balance:</span>
+                                        <span className={`font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                                            {selectedStudent.remainingBalance > 0 ? '+' : ''}
+                                            {selectedStudent.remainingBalance.toFixed(2)} DZD
                                         </span>
                                     </div>
                                     {selectedStudent.availableCredit !== undefined && selectedStudent.availableCredit > 0 && (
@@ -2373,21 +2386,30 @@ Thank you!`;
                                     <ul className="space-y-4">
                                         {payments
                                             .filter(p => p.studentId === historySelectedStudent.id)
-                                            .filter(p => (p as any).groupId == null) // 🆕 Only show balance additions (credits)
                                             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                             .map((p) => {
+                                                const isNegative = p.amount < 0;
+                                                const isRegistration = (p as any).payment_type === 'registration_fee';
+                                                const isBalance = (p as any).groupId == null && !isRegistration;
+
+                                                // Find group name if applicable
+                                                const group = groups.find(g => g.id === (p as any).groupId);
+                                                const groupName = group ? group.name : isRegistration ? 'Registration' : 'Balance';
+
                                                 return (
                                                     <li key={p.id} className="relative pl-12">
-                                                        <span className="absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white bg-green-500"></span>
+                                                        <span className={`absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white ${isNegative ? 'bg-red-500' : 'bg-green-500'}`}></span>
                                                         <div className="p-1">
                                                             <div className="flex items-center justify-between">
                                                                 <div className="text-xs text-gray-500">{format(new Date(p.date), 'MMM dd, yyyy')}</div>
-                                                                <div className="text-sm font-semibold text-green-600">
-                                                                    +{p.amount.toFixed(2)}
+                                                                <div className={`text-sm font-semibold ${isNegative ? 'text-red-600' : 'text-green-600'}`}>
+                                                                    {p.amount >= 0 ? '+' : ''}{p.amount.toFixed(2)}
                                                                 </div>
                                                             </div>
-                                                            <div className="mt-0.5 text-sm text-gray-700">
-                                                                💰 Balance Credit
+                                                            <div className="mt-0.5 text-sm text-gray-700 flex items-center gap-1">
+                                                                {isBalance ? '💰' : '📚'}
+                                                                <span className="font-medium">{groupName}</span>
+                                                                <span className="text-gray-400 text-xs ml-1 capitalize">({(p as any).payment_type?.replace('_', ' ') || 'payment'})</span>
                                                             </div>
                                                             {p.notes && (
                                                                 <div className="mt-0.5 text-xs text-gray-500">{p.notes}</div>
@@ -2397,19 +2419,17 @@ Thank you!`;
                                                 );
                                             })}
 
-                                        {/* 🆕 Show message when no balance credits exist */}
                                         {payments
                                             .filter(p => p.studentId === historySelectedStudent.id)
-                                            .filter(p => (p as any).groupId == null)
                                             .length === 0 && (
                                                 <li className="relative pl-12">
                                                     <span className="absolute left-2 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white bg-gray-300"></span>
                                                     <div className="p-1">
                                                         <div className="text-sm text-gray-500 italic">
-                                                            No balance credits found
+                                                            No payment history found
                                                         </div>
                                                         <div className="text-xs text-gray-400">
-                                                            Balance credits appear when extra payments are made
+                                                            Financial transactions will appear here once recorded
                                                         </div>
                                                     </div>
                                                 </li>
@@ -3025,7 +3045,7 @@ Thank you!`;
                         </div>
                     )}
                 </Modal>
-            </div>
-        </AuthGuard>
+            </div >
+        </AuthGuard >
     );
 }

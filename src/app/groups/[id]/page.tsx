@@ -30,6 +30,7 @@ import { AttendanceStatus } from '../../../types';
 import { formatTimeSimple } from '../../../utils/timeUtils';
 import { getAttendanceClasses, getAttendanceDisplayLetter, getAttendanceTitle } from '../../../utils/attendanceUtils';
 import { supabase } from '../../../lib/supabase';
+import { paymentService } from '../../../lib/supabase-service';
 
 // Component to check and display student status in the group - OPTIMIZED
 const StudentStatusBadge = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
@@ -106,124 +107,40 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
     React.useEffect(() => {
         const checkPaymentStatus = async () => {
             try {
-                // 🚨 FIX: Use direct database query to check actual payments
-                // CRITICAL: Only get payments for THIS specific group
-                const { data: payments, error } = await supabase
-                    .from('payments')
-                    .select('amount, notes, payment_type, group_id, admin_name')
-                    .eq('student_id', studentId)
-                    .eq('group_id', groupId); // CRITICAL: Only payments for this specific group
+                // Use the centralized service for balance calculation
+                // This correctly handles:
+                // 1. Group-specific discounts
+                // 2. Student default discounts
+                // 3. Attendance-based fee waiving (new, justified, stop, change)
+                const balance = await paymentService.getStudentBalance(studentId);
 
-                if (error) {
-                    console.error('Error checking payments:', error);
-                    setPaymentStatus('unknown');
-                } else {
-                    // 🚨 FIX: Strict filtering - only count actual group payments
-                    // Exclude registration fees, balance additions, attendance credits, and any payments without proper type
-                    const actualPayments = payments.filter(p => {
-                        // Must have positive amount
-                        if (!p.amount || Number(p.amount) <= 0) return false;
+                // Find the balance for this specific group
+                const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
 
-                        // Must have group_id matching this group (double check)
-                        if (p.group_id !== groupId) return false;
-
-                        // Exclude registration fees
-                        if (p.payment_type === 'registration_fee') return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
-
-                        // Exclude balance additions and credits
-                        if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
-
-                        // 🚨 CRITICAL FIX: Exclude ALL attendance-based payment adjustments
-                        // These are created automatically by database triggers and should NOT count as actual payments
-                        if (p.payment_type === 'attendance_credit') return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('attendance adjustment')) return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('session refund')) return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('stop refund')) return false;
-                        if (p.notes && String(p.notes).toLowerCase().includes('stop credit')) return false;
-                        if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
-                        if (p.admin_name && String(p.admin_name) === 'System') return false; // System-generated payments
-                        if (p.admin_name && String(p.admin_name).includes('System')) return false;
-
-                        // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
-                        // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
-                        if (p.payment_type && p.payment_type !== 'group_payment') return false;
-
-                        return true;
-                    });
-
-                    const totalPaid = actualPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-                    // 🚨 NEW: Get group-specific discount info (per student) + group price
-                    let groupPrice = 0;
-                    let groupSpecificDiscount = 0;
-                    let studentDefaultDiscount = 0;
-
-                    try {
-                        const { data: studentGroupData, error: studentGroupError } = await supabase
-                            .from('student_groups')
-                            .select(`
-                                group_discount,
-                                groups (
-                                    price
-                                ),
-                                students!inner(
-                                    default_discount
-                                )
-                            `)
-                            .eq('student_id', studentId)
-                            .eq('group_id', groupId)
-                            .single();
-
-                        if (studentGroupError) {
-                            console.warn('PaymentStatusCell: Could not load student_groups entry, falling back to base group price', studentGroupError);
-                        } else if (studentGroupData) {
-                            const groupRecord = Array.isArray(studentGroupData.groups)
-                                ? studentGroupData.groups[0]
-                                : studentGroupData.groups;
-                            const studentRecord = Array.isArray(studentGroupData.students)
-                                ? studentGroupData.students[0]
-                                : studentGroupData.students;
-
-                            groupPrice = Number(groupRecord?.price || 0);
-                            groupSpecificDiscount = Number(studentGroupData.group_discount || 0);
-                            studentDefaultDiscount = Number(studentRecord?.default_discount || 0);
-                        }
-                    } catch (discountError) {
-                        console.warn('PaymentStatusCell: Error fetching discount info', discountError);
-                    }
-
-                    // Fallback: if price still missing, fetch directly from groups table
-                    if (!groupPrice) {
-                        const { data: groupData } = await supabase
-                            .from('groups')
-                            .select('price')
-                            .eq('id', groupId)
-                            .single();
-
-                        groupPrice = Number(groupData?.price || 0);
-                    }
-
-                    const appliedDiscount = groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount;
-                    const discountedGroupPrice = appliedDiscount > 0 ? groupPrice * (1 - appliedDiscount / 100) : groupPrice;
-                    const normalizedGroupPrice = Math.max(0, Math.round(discountedGroupPrice * 100) / 100);
-
-                    // 🚨 FIX: Students with 100% discount (price becomes 0) should be treated as PAID automatically
-                    if (normalizedGroupPrice === 0) {
-                        setPaymentStatus('paid');
-                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: 100% discount detected, marking as paid.`);
-                    } else if (totalPaid >= normalizedGroupPrice) {
-                        setPaymentStatus('paid');
-                    } else {
-                        setPaymentStatus('pending');
-                    }
+                if (groupBalance) {
+                    const isPaid = groupBalance.remainingAmount <= 0;
+                    setPaymentStatus(isPaid ? 'paid' : 'pending');
 
                     // Debug log for troubleshooting
-                    console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: payments=${actualPayments.length}, totalPaid=${totalPaid}, groupPrice=${groupPrice}, discount=${appliedDiscount}%, effectivePrice=${normalizedGroupPrice}, status=${totalPaid >= normalizedGroupPrice || normalizedGroupPrice === 0 ? 'paid' : 'pending'}`);
+                    if (!isPaid) {
+                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: Total Fee=${groupBalance.groupFees}, Paid=${groupBalance.amountPaid}, Remaining=${groupBalance.remainingAmount}, status=pending`);
+                    }
+                } else {
+                    // If no balance record exists for this group, fetch group price directly
+                    const { data: groupData } = await supabase
+                        .from('groups')
+                        .select('price')
+                        .eq('id', groupId)
+                        .single();
+
+                    if (groupData && Number(groupData.price) > 0) {
+                        setPaymentStatus('pending');
+                    } else {
+                        setPaymentStatus('paid');
+                    }
                 }
             } catch (error) {
-                console.error('Error getting payment status:', error);
+                console.error('Error checking payment status:', error);
                 setPaymentStatus('unknown');
             } finally {
                 setIsPending(false);

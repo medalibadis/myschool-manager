@@ -27,6 +27,7 @@ interface MySchoolStore {
     addStudentToGroup: (groupId: number, student: Omit<Student, 'id'>) => Promise<Student>;
     updateStudent: (groupId: number, studentId: string, student: Partial<Student>) => Promise<void>;
     removeStudentFromGroup: (groupId: number, studentId: string) => Promise<void>;
+    undoStudentAffectation: (groupId: number, studentId: string) => Promise<void>;
 
     generateSessions: (groupId: number) => Promise<void>;
     updateAttendance: (sessionId: string, studentId: string, status: string) => Promise<void>;
@@ -389,6 +390,30 @@ Thank you for your payment!`,
             }));
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    undoStudentAffectation: async (groupId: number, studentId: string) => {
+        set({ loading: true, error: null });
+        try {
+            // 🔙 UNDO AFFECTATION: Call centralized service
+            await paymentService.undoStudentAffectation(studentId, groupId);
+
+            // Update local state by removing student from group
+            set((state) => ({
+                groups: state.groups.map((g) =>
+                    g.id === groupId
+                        ? {
+                            ...g,
+                            students: g.students.filter((s) => s.id !== studentId),
+                        }
+                        : g
+                ),
+                loading: false,
+            }));
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
         }
     },
 

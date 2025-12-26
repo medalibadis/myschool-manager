@@ -2020,6 +2020,77 @@ export const sessionService = {
 
 // Payment operations
 export const paymentService = {
+  async undoStudentAffectation(studentId: string, groupId: number): Promise<void> {
+    try {
+      console.log(`🔙 UNDO AFFECTATION: Starting for student ${studentId} in group ${groupId}`);
+
+      // 1. Delete student_groups record
+      const { error: sgError } = await supabase
+        .from('student_groups')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('group_id', groupId);
+
+      if (sgError) throw sgError;
+
+      // 2. Delete attendance records for this student in this group
+      // First get session IDs for this group
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('group_id', groupId);
+
+      if (sessionsError) throw sessionsError;
+
+      if (sessions && sessions.length > 0) {
+        const sessionIds = sessions.map(s => s.id);
+        const { error: attError } = await supabase
+          .from('attendance')
+          .delete()
+          .eq('student_id', studentId)
+          .in('session_id', sessionIds);
+
+        if (attError) throw attError;
+      }
+
+      // 3. Move group-specific payments back to general credit (group_id = NULL)
+      // Fetching first to safely append notes
+      const { data: paymentsToUpdate, error: fetchPError } = await supabase
+        .from('payments')
+        .select('id, notes')
+        .eq('student_id', studentId)
+        .eq('group_id', groupId);
+
+      if (fetchPError) throw fetchPError;
+
+      if (paymentsToUpdate && paymentsToUpdate.length > 0) {
+        for (const p of paymentsToUpdate) {
+          await supabase
+            .from('payments')
+            .update({
+              group_id: null,
+              notes: `${p.notes || ''} (Auto-unlinked: enrollment undone for group ${groupId})`.trim()
+            })
+            .eq('id', p.id);
+        }
+      }
+
+      // 4. If this student has registration_fee_group_id pointing to this group, unset it
+      const { error: sError } = await supabase
+        .from('students')
+        .update({ registration_fee_group_id: null })
+        .eq('id', studentId)
+        .eq('registration_fee_group_id', groupId);
+
+      if (sError) throw sError;
+
+      console.log(`🔙 UNDO AFFECTATION: Completed successfully`);
+    } catch (error) {
+      console.error('Error in undoStudentAffectation:', error);
+      throw error;
+    }
+  },
+
   async getAll(): Promise<Payment[]> {
     const { data, error } = await supabase
       .from('payments')

@@ -759,11 +759,17 @@ export default function WaitingListPage() {
                 const student = selectedGroup?.students.find((s: WaitingListStudent) => s.id === confirmation.studentId);
                 const secondPhone = student?.secondPhone || '';
 
-                // Update student status and notes in waiting list
-                await updateWaitingListStudent(confirmation.studentId, {
-                    status: confirmation.status,
-                    notes: confirmation.notes,
-                });
+                // If status is 'not_coming', delete from waiting list
+                if (confirmation.status === 'not_coming') {
+                    console.log(`Deleting student ${confirmation.studentId} (${confirmation.name}) from waiting list as they are not coming.`);
+                    await deleteFromWaitingList(confirmation.studentId);
+                } else {
+                    // Update student status and notes in waiting list for 'coming' or 'pending'
+                    await updateWaitingListStudent(confirmation.studentId, {
+                        status: confirmation.status,
+                        notes: confirmation.notes,
+                    });
+                }
 
                 // Create call log entry for registration confirmation
                 // Note: studentId is set to null because these students are in waiting_list, not students table
@@ -2047,7 +2053,7 @@ Thank you for your payment!`,
                                             >
                                                 Clear Selection
                                             </Button>
-                                            <Button 
+                                            <Button
                                                 onClick={handleAddStudent}
                                                 disabled={isAddingStudent}
                                                 isLoading={isAddingStudent}

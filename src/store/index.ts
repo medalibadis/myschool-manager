@@ -69,6 +69,7 @@ interface MySchoolStore {
         totalBalance: number;
         totalPaid: number;
         remainingBalance: number;
+        availableCredit?: number;
         groupBalances: Array<{
             groupId: number;
             groupName: string;
@@ -84,7 +85,22 @@ interface MySchoolStore {
         studentName: string;
         groupName: string;
     }>>;
-    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => Promise<{ depositId: string; allocations: any[] }>;
+    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => Promise<{
+        depositId: string;
+        totalPaid: number;
+        remainingCredit: number;
+        receipts: string[];
+        allocations: Array<{
+            groupId: number;
+            groupName: string;
+            amountAllocated: number;
+            wasFullyPaid: boolean;
+            remainingAfterPayment: number;
+            receipt?: string;
+            paymentId?: string;
+            notes?: string;
+        }>;
+    }>;
 
     // Refund and Debts functionality
     getRefundList: () => Promise<Array<{
@@ -745,7 +761,7 @@ Thank you for your payment!`,
             // Refresh payments list
             const payments = await paymentService.getAll();
             set({ loading: false });
-            return result; // { depositId, allocations }
+            return result;
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
             throw error;

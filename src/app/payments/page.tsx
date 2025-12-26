@@ -41,6 +41,7 @@ interface StudentWithGroups {
     totalBalance: number;
     totalPaid: number;
     remainingBalance: number;
+    availableCredit?: number; // Total unallocated credit
     defaultDiscount: number;
 }
 
@@ -417,7 +418,8 @@ export default function PaymentsPage() {
             // Update selectedStudent with new balance
             setSelectedStudent(prev => prev ? {
                 ...prev,
-                remainingBalance: balance.remainingBalance
+                remainingBalance: balance.remainingBalance,
+                availableCredit: (balance as any).availableCredit || 0
             } : null);
 
             // Update unpaid groups with proper priority ordering
@@ -1782,18 +1784,46 @@ Thank you!`;
                                         🔄 Refresh
                                     </Button>
                                 </div>
-                                <div className="text-sm text-gray-700">
-                                    <span className="font-medium">Balance:</span>
-                                    {/* 
-                                        Color Logic:
-                                        - Red (text-red-600): remainingBalance < 0 (student owes money)
-                                        - Green (text-green-600): remainingBalance > 0 (student has credit)
-                                        - Gray (text-gray-600): remainingBalance === 0 (balanced)
-                                    */}
-                                    <span className={`ml-2 font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                        {selectedStudent.remainingBalance > 0 ? '+' : selectedStudent.remainingBalance < 0 ? '-' : ''}
-                                        {Math.abs(selectedStudent.remainingBalance).toFixed(2)}
-                                    </span>
+                                <div className="text-sm text-gray-700 flex flex-col gap-1">
+                                    <div>
+                                        <span className="font-medium">Balance:</span>
+                                        <span className={`ml-2 font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                                            {selectedStudent.remainingBalance > 0 ? '+' : selectedStudent.remainingBalance < 0 ? '-' : ''}
+                                            {Math.abs(selectedStudent.remainingBalance).toFixed(2)} DZD
+                                        </span>
+                                    </div>
+                                    {selectedStudent.availableCredit !== undefined && selectedStudent.availableCredit > 0 && (
+                                        <div className="flex items-center justify-between bg-white p-2 rounded border border-green-100">
+                                            <div className="text-green-600 font-medium tracking-tight">
+                                                <span className="text-gray-700 font-medium">Available Credit:</span>
+                                                <span className="ml-2">+{selectedStudent.availableCredit.toFixed(2)} DZD</span>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="text-xs h-7 px-2 border-green-200 text-green-700 hover:bg-green-100"
+                                                onClick={async () => {
+                                                    if (confirm(`Apply ${selectedStudent.availableCredit?.toFixed(2)} DZD from available credit to unpaid fees?`)) {
+                                                        try {
+                                                            const result = await depositAndAllocate(
+                                                                selectedStudent.id,
+                                                                0,
+                                                                new Date(),
+                                                                'Allocation from existing credit'
+                                                            );
+                                                            setAllocationResult(result);
+                                                            setIsAllocationModalOpen(true);
+                                                            await refreshSelectedStudentData();
+                                                        } catch (err) {
+                                                            alert('Failed to allocate credit.');
+                                                        }
+                                                    }
+                                                }}
+                                            >
+                                                ⚡ Use Credit
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                                 {selectedStudent.defaultDiscount > 0 && (
                                     <div className="text-sm text-blue-700">
@@ -2210,8 +2240,16 @@ Thank you!`;
                                             await undoPaymentAllocation(selectedReceipt.payment_id);
                                             setIsReceiptModalOpen(false);
                                             setSelectedReceipt(null);
+
+                                            // Refresh global data
                                             await fetchPayments();
                                             await fetchGroups();
+
+                                            // 🚨 CRITICAL: Refresh selected student data to update balance and unpaid list
+                                            if (selectedStudent) {
+                                                await refreshSelectedStudentData();
+                                            }
+
                                             alert('Success: Payment returned to balance.');
                                         } catch (error) {
                                             console.error('Error undoing allocation:', error);

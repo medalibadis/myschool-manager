@@ -2326,6 +2326,7 @@ export const paymentService = {
     totalBalance: number;
     totalPaid: number;
     remainingBalance: number;
+    availableCredit?: number;
     groupBalances: Array<{
       groupId: number;
       groupName: string;
@@ -2788,22 +2789,19 @@ export const paymentService = {
     // CRITICAL: If we waived the registration fee, exclude registration payments from the total
     // Otherwise they become "free credit" toward group fees
     const totalPaidAmount = payments.reduce((sum, p) => {
-      // Only count actual payments (positive amounts)
-      if (p.amount > 0) {
-        // If registration fee was waived, exclude registration fee payments
-        if (!shouldChargeRegistrationFee) {
-          const notes = String(p.notes || '').toLowerCase();
-          const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
-          const mentionsRegistration = notes.includes('registration fee');
+      // Include all actual payments (positive amounts) AND refunds (negative amounts)
+      // EXCEPT registration fees if they were waived
+      if (!shouldChargeRegistrationFee) {
+        const notes = String(p.notes || '').toLowerCase();
+        const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
+        const mentionsRegistration = notes.includes('registration fee');
 
-          if (isRegistrationType || mentionsRegistration) {
-            console.log(`  ⚠️ Excluding registration payment from total (waived): ${p.amount} DZD`);
-            return sum; // Don't add this payment
-          }
+        if (isRegistrationType || mentionsRegistration) {
+          console.log(`  ⚠️ Excluding registration payment from total (waived): ${p.amount} DZD`);
+          return sum; // Don't add this payment
         }
-        return sum + p.amount;
       }
-      return sum;
+      return sum + Number(p.amount || 0);
     }, 0);
 
     // Calculate remaining balance: (Total Paid) - (Total Owed)
@@ -2876,6 +2874,7 @@ export const paymentService = {
       totalBalance,
       totalPaid: totalPaidAmount, // Use the correct total paid amount
       remainingBalance,
+      availableCredit: totalCredits, // Sum of unallocated payments
       groupBalances,
     };
   },
@@ -3004,13 +3003,36 @@ export const paymentService = {
       .filter(payment => payment !== null) || [];
   },
 
-  async depositAndAllocate(params: { studentId: string; amount: number; date: Date; notes?: string; adminName?: string; discount?: number; originalAmount?: number; }): Promise<{ depositId: string; allocations: Payment[] }> {
+  async depositAndAllocate(params: {
+    studentId: string;
+    amount: number;
+    date: Date;
+    notes?: string;
+    adminName?: string;
+    discount?: number;
+    originalAmount?: number;
+  }): Promise<{
+    depositId: string;
+    totalPaid: number;
+    remainingCredit: number;
+    receipts: string[];
+    allocations: Array<{
+      groupId: number;
+      groupName: string;
+      amountAllocated: number;
+      wasFullyPaid: boolean;
+      remainingAfterPayment: number;
+      receipt?: string;
+      paymentId?: string;
+      notes?: string;
+    }>;
+  }> {
     const { studentId, amount, date, notes, adminName, discount = 0, originalAmount } = params;
 
     console.log(`🚀 DEPOSIT AND ALLOCATE CALLED:`, { studentId, amount, date, notes, adminName });
 
-    if (amount <= 0) {
-      throw new Error('Deposit amount must be greater than zero');
+    if (amount < 0) {
+      throw new Error('Deposit amount cannot be negative');
     }
 
     console.log(`Starting payment allocation for student ${studentId}, amount: ${amount}`);
@@ -3035,7 +3057,11 @@ export const paymentService = {
       })));
     }
 
-    let available = amount;
+    const existingCredit = currentBalance.availableCredit || 0;
+    console.log(`Existing unallocated credit: ${existingCredit}`);
+
+    let available = amount + existingCredit;
+    console.log(`Total available for allocation (New Cash ${amount} + Credit ${existingCredit}): ${available}`);
     const allocations: Payment[] = [];
 
     // PRIORITY 1: Registration Fee ($500) - Always first
@@ -3357,23 +3383,35 @@ export const paymentService = {
       console.log(`Group ${group.groupName} paid: ${paymentAmount}, remaining available: ${available}`);
     }
 
-    // PRIORITY 3: Any remaining amount becomes balance credit
-    let depositId = '';
-    if (available > 0) {
-      console.log(`Adding remaining amount ${available} as balance credit`);
+    // PRIORITY 3: Handle leftover as balance adjustment (positive = new credit, negative = consumed credit)
+    const netAdjustment = available - existingCredit;
+    // Wait, simpler: 'available' is what's left after allocations.
+    // If available > 0, it's the NEW total unallocated credit.
+    // BUT we already had 'existingCredit'.
+    // So if available > existingCredit, we have MORE credit now (leftover from new cash).
+    // If available < existingCredit, we have LESS credit now (consumed some existing credit).
+    // If available = 0, we consumed ALL credit.
 
-      // 🆕 FIX: Balance credits should NOT have discounts applied
+    // THE CHANGE in total unallocated funds is (available - existingCredit).
+    const deltaCredit = available - existingCredit;
+
+    let depositId = '';
+    if (Math.abs(deltaCredit) > 0.01) { // Use tolerance for float
+      console.log(`Adjusting balance credit by: ${deltaCredit} (Final Available: ${available})`);
+
       const { data: creditPay, error: creditErr } = await supabase
         .from('payments')
         .insert({
           student_id: studentId,
           group_id: null,
-          amount: available,
+          amount: deltaCredit,
           date: date.toISOString().split('T')[0],
-          notes: notes || 'Balance credit deposit',
+          notes: deltaCredit > 0
+            ? (notes || 'Balance credit deposit')
+            : `Credit used for allocation: ${Math.abs(deltaCredit).toFixed(2)} DZD`,
           admin_name: adminName || 'Dalila',
-          discount: 0, // No discount on balance credits
-          original_amount: available,
+          discount: 0,
+          original_amount: deltaCredit,
           payment_type: 'balance_addition'
         })
         .select()
@@ -3411,14 +3449,39 @@ export const paymentService = {
       console.log(`Balance credit created: ${available}`);
     }
 
-    console.log(`Payment allocation complete. Allocations: ${allocations.length}, Balance credit: ${available}`);
-    console.log(`📊 Final allocation summary:`);
-    allocations.forEach((allocation, index) => {
-      console.log(`  ${index + 1}. Group ${allocation.groupId}: ${allocation.amount} DZD - ${allocation.notes}`);
-    });
+    const totalAllocated = allocations.reduce((sum, p) => sum + p.amount, 0);
+    const finalReceipts = (await supabase.from('receipts').select('id').eq('payment_id', depositId)).data?.map(r => r.id) || [];
 
-    console.log(`🎯 RETURNING RESULT:`, { depositId, allocations: allocations.length });
-    return { depositId, allocations };
+    // Map allocations to the format expected by the UI
+    const resultAllocations = await Promise.all(allocations.map(async (p) => {
+      let gName = 'Unknown';
+      if (p.groupId) {
+        const { data } = await supabase.from('groups').select('name').eq('id', p.groupId).single();
+        gName = data?.name || 'Unknown';
+      } else if (p.paymentType === 'registration_fee') {
+        gName = 'Registration Fee';
+      } else if (p.paymentType === 'debt_reduction') {
+        gName = 'Debt Reduction';
+      }
+
+      return {
+        groupId: p.groupId || 0,
+        groupName: gName,
+        amountAllocated: p.amount,
+        wasFullyPaid: !p.notes?.includes('Partial'),
+        remainingAfterPayment: 0, // Simplified for now
+        paymentId: p.id,
+        notes: p.notes
+      };
+    }));
+
+    return {
+      depositId,
+      totalPaid: totalAllocated,
+      remainingCredit: available,
+      receipts: finalReceipts,
+      allocations: resultAllocations
+    };
   },
 
   async allocateFromExistingCredit(params: { studentId: string; date?: Date; notes?: string; adminName?: string; }): Promise<Payment[]> {

@@ -2802,54 +2802,36 @@ export const paymentService = {
       }
     }, 0);
 
-    // STEP 4: Calculate final balance - FIXED LOGIC
-    // 🆕 NEW APPROACH: Calculate balance as (Total Paid) - (Total Owed)
-    // This properly handles debt-to-credit transitions
+    // STEP 4: Calculate final balance - CLEAN & SIMPLE
+    // Total Fees = registrationFee (if charged) + all active group fees
+    const totalOwed = totalBalance;
 
-    // Calculate total amount owed (all fees) - FIXED: Use totalBalance which includes registration fee
-    const totalOwed = totalBalance; // This already includes registration fee + all group fees
-
-    // Calculate total amount paid (all positive payments)
-    // CRITICAL: If we waived the registration fee, exclude registration payments from the total
-    // Otherwise they become "free credit" toward group fees
+    // Total Paid = Sum of ALL financial records (Money in - Money out)
+    // We only exclude:
+    // 1. System/Automatic adjustments that shouldn't affect the real cash balance
+    // 2. Registration payments IF we are specifically waiving the fee (to avoid free credit)
     const totalPaidAmount = payments.reduce((sum, p) => {
-      // Include all actual payments (positive amounts) AND refunds (negative amounts)
-      // EXCEPT registration fees if they were waived
+      const amount = Number(p.amount || 0);
+      if (amount === 0) return sum;
+
+      // Exclude registration payments ONLY if we decided not to charge the fee (waived)
+      // because if we don't charge it, the payment shouldn't count as "extra" money.
       if (!shouldChargeRegistrationFee) {
         const notes = String(p.notes || '').toLowerCase();
         const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
         const mentionsRegistration = notes.includes('registration fee');
 
         if (isRegistrationType || mentionsRegistration) {
-          console.log(`  ⚠️ Excluding registration payment from total (waived): ${p.amount} DZD`);
-          return sum; // Don't add this payment
+          return sum;
         }
       }
-      return sum + Number(p.amount || 0);
+      return sum + amount;
     }, 0);
 
     // Calculate remaining balance: (Total Paid) - (Total Owed)
-    // If positive: student has credit (overpaid)
-    // If negative: student owes money (underpaid)
-    let remainingBalance = totalPaidAmount - totalOwed;
-
-    // 🆕 Handle debt reduction payments - apply as direct debt reduction
-    const debtReductionPayments = payments.filter(p => p.payment_type === 'debt_reduction');
-    const totalDebtReduction = debtReductionPayments.reduce((sum, p) => sum + Math.abs(Number(p.amount || 0)), 0);
-
-    if (totalDebtReduction > 0) {
-      console.log(`💳 Debt reduction payments found: ${debtReductionPayments.length} totaling ${totalDebtReduction} DA`);
-      debtReductionPayments.forEach((p, index) => {
-        console.log(`  Debt Reduction ${index + 1}: Amount=${Math.abs(p.amount)} DZD, Notes=${p.notes}`);
-      });
-
-      // Apply debt reduction directly to balance
-      const adjustedBalance = remainingBalance + totalDebtReduction;
-      console.log(`💳 Applied debt reduction: ${remainingBalance} + ${totalDebtReduction} = ${adjustedBalance}`);
-
-      // Update remaining balance with debt reduction
-      remainingBalance = adjustedBalance;
-    }
+    // Negative = Debt (Owes money)
+    // Positive = Credit (Has extra money)
+    const remainingBalance = totalPaidAmount - totalOwed;
 
     // IMPORTANT: The remainingBalance should represent what the student actually owes
     // If they have unpaid amounts, it should be negative
@@ -2859,7 +2841,6 @@ export const paymentService = {
     console.log(`  Total fees charged: ${totalOwed}`);
     console.log(`  Total amount paid: ${totalPaidAmount}`);
     console.log(`  Total credits/deposits: ${totalCredits}`);
-    console.log(`  Total debt reduction: ${totalDebtReduction} (applied as debt reduction)`);
     console.log(`  Total unpaid amounts: ${totalOwed - totalPaidAmount}`);
     console.log(`  Final balance: ${remainingBalance} (negative = owes money, positive = has credit)`);
 
@@ -4757,12 +4738,12 @@ export const paymentService = {
       });
 
       // Standard calculation: (Total Paid) - (Total Owed)
-      const remainingBalance = (totalPaid + totalDebtReduction) - totalBalance;
+      // In this function, totalPaid already summed groupPayments and registrationPayments
+      const remainingBalance = totalPaid - totalBalance;
 
       console.log(`💰 Stopped student balance calculation:
         Total fees: ${totalBalance}
-        Total paid: ${totalPaid} (including group payments)
-        Debt reduction: ${totalDebtReduction}
+        Total paid: ${totalPaid} (including group payments & credits)
         Final Net Balance: ${remainingBalance}`);
 
       // Calculate total group debt for consistency

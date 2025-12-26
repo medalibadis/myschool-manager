@@ -20,7 +20,9 @@ import {
     UserIcon,
     CalendarIcon,
     CalculatorIcon,
+    ArrowUturnLeftIcon,
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 import { format } from 'date-fns';
 
 interface StudentWithGroups {
@@ -59,7 +61,10 @@ export default function PaymentsPage() {
         loading,
         error,
         depositAndAllocate,
+        undoPaymentAllocation,
     } = useMySchoolStore();
+
+    const { isSuperuser } = useAuth();
 
     const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -2196,6 +2201,30 @@ Thank you!`;
                     )}
 
                     <div className="flex justify-end gap-3 mt-6">
+                        {selectedReceipt && selectedReceipt.group_name && selectedReceipt.group_name !== 'N/A' && selectedReceipt.group_name !== 'Registration Fee' && selectedReceipt.group_name !== 'Balance Credit' && (
+                            <Button
+                                variant="outline"
+                                onClick={async () => {
+                                    if (confirm(`⚠️ RETURN PAYMENT\n\nAre you sure you want to return this payment of ${selectedReceipt.amount} DZD to the student balance?\n\nThis will make the course "${selectedReceipt.group_name}" unpaid.`)) {
+                                        try {
+                                            await undoPaymentAllocation(selectedReceipt.payment_id);
+                                            setIsReceiptModalOpen(false);
+                                            setSelectedReceipt(null);
+                                            await fetchPayments();
+                                            await fetchGroups();
+                                            alert('Success: Payment returned to balance.');
+                                        } catch (error) {
+                                            console.error('Error undoing allocation:', error);
+                                            alert('Failed to return payment. Please try again.');
+                                        }
+                                    }
+                                }}
+                                className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                            >
+                                <ArrowUturnLeftIcon className="h-4 w-4 mr-2" />
+                                Return
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             onClick={() => {
@@ -2207,7 +2236,6 @@ Thank you!`;
                         </Button>
                         <Button
                             onClick={() => {
-                                // Here you could add functionality to print or download the receipt
                                 window.print();
                             }}
                         >

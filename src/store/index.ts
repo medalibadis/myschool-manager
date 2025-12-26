@@ -62,6 +62,7 @@ interface MySchoolStore {
     addPayment: (payment: Omit<Payment, 'id'>) => Promise<void>;
     updatePayment: (id: string, payment: Partial<Payment>) => Promise<void>;
     deletePayment: (id: string) => Promise<void>;
+    undoPaymentAllocation: (paymentId: string) => Promise<void>;
 
     // New payment system methods
     getStudentBalance: (studentId: string) => Promise<{
@@ -690,6 +691,22 @@ Thank you for your payment!`,
             }));
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    undoPaymentAllocation: async (paymentId: string) => {
+        set({ loading: true, error: null });
+        try {
+            await paymentService.undoPaymentAllocation(paymentId);
+            // Refresh payments and groups to ensure balance is updated
+            const [payments, groups] = await Promise.all([
+                paymentService.getAll(),
+                groupService.getAll()
+            ]);
+            set({ payments, groups, loading: false });
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+            throw error;
         }
     },
 

@@ -23,9 +23,7 @@ import {
     CheckIcon,
     ExclamationTriangleIcon,
     QuestionMarkCircleIcon,
-    ArrowUturnLeftIcon,
 } from '@heroicons/react/24/outline';
-import { useAuth } from '../../../contexts/AuthContext';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { AttendanceStatus } from '../../../types';
@@ -185,14 +183,12 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
 export default function GroupDetailPage() {
     const params = useParams();
     const groupId = parseInt(params.id as string, 10);
-    const { isSuperuser } = useAuth();
 
     const {
         getGroupById,
         getTeacherById,
         addStudentToGroup,
         removeStudentFromGroup,
-        undoStudentAffectation,
         updateStudent,
         updateGroup,
         generateSessions,
@@ -435,32 +431,9 @@ export default function GroupDetailPage() {
         if (confirm('Are you sure you want to remove this student from the group?')) {
             try {
                 await removeStudentFromGroup(groupId, studentId);
-                await fetchGroups(); // Refresh data to ensure accuracy
-                setIsEditStudentModalOpen(false); // Close modal if open
             } catch (error) {
                 console.error('Error removing student:', error);
                 alert('Failed to remove student. Please try again.');
-            }
-        }
-    };
-
-    const handleUndoAffectation = async (studentId: string, studentName: string) => {
-        if (!isSuperuser) {
-            alert('Only superusers can perform this action.');
-            return;
-        }
-
-        const confirmMessage = `⚠️ SUPERUSER ACTION: UNDO AFFECTATION\n\nAre you sure you want to completely undo the enrollment of "${studentName}"?\n\nThis will:\n1. Remove them from the group\n2. Delete their attendance for this group\n3. Move their group payments back to their general balance\n\nUse this ONLY for correcting enrollment mistakes.`;
-
-        if (confirm(confirmMessage)) {
-            try {
-                await undoStudentAffectation(groupId, studentId);
-                await fetchGroups(); // Refresh data to ensure balance and student list are in sync
-                setIsEditStudentModalOpen(false); // Close modal
-                alert('Affectation undone successfully. Student balance has been restored.');
-            } catch (error) {
-                console.error('Error undoing affectation:', error);
-                alert('Failed to undo affectation. Please try again.');
             }
         }
     };
@@ -1110,13 +1083,8 @@ export default function GroupDetailPage() {
                                                         {uniqueStudents.map((student) => (
                                                             <tr key={student.id}>
                                                                 <td className="px-6 py-4 whitespace-nowrap">
-                                                                    <div
-                                                                        className="text-sm font-medium text-gray-900 cursor-pointer hover:text-orange-600 hover:underline flex items-center gap-1 group/name"
-                                                                        onClick={() => handleEditStudentClick(student)}
-                                                                        title="Click to edit or manage student"
-                                                                    >
+                                                                    <div className="text-sm font-medium text-gray-900">
                                                                         {student.name}
-                                                                        <PencilIcon className="h-3 w-3 text-gray-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
                                                                     </div>
                                                                     <div className="text-sm text-gray-500">
                                                                         {student.email}
@@ -1382,43 +1350,16 @@ export default function GroupDetailPage() {
                                             />
                                         </div>
                                     </div>
-                                    <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-100">
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handleDeleteStudent(editingStudent.id)}
-                                                className="text-red-600 hover:text-red-900 hover:bg-red-50 border-red-100"
-                                                title="Standard removal from group"
-                                            >
-                                                <TrashIcon className="h-4 w-4 mr-1" />
-                                                Remove
-                                            </Button>
-
-                                            {isSuperuser && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => handleUndoAffectation(editingStudent.id, editingStudent.name)}
-                                                    className="text-orange-600 hover:text-orange-900 hover:bg-orange-50 border-orange-100"
-                                                    title="Superuser ONLY: Revert enrollment mistake"
-                                                >
-                                                    <ArrowUturnLeftIcon className="h-4 w-4 mr-1" />
-                                                    Step Back
-                                                </Button>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <Button variant="outline" onClick={() => {
-                                                setIsEditStudentModalOpen(false);
-                                                setEditingStudent(null);
-                                            }}>
-                                                Cancel
-                                            </Button>
-                                            <Button onClick={handleEditStudent}>
-                                                Update Student
-                                            </Button>
-                                        </div>
+                                    <div className="flex justify-end gap-3 mt-6">
+                                        <Button variant="outline" onClick={() => {
+                                            setIsEditStudentModalOpen(false);
+                                            setEditingStudent(null);
+                                        }}>
+                                            Cancel
+                                        </Button>
+                                        <Button onClick={handleEditStudent}>
+                                            Update Student
+                                        </Button>
                                     </div>
                                 </>
                             )}

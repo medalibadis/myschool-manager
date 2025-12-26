@@ -2270,6 +2270,57 @@ export const paymentService = {
     }
   },
 
+  async undoPaymentAllocation(paymentId: string): Promise<void> {
+    try {
+      console.log(`🔄 UNDO PAYMENT ALLOCATION: Starting for payment ${paymentId}`);
+
+      // 1. Fetch current payment details
+      const { data: payment, error: pError } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('id', paymentId)
+        .single();
+
+      if (pError) throw pError;
+
+      const previousGroupId = payment.group_id;
+
+      // Get group name for notes
+      let groupName = 'Unknown';
+      if (previousGroupId) {
+        const { data: gData } = await supabase.from('groups').select('name').eq('id', previousGroupId).single();
+        groupName = gData?.name || `ID: ${previousGroupId}`;
+      }
+
+      // 2. Unlink from group and change type to balance addition
+      const { error: updateError } = await supabase
+        .from('payments')
+        .update({
+          group_id: null,
+          payment_type: 'balance_addition',
+          notes: `${payment.notes || ''} (Undo: unlinked from course "${groupName}")`.trim()
+        })
+        .eq('id', paymentId);
+
+      if (updateError) throw updateError;
+
+      // 3. Update receipt if it exists
+      await supabase
+        .from('receipts')
+        .update({
+          group_name: 'Balance Credit (Unlinked)',
+          payment_type: 'balance_addition',
+          notes: `${payment.notes || ''} (Undo: unlinked from course "${groupName}")`.trim()
+        })
+        .eq('payment_id', paymentId);
+
+      console.log(`🔄 UNDO PAYMENT ALLOCATION: Completed successfully`);
+    } catch (error) {
+      console.error('Error in undoPaymentAllocation:', error);
+      throw error;
+    }
+  },
+
   // Completely restructured method to get student balance - simplified and accurate
   async getStudentBalance(studentId: string): Promise<{
     totalBalance: number;

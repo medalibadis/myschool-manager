@@ -431,21 +431,20 @@ export default function PaymentsPage() {
                 console.log(`  ${index + 1}. ${gb.groupName} (ID: ${gb.groupId}): Fee=${gb.groupFees}, Paid=${gb.amountPaid}, Remaining=${gb.remainingAmount}, isRegistrationFee=${gb.isRegistrationFee}`);
             });
 
+            console.log('🚨 DIAGNOSTIC: Group Balances Array Length:', balance.groupBalances.length);
+            balance.groupBalances.forEach(gb => {
+                console.log(`🚨 DIAGNOSTIC: gb.groupName=${gb.groupName}, gb.remainingAmount=${gb.remainingAmount}, type=${typeof gb.remainingAmount}`);
+            });
+
             const list = balance.groupBalances
                 .filter(gb => {
-                    // 🚨 DEBUG: Show filtering decision for each group
-                    // Add small tolerance for floating-point precision issues
-                    const tolerance = 0.01; // 1 cent tolerance
-                    const shouldInclude = gb.remainingAmount > tolerance;
-                    console.log(`🚨 DEBUG: Group ${gb.groupName} (ID: ${gb.groupId}): remainingAmount=${gb.remainingAmount}, shouldInclude=${shouldInclude}`);
-                    return shouldInclude;
+                    const rem = Number(gb.remainingAmount);
+                    console.log(`🚨 DIAGNOSTIC: Filtering ${gb.groupName}: value=${rem}`);
+                    return true; // SHOW EVERYTHING FOR DEBUG
                 })
                 .sort((a, b) => {
-                    // Priority 1: Registration fee (groupId 0) always first
                     if (a.groupId === 0) return -1;
                     if (b.groupId === 0) return 1;
-
-                    // Priority 2: Groups by start date (oldest first) - for now just use group ID
                     return a.groupId - b.groupId;
                 })
                 .map(gb => ({
@@ -455,16 +454,18 @@ export default function PaymentsPage() {
                     originalPrice: gb.groupFees,
                     discount: gb.discount || 0,
                     isRegistrationFee: gb.isRegistrationFee || false,
-                    startDate: undefined // We don't have start date in our current calculation
+                    startDate: undefined
                 }));
 
-            console.log('Unpaid groups list:', list);
+            console.log('🚨 DIAGNOSTIC: Unpaid groups list:', list);
+            console.log('GroupBalances from service:', balance.groupBalances);
 
             setUnpaidGroups(list);
 
             console.log('Selected student data refreshed:', {
                 balance: balance.remainingBalance,
-                unpaidGroups: list.length
+                unpaidGroupsCount: list.length,
+                rawGroupBalancesCount: balance.groupBalances.length
             });
         } catch (error) {
             console.error('Error refreshing selected student data:', error);

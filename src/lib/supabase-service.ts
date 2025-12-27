@@ -2818,12 +2818,14 @@ export const paymentService = {
       return sum - gb.remainingAmount;
     }, 0);
 
-    return {
+    const result = {
       totalBalance,
       totalPaid: totalPaidAmount,
       remainingBalance,
       groupBalances,
     };
+    console.log('Final Student Balance Object being returned:', JSON.stringify(result, null, 2));
+    return result;
   },
 
   // New method to get recent payments with student and group info

@@ -2596,7 +2596,9 @@ export const paymentService = {
       })));
 
       // Calculate total paid for this group, clamped to 0 minimum
-      const amountPaid = Math.max(0, validGroupPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0));
+      // 🚨 CRITICAL FIX: Use p.amount preferentially as it handles negative values (refunds) correctly.
+      // original_amount is often positive even for refunds, which breaks the sum.
+      const amountPaid = Math.max(0, validGroupPayments.reduce((sum, p) => sum + Number(p.amount || p.original_amount || 0), 0));
 
       console.log(`  Group payments found: ${groupPayments.length}, Total paid: ${amountPaid}`);
 
@@ -2818,14 +2820,12 @@ export const paymentService = {
       return sum - gb.remainingAmount;
     }, 0);
 
-    const result = {
+    return {
       totalBalance,
       totalPaid: totalPaidAmount,
       remainingBalance,
       groupBalances,
     };
-    console.log('Final Student Balance Object being returned:', JSON.stringify(result, null, 2));
-    return result;
   },
 
   // New method to get recent payments with student and group info
@@ -4675,8 +4675,9 @@ export const paymentService = {
       });
 
       // Standard calculation: (Total Paid) - (Total Owed)
-      // In this function, totalPaid already summed groupPayments and registrationPayments
-      const remainingBalance = totalPaid - totalBalance;
+      // Clamp totalPaid to 0 minimum
+      const finalTotalPaid = Math.max(0, totalPaid);
+      const remainingBalance = finalTotalPaid - totalBalance;
 
       console.log(`💰 Stopped student balance calculation:
         Total fees: ${totalBalance}
@@ -4691,7 +4692,7 @@ export const paymentService = {
 
       return {
         totalBalance,
-        totalPaid,
+        totalPaid: finalTotalPaid,
         remainingBalance,
         availableCredit,
         totalGroupDebt,

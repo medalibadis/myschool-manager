@@ -438,9 +438,11 @@ export default function PaymentsPage() {
 
             const list = balance.groupBalances
                 .filter(gb => {
+                    const tolerance = 0.01;
                     const rem = Number(gb.remainingAmount);
-                    console.log(`🚨 DIAGNOSTIC: Filtering ${gb.groupName}: value=${rem}`);
-                    return true; // SHOW EVERYTHING FOR DEBUG
+                    const shouldInclude = rem > tolerance;
+                    console.log(`🚨 DIAGNOSTIC: Filtering ${gb.groupName}: value=${rem}, shouldInclude=${shouldInclude}`);
+                    return shouldInclude;
                 })
                 .sort((a, b) => {
                     if (a.groupId === 0) return -1;

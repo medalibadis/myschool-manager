@@ -2573,42 +2573,15 @@ export const paymentService = {
       // Get payments for this specific group
       const groupPayments = payments.filter(p => p.group_id === groupIdVal);
 
-      // 🚨 CRITICAL FIX: EXCLUDE attendance-based payment adjustments
-      // These are NOT real payments - they're automatic adjustments that should NOT count
+      // Include ALL group-specific payments (positive) and refunds (negative)
+      // to calculate the true net amount paid for this group
       const validGroupPayments = groupPayments.filter(p => {
-        // Must have positive amount
-        if (!p.amount || Number(p.amount) <= 0) return false;
-
-        // EXCLUDE registration fees
-        if (p.payment_type === 'registration_fee') return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('registration fee')) return false;
-
-        // EXCLUDE balance additions and credits
-        if (p.payment_type === 'balance_addition' || p.payment_type === 'balance_credit') return false;
-
-        // 🚨 CRITICAL: EXCLUDE ALL attendance-based payment adjustments
+        // EXCLUDE system adjustments that aren't cash movements
         if (p.payment_type === 'attendance_credit') return false;
         if (p.notes && String(p.notes).toLowerCase().includes('attendance-based payment update')) return false;
         if (p.notes && String(p.notes).toLowerCase().includes('attendance adjustment')) return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('retroactive attendance adjustment')) return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('session refund')) return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('stop refund')) return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('stop credit')) return false;
-        if (p.notes && String(p.notes).toLowerCase().includes('permanent balance correction')) return false;
-        if (p.admin_name && String(p.admin_name) === 'System') return false;
-        if (p.admin_name && String(p.admin_name).includes('System')) return false;
-        if (p.admin_name && String(p.admin_name).includes('Attendance Update')) return false;
 
-        // Skip old automatic/system payments
-        if (p.notes && p.notes.toLowerCase().includes('automatic')) return false;
-        if (p.notes && p.notes.toLowerCase().includes('system') && !p.notes.includes('Attendance')) return false;
-        if (p.notes && p.notes.toLowerCase().includes('default')) return false;
-
-        // 🚨 CRITICAL: Only count payments with payment_type = 'group_payment' (actual money received)
-        // All other payment types (attendance_credit, balance_credit, etc.) are adjustments, not real payments
-        if (p.payment_type && p.payment_type !== 'group_payment') return false;
-
-        // Include regular group payments (actual money received)
+        // Include regular group payments and refunds
         return true;
       });
 
@@ -2622,7 +2595,8 @@ export const paymentService = {
         payment_type: p.payment_type
       })));
 
-      const amountPaid = validGroupPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0);
+      // Calculate total paid for this group, clamped to 0 minimum
+      const amountPaid = Math.max(0, validGroupPayments.reduce((sum, p) => sum + Number(p.original_amount || p.amount || 0), 0));
 
       console.log(`  Group payments found: ${groupPayments.length}, Total paid: ${amountPaid}`);
 
@@ -2774,30 +2748,26 @@ export const paymentService = {
     const totalOwed = totalBalance;
 
     // Total Paid = Sum of ALL financial records (Money in - Money out)
-    // We only exclude:
-    // 1. System/Automatic adjustments that shouldn't affect the real cash balance
-    // 2. Registration payments IF we are specifically waiving the fee (to avoid free credit)
-    const totalPaidAmount = payments.reduce((sum, p) => {
+    // 🛡️ SAFETY CLAMP: Total Paid can never be negative (debt logic).
+    // If it's negative, it means a reversal happened without the original, 
+    // so we treat it as 0 to keep the balance simple and not double the debt.
+    const rawTotalPaid = payments.reduce((sum, p) => {
       const amount = Number(p.amount || 0);
       if (amount === 0) return sum;
 
       // Exclude registration payments ONLY if we decided not to charge the fee (waived)
-      // because if we don't charge it, the payment shouldn't count as "extra" money.
       if (!shouldChargeRegistrationFee) {
         const notes = String(p.notes || '').toLowerCase();
         const isRegistrationType = String(p.payment_type || '').toLowerCase() === 'registration_fee';
         const mentionsRegistration = notes.includes('registration fee');
-
-        if (isRegistrationType || mentionsRegistration) {
-          return sum;
-        }
+        if (isRegistrationType || mentionsRegistration) return sum;
       }
       return sum + amount;
     }, 0);
 
+    const totalPaidAmount = Math.max(0, rawTotalPaid);
+
     // Calculate remaining balance: (Total Paid) - (Total Owed)
-    // Negative = Debt (Owes money)
-    // Positive = Credit (Has extra money)
     const remainingBalance = totalPaidAmount - totalOwed;
 
     // IMPORTANT: The remainingBalance should represent what the student actually owes

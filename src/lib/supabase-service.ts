@@ -2293,63 +2293,30 @@ export const paymentService = {
         groupName = gData?.name || `ID: ${previousGroupId}`;
       }
 
-      // 2. Create a REVERSAL entry for the group (The "MINUS")
-      // We convert the original payment into a reversal if possible, or just add a new one.
-      // Better: Update original to be a 'return' (negative) and add a new 'balance_addition' (positive).
+      // 2. Perform REVERSAL: Insert a NEW negative refund record
+      // This neutralizes the original positive payment in the sum
       const { error: reversalError } = await supabase
-        .from('payments')
-        .update({
-          amount: -amountToReturn,
-          notes: `Return: unlinked from course "${groupName}" - ${payment.notes || ''}`.trim(),
-          payment_type: 'refund' // Use refund/return type
-        })
-        .eq('id', paymentId);
-
-      if (reversalError) throw reversalError;
-
-      // 3. Create a NEW entry for the Balance Credit (The "RETURN TO BALANCE")
-      const { data: creditPay, error: creditError } = await supabase
         .from('payments')
         .insert({
           student_id: payment.student_id,
-          group_id: null,
-          amount: amountToReturn,
+          group_id: previousGroupId,
+          amount: -amountToReturn,
           date: new Date().toISOString().split('T')[0],
-          payment_type: 'balance_addition',
-          notes: `Credit: returned from course "${groupName}"`.trim(),
+          notes: `Return: unlinked from course "${groupName}" - ${payment.notes || ''}`.trim(),
+          payment_type: 'refund',
           admin_name: payment.admin_name || 'Admin'
-        })
-        .select()
-        .single();
+        });
 
-      if (creditError) throw creditError;
+      if (reversalError) throw reversalError;
 
-      // 4. Update the original receipt to reflect the return (minus sign)
+      // 3. Update the original receipt to reflect the return status
       await supabase
         .from('receipts')
         .update({
-          amount: -amountToReturn,
-          notes: `RETURNED: unlinked from course "${groupName}"`.trim(),
+          notes: `RETURNED/CANCELLED: unlinked from course "${groupName}"`.trim(),
           payment_type: 'refund'
         })
         .eq('payment_id', paymentId);
-
-      // 4b. Generate a NEW receipt for the credit balance addition
-      try {
-        const { data: studentData } = await supabase.from('students').select('name').eq('id', payment.student_id).single();
-        await supabase.from('receipts').insert({
-          student_id: payment.student_id,
-          student_name: studentData?.name || 'Unknown Student',
-          payment_id: creditPay.id,
-          amount: amountToReturn,
-          payment_type: 'balance_addition',
-          group_name: 'Balance Credit',
-          notes: `Credit received from course "${groupName}" return`,
-          created_at: new Date().toISOString()
-        });
-      } catch (e) {
-        console.warn('Failed to Create Credit Receipt:', e);
-      }
 
       console.log(`🔄 UNDO PAYMENT ALLOCATION: Completed successfully with reversal entries`);
     } catch (error) {
@@ -2883,10 +2850,8 @@ export const paymentService = {
 
     return {
       totalBalance,
-      totalPaid: totalPaidAmount, // Use the correct total paid amount
+      totalPaid: totalPaidAmount,
       remainingBalance,
-      availableCredit: totalCredits, // Sum of unallocated payments
-      totalGroupDebt,
       groupBalances,
     };
   },

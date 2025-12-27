@@ -69,8 +69,6 @@ interface MySchoolStore {
         totalBalance: number;
         totalPaid: number;
         remainingBalance: number;
-        availableCredit?: number;
-        totalGroupDebt?: number;
         groupBalances: Array<{
             groupId: number;
             groupName: string;

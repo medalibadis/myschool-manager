@@ -41,8 +41,6 @@ interface StudentWithGroups {
     totalBalance: number;
     totalPaid: number;
     remainingBalance: number;
-    availableCredit?: number; // Total unallocated credit
-    totalGroupDebt?: number; // Total group debt (negative)
     defaultDiscount: number;
 }
 
@@ -420,8 +418,8 @@ export default function PaymentsPage() {
             setSelectedStudent(prev => prev ? {
                 ...prev,
                 remainingBalance: balance.remainingBalance,
-                availableCredit: (balance as any).availableCredit || 0,
-                totalGroupDebt: (balance as any).totalGroupDebt || 0
+                totalBalance: balance.totalBalance,
+                totalPaid: balance.totalPaid
             } : null);
 
             // Update unpaid groups with proper priority ordering
@@ -1787,35 +1785,39 @@ Thank you!`;
                                     </Button>
                                 </div>
                                 <div className="text-sm text-gray-700 flex flex-col gap-1">
-                                    {/* Primary Balance: Sum of unpaid groups only */}
-                                    {selectedStudent.totalGroupDebt !== undefined && (
-                                        <div className={`flex justify-between items-center p-3 rounded-lg border shadow-sm ${selectedStudent.totalGroupDebt < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                                            <span className={`font-bold uppercase text-xs tracking-wider ${selectedStudent.totalGroupDebt < 0 ? 'text-red-800' : 'text-green-800'}`}>
+                                    {/* Primary Balance: Net student standing */}
+                                    <div className={`p-3 rounded-lg border shadow-sm ${selectedStudent.remainingBalance < 0 ? 'bg-red-50 border-red-200' : selectedStudent.remainingBalance > 0 ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className={`font-bold uppercase text-[10px] tracking-widest ${selectedStudent.remainingBalance < 0 ? 'text-red-800' : selectedStudent.remainingBalance > 0 ? 'text-green-800' : 'text-gray-500'}`}>
                                                 Student Balance:
                                             </span>
-                                            <span className={`font-black text-xl ${selectedStudent.totalGroupDebt < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                                {selectedStudent.totalGroupDebt.toFixed(2)} DZD
+                                            <span className={`font-black text-xl ${selectedStudent.remainingBalance < 0 ? 'text-red-600' : selectedStudent.remainingBalance > 0 ? 'text-green-600' : 'text-gray-600'}`}>
+                                                {selectedStudent.remainingBalance > 0 ? '+' : ''}
+                                                {selectedStudent.remainingBalance.toFixed(2)} DZD
                                             </span>
                                         </div>
-                                    )}
-                                    {selectedStudent.availableCredit !== undefined && selectedStudent.availableCredit > 0 && (
-                                        <div className="flex items-center justify-between bg-white p-2 rounded border border-green-100">
-                                            <div className="text-green-600 font-medium tracking-tight">
-                                                <span className="text-gray-700 font-medium">Available Credit:</span>
-                                                <span className="ml-2">+{selectedStudent.availableCredit.toFixed(2)} DZD</span>
+                                        <div className="flex justify-between items-center text-[10px] text-gray-500">
+                                            <span>Fees: {selectedStudent.totalBalance.toFixed(2)} DZD</span>
+                                            <span>Paid: {selectedStudent.totalPaid.toFixed(2)} DZD</span>
+                                        </div>
+                                    </div>
+                                    {selectedStudent.remainingBalance > 0 && (
+                                        <div className="flex items-center justify-between bg-blue-50 p-2 rounded border border-blue-100 mt-1">
+                                            <div className="text-blue-700 text-[10px] font-medium tracking-tight flex-1">
+                                                Student has <span className="font-bold underline">+{selectedStudent.remainingBalance.toFixed(2)} DZD</span> in credit.
                                             </div>
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="text-xs h-7 px-2 border-green-200 text-green-700 hover:bg-green-100"
+                                                className="text-[10px] h-6 px-2 bg-white border-blue-200 text-blue-700 hover:bg-blue-100 font-bold"
                                                 onClick={async () => {
-                                                    if (confirm(`Apply ${selectedStudent.availableCredit?.toFixed(2)} DZD from available credit to unpaid fees?`)) {
+                                                    if (confirm(`Apply ${selectedStudent.remainingBalance.toFixed(2)} DZD credit to unpaid fees?`)) {
                                                         try {
                                                             const result = await depositAndAllocate(
                                                                 selectedStudent.id,
                                                                 0,
                                                                 new Date(),
-                                                                'Allocation from existing credit'
+                                                                'Allocation from student credit balance'
                                                             );
                                                             setAllocationResult(result);
                                                             setIsAllocationModalOpen(true);
@@ -1826,7 +1828,7 @@ Thank you!`;
                                                     }
                                                 }}
                                             >
-                                                ⚡ Use Credit
+                                                ⚡ Apply Credit
                                             </Button>
                                         </div>
                                     )}

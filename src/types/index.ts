@@ -162,8 +162,6 @@ export interface StudentBalance {
     studentName: string;
     totalBalance: number; // Total amount owed (Fees)
     totalPaid: number; // Total amount paid
-    availableCredit?: number; // Total unallocated credit (from balance additions)
-    totalGroupDebt?: number; // Total debt in active groups (negative)
     remainingBalance: number; // Total paid - total owed (positive = credit, negative = debt)
     groupBalances: GroupBalance[]; // Balance breakdown by group
 }

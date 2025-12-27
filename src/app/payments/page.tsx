@@ -1787,24 +1787,17 @@ Thank you!`;
                                     </Button>
                                 </div>
                                 <div className="text-sm text-gray-700 flex flex-col gap-1">
-                                    {/* 1. Total Debt (Groups) */}
-                                    {selectedStudent.totalGroupDebt !== undefined && selectedStudent.totalGroupDebt < 0 && (
-                                        <div className="flex justify-between items-center bg-red-50 p-2 rounded border border-red-100 mb-1">
-                                            <span className="font-medium text-red-700">Outstanding Debt:</span>
-                                            <span className="font-bold text-red-600">
+                                    {/* Primary Balance: Sum of unpaid groups only */}
+                                    {selectedStudent.totalGroupDebt !== undefined && (
+                                        <div className={`flex justify-between items-center p-3 rounded-lg border shadow-sm ${selectedStudent.totalGroupDebt < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                                            <span className={`font-bold uppercase text-xs tracking-wider ${selectedStudent.totalGroupDebt < 0 ? 'text-red-800' : 'text-green-800'}`}>
+                                                Student Balance:
+                                            </span>
+                                            <span className={`font-black text-xl ${selectedStudent.totalGroupDebt < 0 ? 'text-red-600' : 'text-green-600'}`}>
                                                 {selectedStudent.totalGroupDebt.toFixed(2)} DZD
                                             </span>
                                         </div>
                                     )}
-
-                                    {/* Net Balance Status */}
-                                    <div className="flex justify-between items-center px-2 py-1">
-                                        <span className="font-medium text-xs text-gray-500 uppercase tracking-wider">Overall Net Balance:</span>
-                                        <span className={`font-bold ${selectedStudent.remainingBalance > 0 ? 'text-green-600' : selectedStudent.remainingBalance < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-                                            {selectedStudent.remainingBalance > 0 ? '+' : ''}
-                                            {selectedStudent.remainingBalance.toFixed(2)} DZD
-                                        </span>
-                                    </div>
                                     {selectedStudent.availableCredit !== undefined && selectedStudent.availableCredit > 0 && (
                                         <div className="flex items-center justify-between bg-white p-2 rounded border border-green-100">
                                             <div className="text-green-600 font-medium tracking-tight">

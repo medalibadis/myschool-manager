@@ -100,12 +100,22 @@ export default function TeachersPage() {
 
     // Filter teachers based on search term
     const filteredTeachers = useMemo(() => {
+        if (!teachers || !Array.isArray(teachers)) return [];
+        const term = (searchTerm || '').toLowerCase();
+
         return teachers.filter(teacher => {
-            const matchesSearch = searchTerm === '' ||
-                teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                teacher.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                formatTeacherId(teacher).toLowerCase().includes(searchTerm.toLowerCase());
+            if (!teacher) return false;
+
+            const name = (teacher.name || '').toLowerCase();
+            const email = (teacher.email || '').toLowerCase();
+            const phone = (teacher.phone || '').toLowerCase();
+            const teacherId = (formatTeacherId(teacher) || '').toLowerCase();
+
+            const matchesSearch = term === '' ||
+                name.includes(term) ||
+                email.includes(term) ||
+                phone.includes(term) ||
+                teacherId.includes(term);
 
             return matchesSearch;
         });
@@ -286,6 +296,8 @@ export default function TeachersPage() {
     };
 
     const formatTeacherId = (teacher: Teacher) => {
+        if (!teacher) return '';
+
         // Use custom_id if available, otherwise fallback to UUID-based format
         if (teacher.custom_id) {
             return teacher.custom_id;
@@ -293,6 +305,8 @@ export default function TeachersPage() {
 
         // Fallback: Convert UUID to a number and format as T01, T02, etc.
         // This is a simple hash-based approach for demo purposes
+        if (!teacher.id || typeof teacher.id !== 'string') return 'T??';
+
         const hash = teacher.id.split('').reduce((a, b) => {
             a = ((a << 5) - a) + b.charCodeAt(0);
             return a & a;
@@ -302,11 +316,12 @@ export default function TeachersPage() {
     };
 
     const getTeacherStats = (teacherId: string) => {
-        const teacherGroups = groups.filter(group => group.teacherId === teacherId);
+        if (!groups || !Array.isArray(groups)) return { groups: 0, students: 0, sessions: 0 };
+        const teacherGroups = groups.filter(group => group && group.teacherId === teacherId);
         return {
             groups: teacherGroups.length,
-            students: teacherGroups.reduce((sum, group) => sum + group.students.length, 0),
-            sessions: teacherGroups.reduce((sum, group) => sum + (group.sessions?.length || 0), 0)
+            students: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.students) ? group.students.length : 0), 0),
+            sessions: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.sessions) ? group.sessions.length : 0), 0)
         };
     };
 
@@ -1314,9 +1329,15 @@ export default function TeachersPage() {
                             const teachersWithGroups = teachers.filter(teacher => {
                                 const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
                                 return teacherGroups.some(group =>
-                                    group.sessions?.some(session =>
-                                        new Date(session.date).toISOString().split('T')[0] === selectedDate
-                                    )
+                                    group && group.sessions?.some(session => {
+                                        if (!session || !session.date) return false;
+                                        try {
+                                            const d = new Date(session.date);
+                                            return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                        } catch (e) {
+                                            return false;
+                                        }
+                                    })
                                 );
                             });
 
@@ -1332,10 +1353,18 @@ export default function TeachersPage() {
                             return (
                                 <div className="space-y-4">
                                     {teachersWithGroups.map(teacher => {
-                                        const teacherGroups = groups.filter(group =>
-                                            group.teacherId === teacher.id &&
-                                            group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
-                                        );
+                                        const teacherGroups = groups.filter(group => {
+                                            if (!group || group.teacherId !== teacher.id) return false;
+                                            return group.sessions?.some(session => {
+                                                if (!session || !session.date) return false;
+                                                try {
+                                                    const d = new Date(session.date);
+                                                    return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                } catch (e) {
+                                                    return false;
+                                                }
+                                            });
+                                        });
 
                                         return (
                                             <div key={teacher.id} className="border rounded-lg p-4 bg-gray-50">
@@ -1354,9 +1383,15 @@ export default function TeachersPage() {
                                                 {/* Groups and Sessions */}
                                                 <div className="space-y-3">
                                                     {teacherGroups.map(group => {
-                                                        const groupSessions = group.sessions?.filter(session =>
-                                                            new Date(session.date).toISOString().split('T')[0] === selectedDate
-                                                        ) || [];
+                                                        const groupSessions = group.sessions?.filter(session => {
+                                                            if (!session || !session.date) return false;
+                                                            try {
+                                                                const d = new Date(session.date);
+                                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                            } catch (e) {
+                                                                return false;
+                                                            }
+                                                        }) || [];
 
                                                         return (
                                                             <div key={group.id} className="bg-white rounded-lg p-3 border">
@@ -1464,15 +1499,29 @@ export default function TeachersPage() {
                                     const teacher = teachers.find(t => t.id === teacherId);
                                     if (!teacher) return;
 
-                                    const teacherGroups = groups.filter(group =>
-                                        group.teacherId === teacherId &&
-                                        group.sessions?.some(session => new Date(session.date).toISOString().split('T')[0] === selectedDate)
-                                    );
+                                    const teacherGroups = groups.filter(group => {
+                                        if (!group || group.teacherId !== teacherId) return false;
+                                        return group.sessions?.some(session => {
+                                            if (!session || !session.date) return false;
+                                            try {
+                                                const d = new Date(session.date);
+                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                            } catch (e) {
+                                                return false;
+                                            }
+                                        });
+                                    });
 
                                     teacherGroups.forEach(group => {
-                                        const groupSessions = group.sessions?.filter(session =>
-                                            new Date(session.date).toISOString().split('T')[0] === selectedDate
-                                        ) || [];
+                                        const groupSessions = group.sessions?.filter(session => {
+                                            if (!session || !session.date) return false;
+                                            try {
+                                                const d = new Date(session.date);
+                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                            } catch (e) {
+                                                return false;
+                                            }
+                                        }) || [];
 
                                         groupSessions.forEach(session => {
                                             const status = teacherAttendance[teacherId]?.[session.id];
@@ -1576,9 +1625,11 @@ export default function TeachersPage() {
                                         <tbody className="bg-white divide-y divide-gray-200">
                                             {teachers
                                                 .filter(teacher => {
-                                                    const matchesSearch = historySearchTerm === '' ||
-                                                        teacher.name.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-                                                        formatTeacherId(teacher).toLowerCase().includes(historySearchTerm.toLowerCase());
+                                                    if (!teacher) return false;
+                                                    const term = (historySearchTerm || '').toLowerCase();
+                                                    const matchesSearch = term === '' ||
+                                                        (teacher.name || '').toLowerCase().includes(term) ||
+                                                        (formatTeacherId(teacher) || '').toLowerCase().includes(term);
                                                     return matchesSearch;
                                                 })
                                                 .map(teacher => {
@@ -1941,10 +1992,12 @@ export default function TeachersPage() {
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {(() => {
+                                            const term = (salarySearchTerm || '').toLowerCase();
                                             const filteredTeachers = teachers.filter(teacher => {
-                                                const matchesSearch = salarySearchTerm === '' ||
-                                                    teacher.name.toLowerCase().includes(salarySearchTerm.toLowerCase()) ||
-                                                    formatTeacherId(teacher).toLowerCase().includes(salarySearchTerm.toLowerCase());
+                                                if (!teacher) return false;
+                                                const matchesSearch = term === '' ||
+                                                    (teacher.name || '').toLowerCase().includes(term) ||
+                                                    (formatTeacherId(teacher) || '').toLowerCase().includes(term);
                                                 return matchesSearch;
                                             });
 

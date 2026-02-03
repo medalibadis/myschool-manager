@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import Navigation from '../../components/Navigation';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -26,9 +27,32 @@ import {
     CheckCircleIcon,
     ExclamationTriangleIcon,
     XCircleIcon,
+    BanknotesIcon,
 } from '@heroicons/react/24/outline';
 
+// Utility function to format teacher ID
+const formatTeacherId = (teacher: Teacher) => {
+    if (!teacher) return '';
+
+    // Use custom_id if available, otherwise fallback to UUID-based format
+    if (teacher.custom_id) {
+        return teacher.custom_id;
+    }
+
+    // Fallback: Convert UUID to a number and format as T01, T02, etc.
+    // This is a simple hash-based approach for demo purposes
+    if (!teacher.id || typeof teacher.id !== 'string') return 'T??';
+
+    const hash = teacher.id.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+    }, 0);
+    const number = Math.abs(hash) % 99 + 1; // 1-99
+    return `T${number.toString().padStart(2, '0')}`;
+};
+
 export default function TeachersPage() {
+    const router = useRouter();
     const {
         teachers,
         addTeacher,
@@ -97,6 +121,17 @@ export default function TeachersPage() {
     React.useEffect(() => {
         fetchTeachers();
     }, [fetchTeachers]);
+
+    // Help functions used in filters
+    const getTeacherStats = (teacherId: string) => {
+        if (!groups || !Array.isArray(groups)) return { groups: 0, students: 0, sessions: 0 };
+        const teacherGroups = groups.filter(group => group && group.teacherId === teacherId);
+        return {
+            groups: teacherGroups.length,
+            students: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.students) ? group.students.length : 0), 0),
+            sessions: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.sessions) ? group.sessions.length : 0), 0)
+        };
+    };
 
     // Filter teachers based on search term
     const filteredTeachers = useMemo(() => {
@@ -295,35 +330,6 @@ export default function TeachersPage() {
         setShowTeacherDetailModal(true);
     };
 
-    const formatTeacherId = (teacher: Teacher) => {
-        if (!teacher) return '';
-
-        // Use custom_id if available, otherwise fallback to UUID-based format
-        if (teacher.custom_id) {
-            return teacher.custom_id;
-        }
-
-        // Fallback: Convert UUID to a number and format as T01, T02, etc.
-        // This is a simple hash-based approach for demo purposes
-        if (!teacher.id || typeof teacher.id !== 'string') return 'T??';
-
-        const hash = teacher.id.split('').reduce((a, b) => {
-            a = ((a << 5) - a) + b.charCodeAt(0);
-            return a & a;
-        }, 0);
-        const number = Math.abs(hash) % 99 + 1; // 1-99
-        return `T${number.toString().padStart(2, '0')}`;
-    };
-
-    const getTeacherStats = (teacherId: string) => {
-        if (!groups || !Array.isArray(groups)) return { groups: 0, students: 0, sessions: 0 };
-        const teacherGroups = groups.filter(group => group && group.teacherId === teacherId);
-        return {
-            groups: teacherGroups.length,
-            students: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.students) ? group.students.length : 0), 0),
-            sessions: teacherGroups.reduce((sum, group) => sum + (Array.isArray(group.sessions) ? group.sessions.length : 0), 0)
-        };
-    };
 
     // Teacher Attendance Functions
     const fetchTeacherAttendance = async (teacherId: string, startDate?: string, endDate?: string) => {
@@ -781,73 +787,143 @@ export default function TeachersPage() {
 
                         {/* Fixed Top Section */}
                         <div className="sticky top-0 bg-gray-50 pt-8 pb-4 z-10">
-                            <div className="flex justify-between items-center mb-8">
-                                <div>
-                                    <h1 className="text-3xl font-bold text-gray-900">Teachers</h1>
-                                    <p className="mt-2 text-gray-600">
-                                        Manage your teaching staff and their assignments
-                                    </p>
-                                </div>
-                                <div className="flex gap-3">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => {
-                                            setShowEvaluationModal(true);
-                                            setTeacherAttendance({}); // Reset form when opening
-                                        }}
-                                    >
-                                        <ClipboardDocumentCheckIcon className="h-5 w-5 mr-2" />
-                                        Evaluate
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => setShowSalaryModal(true)}
-                                    >
-                                        <CalendarIcon className="h-5 w-5 mr-2" />
-                                        Salary
-                                    </Button>
-                                    <Button onClick={() => setIsCreateModalOpen(true)}>
-                                        <PlusIcon className="h-5 w-5 mr-2" />
-                                        Add Teacher
-                                    </Button>
-                                </div>
+                            <div>
+                                <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Teachers</h1>
+                                <p className="mt-2 text-lg text-gray-600">
+                                    Manage your teaching staff, assignments, and performance
+                                </p>
                             </div>
+                            <div className="flex gap-4">
+                                <Button
+                                    variant="outline"
+                                    className="shadow-sm hover:shadow-md transition-all"
+                                    onClick={() => {
+                                        setShowEvaluationModal(true);
+                                        setTeacherAttendance({}); // Reset form when opening
+                                    }}
+                                >
+                                    <ClipboardDocumentCheckIcon className="h-5 w-5 mr-2 text-indigo-600" />
+                                    Evaluate
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="shadow-sm hover:shadow-md transition-all"
+                                    onClick={() => setShowSalaryModal(true)}
+                                >
+                                    <BanknotesIcon className="h-5 w-5 mr-2 text-green-600" />
+                                    Salary
+                                </Button>
+                                <Button
+                                    onClick={() => router.push('/teachers/new')}
+                                    className="bg-orange-600 hover:bg-orange-700 text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5"
+                                >
+                                    <PlusIcon className="h-5 w-5 mr-2" />
+                                    Add Teacher
+                                </Button>
+                            </div>
+                        </div>
 
-                            {/* Search */}
-                            <Card className="mb-6">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center">
-                                        <MagnifyingGlassIcon className="h-5 w-5 mr-2" />
-                                        Search Teachers
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex-1">
-                                            <div className="relative">
-                                                <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                                                <Input
-                                                    type="text"
-                                                    placeholder="Search by name, email, phone, or teacher ID..."
-                                                    value={searchTerm}
-                                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                                    className="pl-10"
-                                                />
-                                            </div>
+                        {/* Stats Summary */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                            <Card className="bg-white border-l-4 border-l-orange-500 shadow-sm">
+                                <CardContent className="p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-500">Total Teachers</p>
+                                            <h3 className="text-2xl font-bold text-gray-900">{teachers.length}</h3>
                                         </div>
-                                        {searchTerm && (
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => setSearchTerm('')}
-                                                className="whitespace-nowrap"
-                                            >
-                                                Clear
-                                            </Button>
-                                        )}
+                                        <div className="p-3 bg-orange-100 rounded-lg">
+                                            <UsersIcon className="h-6 w-6 text-orange-600" />
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="bg-white border-l-4 border-l-blue-500 shadow-sm">
+                                <CardContent className="p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-500">Active Groups</p>
+                                            <h3 className="text-2xl font-bold text-gray-900">
+                                                {groups.length}
+                                            </h3>
+                                        </div>
+                                        <div className="p-3 bg-blue-100 rounded-lg">
+                                            <CalendarIcon className="h-6 w-6 text-blue-600" />
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="bg-white border-l-4 border-l-green-500 shadow-sm">
+                                <CardContent className="p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-500">Average Rate</p>
+                                            <h3 className="text-2xl font-bold text-gray-900">
+                                                {teachers.length > 0
+                                                    ? Math.round(teachers.reduce((acc, t) => acc + (t.price_per_session || 0), 0) / teachers.length)
+                                                    : 0} DA
+                                            </h3>
+                                        </div>
+                                        <div className="p-3 bg-green-100 rounded-lg">
+                                            <BanknotesIcon className="h-6 w-6 text-green-600" />
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="bg-white border-l-4 border-l-purple-500 shadow-sm">
+                                <CardContent className="p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-500">Total Students</p>
+                                            <h3 className="text-2xl font-bold text-gray-900">
+                                                {groups.reduce((acc, g) => acc + (g.students?.length || 0), 0)}
+                                            </h3>
+                                        </div>
+                                        <div className="p-3 bg-purple-100 rounded-lg">
+                                            <UsersIcon className="h-6 w-6 text-purple-600" />
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
                         </div>
+
+                        {/* Search */}
+                        <Card className="mb-6">
+                            <CardHeader>
+                                <CardTitle className="flex items-center">
+                                    <MagnifyingGlassIcon className="h-5 w-5 mr-2" />
+                                    Search Teachers
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex-1">
+                                        <div className="relative">
+                                            <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                                            <Input
+                                                type="text"
+                                                placeholder="Search by name, email, phone, or teacher ID..."
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                className="pl-10"
+                                            />
+                                        </div>
+                                    </div>
+                                    {searchTerm && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setSearchTerm('')}
+                                            className="whitespace-nowrap"
+                                        >
+                                            Clear
+                                        </Button>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
 
                         {/* Table Section */}
                         <div className="overflow-x-auto">
@@ -940,7 +1016,7 @@ export default function TeachersPage() {
                                             }
                                         </p>
                                         {teachers.length === 0 && (
-                                            <Button onClick={() => setIsCreateModalOpen(true)}>
+                                            <Button onClick={() => router.push('/teachers/new')}>
                                                 <PlusIcon className="h-5 w-5 mr-2" />
                                                 Add First Teacher
                                             </Button>
@@ -948,14 +1024,129 @@ export default function TeachersPage() {
                                     </CardContent>
                                 </Card>
                             )}
+
+                            {/* Create Teacher Modal */}
+                            <Modal
+                                isOpen={isCreateModalOpen}
+                                onClose={handleModalClose}
+                                title="Add New Teacher"
+                                maxWidth="3xl"
+                            >
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Name *
+                                        </label>
+                                        <Input
+                                            value={formData.name || ''}
+                                            onChange={(e) => handleFormChange('name', e.target.value)}
+                                            placeholder="Enter teacher name"
+                                            required
+                                            tabIndex={1}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Email *
+                                        </label>
+                                        <Input
+                                            type="email"
+                                            value={formData.email || ''}
+                                            onChange={(e) => handleFormChange('email', e.target.value)}
+                                            placeholder="Enter email address"
+                                            required
+                                            tabIndex={2}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Phone (Optional)
+                                        </label>
+                                        <Input
+                                            type="tel"
+                                            value={formData.phone || ''}
+                                            onChange={(e) => handleFormChange('phone', e.target.value)}
+                                            placeholder="Enter phone number"
+                                            tabIndex={3}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Price per Session (DA) *
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            value={formData.price_per_session || ''}
+                                            onChange={(e) => handleFormChange('price_per_session', e.target.value)}
+                                            placeholder="Enter price per session"
+                                            min="0"
+                                            step="50"
+                                            required
+                                            tabIndex={4}
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end space-x-3 pt-4">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setIsCreateModalOpen(false)}
+                                            tabIndex={5}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button onClick={handleCreateTeacher} tabIndex={6}>
+                                            Add Teacher
+                                        </Button>
+                                    </div>
+                                </div>
+                            </Modal>
+
+                            {/* Unsaved Changes Warning Modal */}
+                            <Modal
+                                isOpen={showUnsavedWarning}
+                                onClose={() => setShowUnsavedWarning(false)}
+                                title="Unsaved Changes"
+                                maxWidth="2xl"
+                            >
+                                <div className="space-y-4">
+                                    <p className="text-gray-600">
+                                        You have unsaved changes. Are you sure you want to close without saving?
+                                    </p>
+                                    <div className="flex justify-end space-x-3">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => setShowUnsavedWarning(false)}
+                                        >
+                                            Continue Editing
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setShowUnsavedWarning(false);
+                                                setIsCreateModalOpen(false);
+                                                resetForm();
+                                            }}
+                                            className="text-red-600 hover:text-red-700"
+                                        >
+                                            Close Without Saving
+                                        </Button>
+                                    </div>
+                                </div>
+                            </Modal>
                         </div>
                     </div>
 
-                    {/* Create Teacher Modal */}
+                    {/* Edit Teacher Modal */}
                     <Modal
-                        isOpen={isCreateModalOpen}
-                        onClose={handleModalClose}
-                        title="Add New Teacher"
+                        isOpen={isEditModalOpen}
+                        onClose={() => {
+                            setIsEditModalOpen(false);
+                            setEditingTeacher(null);
+                        }}
+                        title="Edit Teacher"
                         maxWidth="3xl"
                     >
                         <div className="space-y-6">
@@ -968,7 +1159,6 @@ export default function TeachersPage() {
                                     onChange={(e) => handleFormChange('name', e.target.value)}
                                     placeholder="Enter teacher name"
                                     required
-                                    tabIndex={1}
                                 />
                             </div>
 
@@ -982,7 +1172,6 @@ export default function TeachersPage() {
                                     onChange={(e) => handleFormChange('email', e.target.value)}
                                     placeholder="Enter email address"
                                     required
-                                    tabIndex={2}
                                 />
                             </div>
 
@@ -995,7 +1184,6 @@ export default function TeachersPage() {
                                     value={formData.phone || ''}
                                     onChange={(e) => handleFormChange('phone', e.target.value)}
                                     placeholder="Enter phone number"
-                                    tabIndex={3}
                                 />
                             </div>
 
@@ -1011,351 +1199,211 @@ export default function TeachersPage() {
                                     min="0"
                                     step="50"
                                     required
-                                    tabIndex={4}
                                 />
                             </div>
 
                             <div className="flex justify-end space-x-3 pt-4">
                                 <Button
                                     variant="outline"
-                                    onClick={() => setIsCreateModalOpen(false)}
-                                    tabIndex={5}
+                                    onClick={() => {
+                                        setIsEditModalOpen(false);
+                                        setEditingTeacher(null);
+                                    }}
                                 >
                                     Cancel
                                 </Button>
-                                <Button onClick={handleCreateTeacher} tabIndex={6}>
-                                    Add Teacher
+                                <Button onClick={handleEditTeacher}>
+                                    Update Teacher
                                 </Button>
                             </div>
                         </div>
                     </Modal>
 
-                    {/* Unsaved Changes Warning Modal */}
+                    {/* Teacher Detail Modal */}
                     <Modal
-                        isOpen={showUnsavedWarning}
-                        onClose={() => setShowUnsavedWarning(false)}
-                        title="Unsaved Changes"
-                        maxWidth="2xl"
+                        isOpen={showTeacherDetailModal}
+                        onClose={() => {
+                            setShowTeacherDetailModal(false);
+                            setSelectedTeacher(null);
+                        }}
+                        title={`Teacher Details - ${selectedTeacher?.name}`}
+                        maxWidth="4xl"
                     >
-                        <div className="space-y-4">
-                            <p className="text-gray-600">
-                                You have unsaved changes. Are you sure you want to close without saving?
-                            </p>
-                            <div className="flex justify-end space-x-3">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setShowUnsavedWarning(false)}
-                                >
-                                    Continue Editing
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        setShowUnsavedWarning(false);
-                                        setIsCreateModalOpen(false);
-                                        resetForm();
-                                    }}
-                                    className="text-red-600 hover:text-red-700"
-                                >
-                                    Close Without Saving
-                                </Button>
-                            </div>
-                        </div>
-                    </Modal>
-                </div>
-            </div>
-
-            {/* Edit Teacher Modal */}
-            <Modal
-                isOpen={isEditModalOpen}
-                onClose={() => {
-                    setIsEditModalOpen(false);
-                    setEditingTeacher(null);
-                }}
-                title="Edit Teacher"
-                maxWidth="3xl"
-            >
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Name *
-                        </label>
-                        <Input
-                            value={formData.name || ''}
-                            onChange={(e) => handleFormChange('name', e.target.value)}
-                            placeholder="Enter teacher name"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Email *
-                        </label>
-                        <Input
-                            type="email"
-                            value={formData.email || ''}
-                            onChange={(e) => handleFormChange('email', e.target.value)}
-                            placeholder="Enter email address"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Phone (Optional)
-                        </label>
-                        <Input
-                            type="tel"
-                            value={formData.phone || ''}
-                            onChange={(e) => handleFormChange('phone', e.target.value)}
-                            placeholder="Enter phone number"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Price per Session (DA) *
-                        </label>
-                        <Input
-                            type="number"
-                            value={formData.price_per_session || ''}
-                            onChange={(e) => handleFormChange('price_per_session', e.target.value)}
-                            placeholder="Enter price per session"
-                            min="0"
-                            step="50"
-                            required
-                        />
-                    </div>
-
-                    <div className="flex justify-end space-x-3 pt-4">
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setIsEditModalOpen(false);
-                                setEditingTeacher(null);
-                            }}
-                        >
-                            Cancel
-                        </Button>
-                        <Button onClick={handleEditTeacher}>
-                            Update Teacher
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
-
-            {/* Teacher Detail Modal */}
-            <Modal
-                isOpen={showTeacherDetailModal}
-                onClose={() => {
-                    setShowTeacherDetailModal(false);
-                    setSelectedTeacher(null);
-                }}
-                title={`Teacher Details - ${selectedTeacher?.name}`}
-                maxWidth="4xl"
-            >
-                {selectedTeacher && (
-                    <div className="space-y-6">
-                        {/* Personal Information */}
-                        <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
-                            <h3 className="text-sm font-medium text-orange-700 mb-3">Personal Information</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="flex items-center space-x-2">
-                                    <UsersIcon className="h-4 w-4 text-orange-500" />
-                                    <div>
-                                        <div className="text-xs font-medium text-orange-700">Name</div>
-                                        <div className="text-sm text-gray-900">{selectedTeacher.name}</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <EnvelopeIcon className="h-4 w-4 text-orange-500" />
-                                    <div>
-                                        <div className="text-xs font-medium text-orange-700">Email</div>
-                                        <div className="text-sm text-gray-900">{selectedTeacher.email}</div>
-                                    </div>
-                                </div>
-                                {selectedTeacher.phone && (
-                                    <div className="flex items-center space-x-2">
-                                        <PhoneIcon className="h-4 w-4 text-orange-500" />
-                                        <div>
-                                            <div className="text-xs font-medium text-orange-700">Phone</div>
-                                            <div className="text-sm text-gray-900">{selectedTeacher.phone}</div>
+                        {selectedTeacher && (
+                            <div className="space-y-6">
+                                {/* Personal Information */}
+                                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                                    <h3 className="text-sm font-medium text-orange-700 mb-3">Personal Information</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="flex items-center space-x-2">
+                                            <UsersIcon className="h-4 w-4 text-orange-500" />
+                                            <div>
+                                                <div className="text-xs font-medium text-orange-700">Name</div>
+                                                <div className="text-sm text-gray-900">{selectedTeacher?.name}</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                <div className="flex items-center space-x-2">
-                                    <CalendarIcon className="h-4 w-4 text-orange-500" />
-                                    <div>
-                                        <div className="text-xs font-medium text-orange-700">Price per Session</div>
-                                        <div className="text-sm text-gray-900">
-                                            {selectedTeacher.price_per_session ? `${selectedTeacher.price_per_session} DA` : 'Not set'}
+                                        <div className="flex items-center space-x-2">
+                                            <EnvelopeIcon className="h-4 w-4 text-orange-500" />
+                                            <div>
+                                                <div className="text-xs font-medium text-orange-700">Email</div>
+                                                <div className="text-sm text-gray-900">{selectedTeacher?.email}</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <UsersIcon className="h-4 w-4 text-orange-500" />
-                                    <div>
-                                        <div className="text-xs font-medium text-orange-700">Teacher ID</div>
-                                        <div className="text-sm text-gray-900">#{formatTeacherId(selectedTeacher)}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Statistics */}
-                        <div className="bg-gray-50 p-4 rounded-lg border">
-                            <h3 className="text-sm font-medium text-gray-700 mb-3">Statistics</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {(() => {
-                                    const stats = getTeacherStats(selectedTeacher.id);
-                                    return (
-                                        <>
-                                            <div className="text-center p-3 bg-white rounded-lg border">
-                                                <div className="text-2xl font-bold text-orange-600">{stats.groups}</div>
-                                                <div className="text-xs text-gray-500">{stats.groups === 1 ? 'Group' : 'Groups'}</div>
-                                            </div>
-                                            <div className="text-center p-3 bg-white rounded-lg border">
-                                                <div className="text-2xl font-bold text-blue-600">{stats.students}</div>
-                                                <div className="text-xs text-gray-500">{stats.students === 1 ? 'Student' : 'Students'}</div>
-                                            </div>
-                                            <div className="text-center p-3 bg-white rounded-lg border">
-                                                <div className="text-2xl font-bold text-green-600">{stats.sessions}</div>
-                                                <div className="text-xs text-gray-500">{stats.sessions === 1 ? 'Session' : 'Sessions'}</div>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        </div>
-
-                        {/* Assigned Groups */}
-                        <div className="bg-gray-50 p-4 rounded-lg border">
-                            <h3 className="text-sm font-medium text-gray-700 mb-3">Assigned Groups</h3>
-                            <div className="space-y-2">
-                                {groups.filter(group => group.teacherId === selectedTeacher.id).length > 0 ? (
-                                    groups.filter(group => group.teacherId === selectedTeacher.id).map((group) => (
-                                        <div key={group.id} className="p-3 bg-white rounded-lg border hover:bg-orange-50 transition-colors">
-                                            <div className="flex items-center justify-between">
+                                        {selectedTeacher.phone && (
+                                            <div className="flex items-center space-x-2">
+                                                <PhoneIcon className="h-4 w-4 text-orange-500" />
                                                 <div>
-                                                    <div className="text-sm font-medium text-gray-900">{group.name}</div>
-                                                    <div className="text-xs text-gray-500">
-                                                        Group #{group.id.toString().padStart(6, '0')} • {group.students.length} students
+                                                    <div className="text-xs font-medium text-orange-700">Phone</div>
+                                                    <div className="text-sm text-gray-900">{selectedTeacher?.phone}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center space-x-2">
+                                            <CalendarIcon className="h-4 w-4 text-orange-500" />
+                                            <div>
+                                                <div className="text-xs font-medium text-orange-700">Price per Session</div>
+                                                <div className="text-sm text-gray-900">
+                                                    {selectedTeacher.price_per_session ? `${selectedTeacher.price_per_session} DA` : 'Not set'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <UsersIcon className="h-4 w-4 text-orange-500" />
+                                            <div>
+                                                <div className="text-xs font-medium text-orange-700">Teacher ID</div>
+                                                <div className="text-sm text-gray-900">#{selectedTeacher ? formatTeacherId(selectedTeacher) : ''}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Statistics */}
+                                <div className="bg-gray-50 p-4 rounded-lg border">
+                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Statistics</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {(() => {
+                                            const stats = getTeacherStats(selectedTeacher.id);
+                                            return (
+                                                <>
+                                                    <div className="text-center p-3 bg-white rounded-lg border">
+                                                        <div className="text-2xl font-bold text-orange-600">{stats.groups}</div>
+                                                        <div className="text-xs text-gray-500">{stats.groups === 1 ? 'Group' : 'Groups'}</div>
+                                                    </div>
+                                                    <div className="text-center p-3 bg-white rounded-lg border">
+                                                        <div className="text-2xl font-bold text-blue-600">{stats.students}</div>
+                                                        <div className="text-xs text-gray-500">{stats.students === 1 ? 'Student' : 'Students'}</div>
+                                                    </div>
+                                                    <div className="text-center p-3 bg-white rounded-lg border">
+                                                        <div className="text-2xl font-bold text-green-600">{stats.sessions}</div>
+                                                        <div className="text-xs text-gray-500">{stats.sessions === 1 ? 'Session' : 'Sessions'}</div>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Assigned Groups */}
+                                <div className="bg-gray-50 p-4 rounded-lg border">
+                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Assigned Groups</h3>
+                                    <div className="space-y-2">
+                                        {groups.filter(group => group.teacherId === selectedTeacher.id).length > 0 ? (
+                                            groups.filter(group => group.teacherId === selectedTeacher.id).map((group) => (
+                                                <div key={group.id} className="p-3 bg-white rounded-lg border hover:bg-orange-50 transition-colors">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <div className="text-sm font-medium text-gray-900">{group.name}</div>
+                                                            <div className="text-xs text-gray-500">
+                                                                Group #{group.id.toString().padStart(6, '0')} • {group.students.length} students
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center space-x-2">
+                                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                                {group.language || 'N/A'}
+                                                            </span>
+                                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                                {group.level || 'N/A'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center space-x-2">
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                                                        {group.language || 'N/A'}
-                                                    </span>
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                        {group.level || 'N/A'}
-                                                    </span>
-                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-sm text-gray-500 text-center py-4">
+                                                No groups assigned yet
                                             </div>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="text-sm text-gray-500 text-center py-4">
-                                        No groups assigned yet
+                                        )}
                                     </div>
-                                )}
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                            setShowTeacherDetailModal(false);
+                                            handleEditClick(selectedTeacher);
+                                        }}
+                                        className="text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
+                                    >
+                                        <PencilIcon className="h-4 w-4 mr-2" />
+                                        Edit Teacher
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
+                        )}
+                    </Modal>
 
-                        {/* Action Buttons */}
-                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    setShowTeacherDetailModal(false);
-                                    handleEditClick(selectedTeacher);
-                                }}
-                                className="text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
-                            >
-                                <PencilIcon className="h-4 w-4 mr-2" />
-                                Edit Teacher
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
+                    {/* Teacher Evaluation Modal */}
+                    <Modal
+                        isOpen={showEvaluationModal}
+                        onClose={() => setShowEvaluationModal(false)}
+                        title="Teacher Evaluation"
+                        maxWidth="4xl"
+                    >
+                        <div className="space-y-6">
+                            {/* Header with History Button */}
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-medium text-gray-900">Select Date and Evaluate Teachers</h3>
+                                <div className="flex space-x-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setShowHistoryModal(true)}
+                                        className="text-sm"
+                                    >
+                                        <CalendarIcon className="h-4 w-4 mr-1" />
+                                        History
+                                    </Button>
+                                </div>
+                            </div>
 
-            {/* Teacher Evaluation Modal */}
-            <Modal
-                isOpen={showEvaluationModal}
-                onClose={() => setShowEvaluationModal(false)}
-                title="Teacher Evaluation"
-                maxWidth="4xl"
-            >
-                <div className="space-y-6">
-                    {/* Header with History Button */}
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-medium text-gray-900">Select Date and Evaluate Teachers</h3>
-                        <div className="flex space-x-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShowHistoryModal(true)}
-                                className="text-sm"
-                            >
-                                <CalendarIcon className="h-4 w-4 mr-1" />
-                                History
-                            </Button>
-                        </div>
-                    </div>
+                            {/* Date Selection */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    <CalendarIcon className="h-4 w-4 inline mr-1" />
+                                    Select Date
+                                </label>
+                                <Input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    className="w-full"
+                                />
+                            </div>
 
-                    {/* Date Selection */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            <CalendarIcon className="h-4 w-4 inline mr-1" />
-                            Select Date
-                        </label>
-                        <Input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            className="w-full"
-                        />
-                    </div>
+                            {/* Teachers with Groups */}
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                                    Teachers with Groups on {new Date(selectedDate).toLocaleDateString()}
+                                </h3>
 
-                    {/* Teachers with Groups */}
-                    <div>
-                        <h3 className="text-lg font-medium text-gray-900 mb-4">
-                            Teachers with Groups on {new Date(selectedDate).toLocaleDateString()}
-                        </h3>
-
-                        {(() => {
-                            // Get teachers who have groups with sessions on the selected date
-                            const teachersWithGroups = teachers.filter(teacher => {
-                                const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
-                                return teacherGroups.some(group =>
-                                    group && group.sessions?.some(session => {
-                                        if (!session || !session.date) return false;
-                                        try {
-                                            const d = new Date(session.date);
-                                            return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
-                                        } catch (e) {
-                                            return false;
-                                        }
-                                    })
-                                );
-                            });
-
-                            if (teachersWithGroups.length === 0) {
-                                return (
-                                    <div className="text-center py-8 text-gray-500">
-                                        <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                                        <p>No teachers have groups scheduled for this date.</p>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <div className="space-y-4">
-                                    {teachersWithGroups.map(teacher => {
-                                        const teacherGroups = groups.filter(group => {
-                                            if (!group || group.teacherId !== teacher.id) return false;
-                                            return group.sessions?.some(session => {
+                                {(() => {
+                                    // Get teachers who have groups with sessions on the selected date
+                                    const teachersWithGroups = teachers.filter(teacher => {
+                                        const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
+                                        return teacherGroups.some(group =>
+                                            group && group.sessions?.some(session => {
                                                 if (!session || !session.date) return false;
                                                 try {
                                                     const d = new Date(session.date);
@@ -1363,1256 +1411,1284 @@ export default function TeachersPage() {
                                                 } catch (e) {
                                                     return false;
                                                 }
-                                            });
-                                        });
+                                            })
+                                        );
+                                    });
 
+                                    if (teachersWithGroups.length === 0) {
                                         return (
-                                            <div key={teacher.id} className="border rounded-lg p-4 bg-gray-50">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <div className="flex items-center">
-                                                        <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                                            <UsersIcon className="h-5 w-5 text-orange-600" />
-                                                        </div>
-                                                        <div>
-                                                            <h4 className="font-medium text-gray-900">{teacher.name}</h4>
-                                                            <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* Groups and Sessions */}
-                                                <div className="space-y-3">
-                                                    {teacherGroups.map(group => {
-                                                        const groupSessions = group.sessions?.filter(session => {
-                                                            if (!session || !session.date) return false;
-                                                            try {
-                                                                const d = new Date(session.date);
-                                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
-                                                            } catch (e) {
-                                                                return false;
-                                                            }
-                                                        }) || [];
-
-                                                        return (
-                                                            <div key={group.id} className="bg-white rounded-lg p-3 border">
-                                                                <div className="flex items-center justify-between mb-2">
-                                                                    <div>
-                                                                        <h5 className="font-medium text-gray-900">{group.name}</h5>
-                                                                        <p className="text-sm text-gray-500">
-                                                                            Group #{group.id.toString().padStart(6, '0')}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Sessions */}
-                                                                <div className="space-y-2">
-                                                                    {groupSessions.map((session, index) => (
-                                                                        <div key={session.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                                                                            <div className="flex items-center">
-                                                                                <ClockIcon className="h-4 w-4 text-gray-400 mr-2" />
-                                                                                <span className="text-sm text-gray-700">
-                                                                                    Session #{getSessionNumber(session, group.sessions || [])} - {new Date(session.date).toLocaleDateString()}
-                                                                                </span>
-                                                                            </div>
-
-                                                                            {/* Attendance Status */}
-                                                                            <div className="flex items-center space-x-2">
-                                                                                <span className="text-xs text-gray-500">Status:</span>
-                                                                                <select
-                                                                                    value={teacherAttendance[teacher.id]?.[session.id] || '-'}
-                                                                                    onChange={(e) => {
-                                                                                        const newStatus = e.target.value;
-                                                                                        if (newStatus === '-') {
-                                                                                            // Remove the status if "-" is selected
-                                                                                            setTeacherAttendance(prev => {
-                                                                                                const newState = { ...prev };
-                                                                                                if (newState[teacher.id]) {
-                                                                                                    delete newState[teacher.id][session.id];
-                                                                                                    if (Object.keys(newState[teacher.id]).length === 0) {
-                                                                                                        delete newState[teacher.id];
-                                                                                                    }
-                                                                                                }
-                                                                                                return newState;
-                                                                                            });
-                                                                                        } else {
-                                                                                            // Set the selected status
-                                                                                            setTeacherAttendance(prev => ({
-                                                                                                ...prev,
-                                                                                                [teacher.id]: {
-                                                                                                    ...prev[teacher.id],
-                                                                                                    [session.id]: newStatus as 'present' | 'late' | 'absent' | 'justified'
-                                                                                                }
-                                                                                            }));
-                                                                                        }
-                                                                                    }}
-                                                                                    className="text-xs border rounded px-2 py-1"
-                                                                                >
-                                                                                    <option value="-">-</option>
-                                                                                    <option value="present">Present</option>
-                                                                                    <option value="late">Late</option>
-                                                                                    <option value="absent">Absent</option>
-                                                                                    <option value="justified">Justified</option>
-                                                                                </select>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
+                                            <div className="text-center py-8 text-gray-500">
+                                                <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                                                <p>No teachers have groups scheduled for this date.</p>
                                             </div>
                                         );
-                                    })}
-                                </div>
-                            );
-                        })()}
-                    </div>
-                </div>
+                                    }
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setShowEvaluationModal(false);
-                            setTeacherAttendance({}); // Reset form when closing
-                        }}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={async () => {
-                            try {
-                                // Prepare attendance data for database
-                                const attendanceData: Array<{
-                                    teacherId: string;
-                                    sessionId: string;
-                                    groupId: number;
-                                    date: string;
-                                    status: 'present' | 'late' | 'absent' | 'justified';
-                                    notes?: string;
-                                }> = [];
-
-                                // Process each teacher's attendance
-                                Object.keys(teacherAttendance).forEach(teacherId => {
-                                    const teacher = teachers.find(t => t.id === teacherId);
-                                    if (!teacher) return;
-
-                                    const teacherGroups = groups.filter(group => {
-                                        if (!group || group.teacherId !== teacherId) return false;
-                                        return group.sessions?.some(session => {
-                                            if (!session || !session.date) return false;
-                                            try {
-                                                const d = new Date(session.date);
-                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
-                                            } catch (e) {
-                                                return false;
-                                            }
-                                        });
-                                    });
-
-                                    teacherGroups.forEach(group => {
-                                        const groupSessions = group.sessions?.filter(session => {
-                                            if (!session || !session.date) return false;
-                                            try {
-                                                const d = new Date(session.date);
-                                                return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
-                                            } catch (e) {
-                                                return false;
-                                            }
-                                        }) || [];
-
-                                        groupSessions.forEach(session => {
-                                            const status = teacherAttendance[teacherId]?.[session.id];
-                                            if (status) {
-                                                attendanceData.push({
-                                                    teacherId: teacherId,
-                                                    sessionId: session.id,
-                                                    groupId: group.id,
-                                                    date: selectedDate,
-                                                    status: status,
-                                                    notes: `Teacher evaluation for ${selectedDate}`
+                                    return (
+                                        <div className="space-y-4">
+                                            {teachersWithGroups.map(teacher => {
+                                                const teacherGroups = groups.filter(group => {
+                                                    if (!group || group.teacherId !== teacher.id) return false;
+                                                    return group.sessions?.some(session => {
+                                                        if (!session || !session.date) return false;
+                                                        try {
+                                                            const d = new Date(session.date);
+                                                            return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                        } catch (e) {
+                                                            return false;
+                                                        }
+                                                    });
                                                 });
-                                            }
-                                        });
-                                    });
-                                });
 
-                                if (attendanceData.length === 0) {
-                                    alert('No attendance data to save. Please select attendance status for at least one session.');
-                                    return;
-                                }
-
-                                console.log('📊 Prepared attendance data:', attendanceData);
-
-                                // Save to database
-                                const success = await saveTeacherAttendance(attendanceData);
-
-                                if (success) {
-                                    // Refresh teacher history
-                                    await loadTeacherHistory();
-
-                                    // Reset form
-                                    setTeacherAttendance({});
-                                    setShowEvaluationModal(false);
-
-                                    alert('Teacher evaluation saved successfully to database!');
-                                } else {
-                                    alert('Failed to save teacher evaluation. Please check the console for details and try again.');
-                                }
-                            } catch (error) {
-                                console.error('Error saving teacher evaluation:', error);
-                                alert('Error saving teacher evaluation. Please try again.');
-                            }
-                        }}
-                        className="bg-orange-600 hover:bg-orange-700"
-                    >
-                        Save Evaluation
-                    </Button>
-                </div>
-            </Modal>
-
-            {/* Teacher Evaluation History Modal */}
-            <Modal
-                isOpen={showHistoryModal}
-                onClose={() => {
-                    setShowHistoryModal(false);
-                    setSelectedHistoryTeacher(null);
-                    setSelectedHistoryGroup(null);
-                    setHistorySearchTerm('');
-                }}
-                title="Teacher Evaluation History"
-                maxWidth="4xl"
-            >
-                <div className="space-y-6">
-                    {!selectedHistoryTeacher ? (
-                        // Step 1: Teacher Selection
-                        <>
-                            {/* Search */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
-                                    Search Teachers
-                                </label>
-                                <Input
-                                    type="text"
-                                    placeholder="Search by name or ID..."
-                                    value={historySearchTerm}
-                                    onChange={(e) => setHistorySearchTerm(e.target.value)}
-                                    className="w-full"
-                                />
-                            </div>
-
-                            {/* Teachers Table */}
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-4">Select Teacher</h3>
-                                <div className="overflow-x-auto">
-                                    <table className="min-w-full divide-y divide-gray-200">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Teacher
-                                                </th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    ID
-                                                </th>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Groups
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white divide-y divide-gray-200">
-                                            {teachers
-                                                .filter(teacher => {
-                                                    if (!teacher) return false;
-                                                    const term = (historySearchTerm || '').toLowerCase();
-                                                    const matchesSearch = term === '' ||
-                                                        (teacher.name || '').toLowerCase().includes(term) ||
-                                                        (formatTeacherId(teacher) || '').toLowerCase().includes(term);
-                                                    return matchesSearch;
-                                                })
-                                                .map(teacher => {
-                                                    const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
-
-                                                    return (
-                                                        <tr
-                                                            key={teacher.id}
-                                                            className="hover:bg-orange-50 transition-colors cursor-pointer"
-                                                            onClick={() => setSelectedHistoryTeacher(teacher)}
-                                                        >
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex items-center">
-                                                                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                                                        <UsersIcon className="h-5 w-5 text-orange-600" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
-                                                                        <div className="text-sm text-gray-500">{teacher.email}</div>
-                                                                    </div>
+                                                return (
+                                                    <div key={teacher.id} className="border rounded-lg p-4 bg-gray-50">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center">
+                                                                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                                    <UsersIcon className="h-5 w-5 text-orange-600" />
                                                                 </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {formatTeacherId(teacher)}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {teacherGroups.length}
-                                                            </td>
+                                                                <div>
+                                                                    <h4 className="font-medium text-gray-900">{teacher.name}</h4>
+                                                                    <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
 
-                                                        </tr>
-                                                    );
-                                                })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </>
-                    ) : !selectedHistoryGroup ? (
-                        // Step 2: Group Selection
-                        <>
-                            {/* Back Button */}
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setSelectedHistoryTeacher(null)}
-                                        className="mr-3"
-                                    >
-                                        ← Back
-                                    </Button>
-                                    <div>
-                                        <h3 className="text-lg font-medium text-gray-900">
-                                            {selectedHistoryTeacher.name} - Select Group
-                                        </h3>
-                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
-                                    </div>
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        loadCoveringSessions(selectedHistoryTeacher.id);
-                                        setShowCoveringModal(true);
-                                    }}
-                                    className="flex items-center space-x-2"
-                                >
-                                    <ClipboardDocumentCheckIcon className="h-4 w-4" />
-                                    <span>Covering</span>
-                                </Button>
-                            </div>
+                                                        {/* Groups and Sessions */}
+                                                        <div className="space-y-3">
+                                                            {teacherGroups.map(group => {
+                                                                const groupSessions = group.sessions?.filter(session => {
+                                                                    if (!session || !session.date) return false;
+                                                                    try {
+                                                                        const d = new Date(session.date);
+                                                                        return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                                    } catch (e) {
+                                                                        return false;
+                                                                    }
+                                                                }) || [];
 
-                            {/* Groups Table */}
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Group Name
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Group ID
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Students
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {groups
-                                            .filter(group => group.teacherId === selectedHistoryTeacher.id)
-                                            .map(group => (
-                                                <tr
-                                                    key={group.id}
-                                                    className="hover:bg-orange-50 transition-colors cursor-pointer"
-                                                    onClick={() => setSelectedHistoryGroup(group.id)}
-                                                >
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {group.name}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        #{group.id.toString().padStart(6, '0')}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {group.students.length} students
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </>
-                    ) : (
-                        // Step 3: Sessions and Evaluations
-                        <>
-                            {/* Back Button */}
-                            <div className="flex items-center mb-4">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setSelectedHistoryGroup(null)}
-                                    className="mr-3"
-                                >
-                                    ← Back
-                                </Button>
-                                <div>
-                                    <h3 className="text-lg font-medium text-gray-900">
-                                        {selectedHistoryTeacher.name} - {groups.find(g => g.id === selectedHistoryGroup)?.name}
-                                    </h3>
-                                    <p className="text-sm text-gray-500">
-                                        Group #{selectedHistoryGroup?.toString().padStart(6, '0')} • Session Evaluations
-                                    </p>
-                                </div>
-                            </div>
+                                                                return (
+                                                                    <div key={group.id} className="bg-white rounded-lg p-3 border">
+                                                                        <div className="flex items-center justify-between mb-2">
+                                                                            <div>
+                                                                                <h5 className="font-medium text-gray-900">{group.name}</h5>
+                                                                                <p className="text-sm text-gray-500">
+                                                                                    Group #{group.id.toString().padStart(6, '0')}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
 
-                            {/* Sessions Table */}
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Date
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Session & Topic
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {(() => {
-                                            const selectedGroup = groups.find(g => g.id === selectedHistoryGroup);
-                                            const groupName = selectedGroup?.name || '';
-                                            const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === groupName) || [];
+                                                                        {/* Sessions */}
+                                                                        <div className="space-y-2">
+                                                                            {groupSessions.map((session, index) => (
+                                                                                <div key={session.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                                                                    <div className="flex items-center">
+                                                                                        <ClockIcon className="h-4 w-4 text-gray-400 mr-2" />
+                                                                                        <span className="text-sm text-gray-700">
+                                                                                            Session #{getSessionNumber(session, group.sessions || [])} - {new Date(session.date).toLocaleDateString()}
+                                                                                        </span>
+                                                                                    </div>
 
-                                            // Get all sessions for this group, sorted by date
-                                            const allGroupSessions = selectedGroup?.sessions?.sort((a, b) =>
-                                                new Date(a.date).getTime() - new Date(b.date).getTime()
-                                            ) || [];
-
-                                            if (allGroupSessions.length === 0) {
-                                                return (
-                                                    <tr>
-                                                        <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
-                                                            <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                                                            <p>No sessions found for this group.</p>
-                                                        </td>
-                                                    </tr>
+                                                                                    {/* Attendance Status */}
+                                                                                    <div className="flex items-center space-x-2">
+                                                                                        <span className="text-xs text-gray-500">Status:</span>
+                                                                                        <select
+                                                                                            value={teacherAttendance[teacher.id]?.[session.id] || '-'}
+                                                                                            onChange={(e) => {
+                                                                                                const newStatus = e.target.value;
+                                                                                                if (newStatus === '-') {
+                                                                                                    // Remove the status if "-" is selected
+                                                                                                    setTeacherAttendance(prev => {
+                                                                                                        const newState = { ...prev };
+                                                                                                        if (newState[teacher.id]) {
+                                                                                                            delete newState[teacher.id][session.id];
+                                                                                                            if (Object.keys(newState[teacher.id]).length === 0) {
+                                                                                                                delete newState[teacher.id];
+                                                                                                            }
+                                                                                                        }
+                                                                                                        return newState;
+                                                                                                    });
+                                                                                                } else {
+                                                                                                    // Set the selected status
+                                                                                                    setTeacherAttendance(prev => ({
+                                                                                                        ...prev,
+                                                                                                        [teacher.id]: {
+                                                                                                            ...prev[teacher.id],
+                                                                                                            [session.id]: newStatus as 'present' | 'late' | 'absent' | 'justified'
+                                                                                                        }
+                                                                                                    }));
+                                                                                                }
+                                                                                            }}
+                                                                                            className="text-xs border rounded px-2 py-1"
+                                                                                        >
+                                                                                            <option value="-">-</option>
+                                                                                            <option value="present">Present</option>
+                                                                                            <option value="late">Late</option>
+                                                                                            <option value="absent">Absent</option>
+                                                                                            <option value="justified">Justified</option>
+                                                                                        </select>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
                                                 );
-                                            }
+                                            })}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </div>
 
-                                            return allGroupSessions.map((session, index) => {
-                                                // Find evaluation for this session if it exists
-                                                const evaluation = groupEvaluations.find(e => e.sessionId === session.id);
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowEvaluationModal(false);
+                                    setTeacherAttendance({}); // Reset form when closing
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={async () => {
+                                    try {
+                                        // Prepare attendance data for database
+                                        const attendanceData: Array<{
+                                            teacherId: string;
+                                            sessionId: string;
+                                            groupId: number;
+                                            date: string;
+                                            status: 'present' | 'late' | 'absent' | 'justified';
+                                            notes?: string;
+                                        }> = [];
 
-                                                const sessionNumber = getSessionNumber(session, allGroupSessions);
-                                                const sessionDate = new Date(session.date).toLocaleDateString('en-US', {
-                                                    month: 'short',
-                                                    day: '2-digit'
+                                        // Process each teacher's attendance
+                                        Object.keys(teacherAttendance).forEach(teacherId => {
+                                            const teacher = teachers.find(t => t.id === teacherId);
+                                            if (!teacher) return;
+
+                                            const teacherGroups = groups.filter(group => {
+                                                if (!group || group.teacherId !== teacherId) return false;
+                                                return group.sessions?.some(session => {
+                                                    if (!session || !session.date) return false;
+                                                    try {
+                                                        const d = new Date(session.date);
+                                                        return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                    } catch (e) {
+                                                        return false;
+                                                    }
                                                 });
-
-                                                return (
-                                                    <tr key={session.id} className="hover:bg-gray-50">
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            <div className="flex flex-col">
-                                                                <span className="font-medium">{sessionDate}</span>
-                                                                <span className="text-xs text-gray-500">
-                                                                    {new Date(session.date).toLocaleDateString('en-US', {
-                                                                        weekday: 'short',
-                                                                        year: 'numeric'
-                                                                    })}
-                                                                </span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            <div className="flex flex-col">
-                                                                <span className="font-bold text-blue-600">#{sessionNumber}</span>
-                                                                <span className="text-xs text-gray-500">Session</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            {evaluation ? (
-                                                                <select
-                                                                    value={evaluation.status}
-                                                                    onChange={async (e) => {
-                                                                        const newStatus = e.target.value as 'present' | 'late' | 'absent' | 'justified';
-                                                                        try {
-                                                                            // Update the evaluation in the database using teacher_id and session_id
-                                                                            const { error } = await supabase
-                                                                                .from('teacher_attendance')
-                                                                                .update({ status: newStatus })
-                                                                                .eq('teacher_id', selectedHistoryTeacher.id)
-                                                                                .eq('session_id', session.id);
-
-                                                                            if (error) {
-                                                                                console.error('Error updating status:', error);
-                                                                                alert('Failed to update status. Please try again.');
-                                                                                return;
-                                                                            }
-
-                                                                            // Refresh the teacher history
-                                                                            await loadTeacherHistory();
-
-                                                                            alert('Status updated successfully!');
-                                                                        } catch (error) {
-                                                                            console.error('Error updating status:', error);
-                                                                            alert('Failed to update status. Please try again.');
-                                                                        }
-                                                                    }}
-                                                                    className={`text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
-                                                                        evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
-                                                                            evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
-                                                                                'bg-red-100 text-red-800'
-                                                                        }`}
-                                                                >
-                                                                    <option value="present">Present</option>
-                                                                    <option value="late">Late</option>
-                                                                    <option value="absent">Absent</option>
-                                                                    <option value="justified">Justified</option>
-                                                                </select>
-                                                            ) : (
-                                                                <select
-                                                                    value="-"
-                                                                    onChange={async (e) => {
-                                                                        const newStatus = e.target.value;
-                                                                        if (newStatus === '-') return;
-
-                                                                        try {
-                                                                            // Create a new evaluation record in the database
-                                                                            const { error } = await supabase
-                                                                                .from('teacher_attendance')
-                                                                                .insert({
-                                                                                    teacher_id: selectedHistoryTeacher.id,
-                                                                                    session_id: session.id,
-                                                                                    group_id: selectedHistoryGroup,
-                                                                                    date: session.date,
-                                                                                    status: newStatus,
-                                                                                    notes: `Teacher evaluation created from history view`,
-                                                                                    evaluated_by: null
-                                                                                });
-
-                                                                            if (error) {
-                                                                                console.error('Error creating evaluation:', error);
-                                                                                alert('Failed to create evaluation. Please try again.');
-                                                                                return;
-                                                                            }
-
-                                                                            // Refresh the teacher history
-                                                                            await loadTeacherHistory();
-
-                                                                            alert('Evaluation created successfully!');
-                                                                        } catch (error) {
-                                                                            console.error('Error creating evaluation:', error);
-                                                                            alert('Failed to create evaluation. Please try again.');
-                                                                        }
-                                                                    }}
-                                                                    className="text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 border border-dashed border-gray-400"
-                                                                >
-                                                                    <option value="-">Not Evaluated</option>
-                                                                    <option value="present">Present</option>
-                                                                    <option value="late">Late</option>
-                                                                    <option value="absent">Absent</option>
-                                                                    <option value="justified">Justified</option>
-                                                                </select>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
                                             });
-                                        })()}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </>
-                    )}
-                </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
+                                            teacherGroups.forEach(group => {
+                                                const groupSessions = group.sessions?.filter(session => {
+                                                    if (!session || !session.date) return false;
+                                                    try {
+                                                        const d = new Date(session.date);
+                                                        return !isNaN(d.getTime()) && d.toISOString().split('T')[0] === selectedDate;
+                                                    } catch (e) {
+                                                        return false;
+                                                    }
+                                                }) || [];
+
+                                                groupSessions.forEach(session => {
+                                                    const status = teacherAttendance[teacherId]?.[session.id];
+                                                    if (status) {
+                                                        attendanceData.push({
+                                                            teacherId: teacherId,
+                                                            sessionId: session.id,
+                                                            groupId: group.id,
+                                                            date: selectedDate,
+                                                            status: status,
+                                                            notes: `Teacher evaluation for ${selectedDate}`
+                                                        });
+                                                    }
+                                                });
+                                            });
+                                        });
+
+                                        if (attendanceData.length === 0) {
+                                            alert('No attendance data to save. Please select attendance status for at least one session.');
+                                            return;
+                                        }
+
+                                        console.log('📊 Prepared attendance data:', attendanceData);
+
+                                        // Save to database
+                                        const success = await saveTeacherAttendance(attendanceData);
+
+                                        if (success) {
+                                            // Refresh teacher history
+                                            await loadTeacherHistory();
+
+                                            // Reset form
+                                            setTeacherAttendance({});
+                                            setShowEvaluationModal(false);
+
+                                            alert('Teacher evaluation saved successfully to database!');
+                                        } else {
+                                            alert('Failed to save teacher evaluation. Please check the console for details and try again.');
+                                        }
+                                    } catch (error) {
+                                        console.error('Error saving teacher evaluation:', error);
+                                        alert('Error saving teacher evaluation. Please try again.');
+                                    }
+                                }}
+                                className="bg-orange-600 hover:bg-orange-700"
+                            >
+                                Save Evaluation
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    {/* Teacher Evaluation History Modal */}
+                    <Modal
+                        isOpen={showHistoryModal}
+                        onClose={() => {
                             setShowHistoryModal(false);
                             setSelectedHistoryTeacher(null);
                             setSelectedHistoryGroup(null);
                             setHistorySearchTerm('');
                         }}
+                        title="Teacher Evaluation History"
+                        maxWidth="4xl"
                     >
-                        Close
-                    </Button>
-                </div>
-            </Modal>
+                        <div className="space-y-6">
+                            {!selectedHistoryTeacher ? (
+                                // Step 1: Teacher Selection
+                                <>
+                                    {/* Search */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
+                                            Search Teachers
+                                        </label>
+                                        <Input
+                                            type="text"
+                                            placeholder="Search by name or ID..."
+                                            value={historySearchTerm}
+                                            onChange={(e) => setHistorySearchTerm(e.target.value)}
+                                            className="w-full"
+                                        />
+                                    </div>
 
-            {/* Teacher Salary Management Modal */}
-            <Modal
-                isOpen={showSalaryModal}
-                onClose={() => {
-                    setShowSalaryModal(false);
-                    setSelectedSalaryTeacher(null);
-                    setUnpaidGroups([]);
-                    setSalarySearchTerm('');
-                }}
-                title="Teacher Salary Management"
-                maxWidth="4xl"
-            >
-                <div className="space-y-6">
-                    {!selectedSalaryTeacher ? (
-                        // Step 1: Teacher Selection
-                        <>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
-                                    Search for Teacher
-                                </label>
-                                <Input
-                                    type="text"
-                                    placeholder="Enter teacher name..."
-                                    value={salarySearchTerm}
-                                    onChange={(e) => setSalarySearchTerm(e.target.value)}
-                                    className="w-full"
-                                />
-                            </div>
-
-                            <div>
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Teacher
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Price/Session
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Actions
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {(() => {
-                                            const term = (salarySearchTerm || '').toLowerCase();
-                                            const filteredTeachers = teachers.filter(teacher => {
-                                                if (!teacher) return false;
-                                                const matchesSearch = term === '' ||
-                                                    (teacher.name || '').toLowerCase().includes(term) ||
-                                                    (formatTeacherId(teacher) || '').toLowerCase().includes(term);
-                                                return matchesSearch;
-                                            });
-
-                                            if (filteredTeachers.length === 0) {
-                                                return (
+                                    {/* Teachers Table */}
+                                    <div>
+                                        <h3 className="text-lg font-medium text-gray-900 mb-4">Select Teacher</h3>
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full divide-y divide-gray-200">
+                                                <thead className="bg-gray-50">
                                                     <tr>
-                                                        <td colSpan={3} className="px-6 py-4 text-center text-gray-500">
-                                                            {salarySearchTerm ? 'No teachers found matching your search.' : 'No teachers available.'}
-                                                        </td>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Teacher
+                                                        </th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            ID
+                                                        </th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Groups
+                                                        </th>
                                                     </tr>
-                                                );
-                                            }
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                    {teachers
+                                                        .filter(teacher => {
+                                                            if (!teacher) return false;
+                                                            const term = (historySearchTerm || '').toLowerCase();
+                                                            const matchesSearch = term === '' ||
+                                                                (teacher.name || '').toLowerCase().includes(term) ||
+                                                                (formatTeacherId(teacher) || '').toLowerCase().includes(term);
+                                                            return matchesSearch;
+                                                        })
+                                                        .map(teacher => {
+                                                            const teacherGroups = groups.filter(group => group.teacherId === teacher.id);
 
-                                            return filteredTeachers.map(teacher => (
-                                                <tr key={teacher.id} className="hover:bg-gray-50">
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div>
-                                                            <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
-                                                            <div className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="text-sm text-gray-900">
-                                                            {teacher.price_per_session ? `${teacher.price_per_session} DA` : 'Not set'}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                        <div className="flex space-x-2">
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={async () => {
-                                                                    setSelectedSalaryTeacher(teacher);
-                                                                    try {
-                                                                        console.log('🔄 Fetching unpaid groups for teacher:', teacher.id);
-                                                                        const unpaidGroupsData = await getTeacherUnpaidGroups(teacher.id);
-                                                                        console.log('✅ Unpaid groups data:', unpaidGroupsData);
-                                                                        setUnpaidGroups(unpaidGroupsData);
-                                                                    } catch (error) {
-                                                                        console.error('❌ Error fetching unpaid groups:', error);
-                                                                        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                                                                        alert(`Failed to fetch unpaid groups: ${errorMessage}\n\nPlease make sure you have run the SQL setup script in Supabase.`);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                View Unpaid Groups
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={async () => {
-                                                                    try {
-                                                                        const { getTeacherSalaryHistory } = useMySchoolStore.getState();
-                                                                        const historyData = await getTeacherSalaryHistory(teacher.id);
-                                                                        setSalaryHistory(historyData);
-                                                                        setSelectedSalaryTeacher(teacher);
-                                                                        setShowSalaryDetails(true);
-                                                                    } catch (error) {
-                                                                        console.error('Error fetching salary history:', error);
-                                                                        alert('Failed to fetch salary history. Please try again.');
-                                                                    }
-                                                                }}
-                                                            >
-                                                                View History
-                                                            </Button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ));
-                                        })()}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </>
-                    ) : (
-                        // Step 2: Unpaid Groups Display
-                        <>
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h3 className="text-lg font-medium text-gray-900">
-                                        {selectedSalaryTeacher.name} - Unpaid Groups
-                                    </h3>
-                                    <p className="text-sm text-gray-500">
-                                        ID: {formatTeacherId(selectedSalaryTeacher)} •
-                                        Price per session: {selectedSalaryTeacher.price_per_session ? `${selectedSalaryTeacher.price_per_session} DA` : 'Not set'}
-                                    </p>
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        setSelectedSalaryTeacher(null);
-                                        setUnpaidGroups([]);
-                                    }}
-                                >
-                                    ← Back to Teachers
-                                </Button>
-                            </div>
+                                                            return (
+                                                                <tr
+                                                                    key={teacher.id}
+                                                                    className="hover:bg-orange-50 transition-colors cursor-pointer"
+                                                                    onClick={() => setSelectedHistoryTeacher(teacher)}
+                                                                >
+                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                        <div className="flex items-center">
+                                                                            <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                                                <UsersIcon className="h-5 w-5 text-orange-600" />
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
+                                                                                <div className="text-sm text-gray-500">{teacher.email}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {formatTeacherId(teacher)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                        {teacherGroups.length}
+                                                                    </td>
 
-                            {unpaidGroups.length === 0 ? (
-                                <div className="text-center py-8 text-gray-500">
-                                    <CheckCircleIcon className="h-12 w-12 mx-auto mb-4 text-green-400" />
-                                    <p>All groups have been paid for this teacher!</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {unpaidGroups.map(group => (
-                                        <div key={group.group_id} className="border rounded-lg p-4 bg-gray-50">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h4 className="font-medium text-gray-900">{group.group_name}</h4>
-                                                    <p className="text-sm text-gray-500">
-                                                        Group #{group.group_id.toString().padStart(6, '0')}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className="text-lg font-bold text-green-600">
-                                                        {group.calculated_salary} DA
-                                                    </div>
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={() => {
-                                                            setSelectedGroupSalary(group);
-                                                            setShowSalaryDetails(true);
-                                                        }}
-                                                    >
-                                                        View Details & Pay
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
-                                                <div>
-                                                    <span className="text-gray-600">Total Sessions:</span>
-                                                    <span className="ml-2 font-medium">{group.total_sessions}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="text-gray-600">Present:</span>
-                                                    <span className="ml-2 font-medium text-green-600">{group.present_sessions}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="text-gray-600">Late:</span>
-                                                    <span className="ml-2 font-medium text-yellow-600">{group.late_sessions}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="text-gray-600">Absent:</span>
-                                                    <span className="ml-2 font-medium text-red-600">{group.absent_sessions}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="text-gray-600">Justified:</span>
-                                                    <span className="ml-2 font-medium text-purple-600">{group.justified_sessions}</span>
-                                                </div>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : !selectedHistoryGroup ? (
+                                // Step 2: Group Selection
+                                <>
+                                    {/* Back Button */}
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setSelectedHistoryTeacher(null)}
+                                                className="mr-3"
+                                            >
+                                                ← Back
+                                            </Button>
+                                            <div>
+                                                <h3 className="text-lg font-medium text-gray-900">
+                                                    {selectedHistoryTeacher.name} - Select Group
+                                                </h3>
+                                                <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                loadCoveringSessions(selectedHistoryTeacher.id);
+                                                setShowCoveringModal(true);
+                                            }}
+                                            className="flex items-center space-x-2"
+                                        >
+                                            <ClipboardDocumentCheckIcon className="h-4 w-4" />
+                                            <span>Covering</span>
+                                        </Button>
+                                    </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
+                                    {/* Groups Table */}
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Group Name
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Group ID
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Students
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {groups
+                                                    .filter(group => group.teacherId === selectedHistoryTeacher.id)
+                                                    .map(group => (
+                                                        <tr
+                                                            key={group.id}
+                                                            className="hover:bg-orange-50 transition-colors cursor-pointer"
+                                                            onClick={() => setSelectedHistoryGroup(group.id)}
+                                                        >
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                                {group.name}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                #{group.id.toString().padStart(6, '0')}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                {group.students.length} students
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            ) : (
+                                // Step 3: Sessions and Evaluations
+                                <>
+                                    {/* Back Button */}
+                                    <div className="flex items-center mb-4">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setSelectedHistoryGroup(null)}
+                                            className="mr-3"
+                                        >
+                                            ← Back
+                                        </Button>
+                                        <div>
+                                            <h3 className="text-lg font-medium text-gray-900">
+                                                {selectedHistoryTeacher.name} - {groups.find(g => g.id === selectedHistoryGroup)?.name}
+                                            </h3>
+                                            <p className="text-sm text-gray-500">
+                                                Group #{selectedHistoryGroup?.toString().padStart(6, '0')} • Session Evaluations
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Sessions Table */}
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Date
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Session & Topic
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Status
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {(() => {
+                                                    const selectedGroup = groups.find(g => g.id === selectedHistoryGroup);
+                                                    const groupName = selectedGroup?.name || '';
+                                                    const groupEvaluations = teacherHistory[selectedHistoryTeacher.id]?.filter(h => h.groupName === groupName) || [];
+
+                                                    // Get all sessions for this group, sorted by date
+                                                    const allGroupSessions = selectedGroup?.sessions?.sort((a, b) =>
+                                                        new Date(a.date).getTime() - new Date(b.date).getTime()
+                                                    ) || [];
+
+                                                    if (allGroupSessions.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
+                                                                    <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                                                                    <p>No sessions found for this group.</p>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    return allGroupSessions.map((session, index) => {
+                                                        // Find evaluation for this session if it exists
+                                                        const evaluation = groupEvaluations.find(e => e.sessionId === session.id);
+
+                                                        const sessionNumber = getSessionNumber(session, allGroupSessions);
+                                                        const sessionDate = new Date(session.date).toLocaleDateString('en-US', {
+                                                            month: 'short',
+                                                            day: '2-digit'
+                                                        });
+
+                                                        return (
+                                                            <tr key={session.id} className="hover:bg-gray-50">
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-medium">{sessionDate}</span>
+                                                                        <span className="text-xs text-gray-500">
+                                                                            {new Date(session.date).toLocaleDateString('en-US', {
+                                                                                weekday: 'short',
+                                                                                year: 'numeric'
+                                                                            })}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-bold text-blue-600">#{sessionNumber}</span>
+                                                                        <span className="text-xs text-gray-500">Session</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                    {evaluation ? (
+                                                                        <select
+                                                                            value={evaluation.status}
+                                                                            onChange={async (e) => {
+                                                                                const newStatus = e.target.value as 'present' | 'late' | 'absent' | 'justified';
+                                                                                try {
+                                                                                    // Update the evaluation in the database using teacher_id and session_id
+                                                                                    const { error } = await supabase
+                                                                                        .from('teacher_attendance')
+                                                                                        .update({ status: newStatus })
+                                                                                        .eq('teacher_id', selectedHistoryTeacher.id)
+                                                                                        .eq('session_id', session.id);
+
+                                                                                    if (error) {
+                                                                                        console.error('Error updating status:', error);
+                                                                                        alert('Failed to update status. Please try again.');
+                                                                                        return;
+                                                                                    }
+
+                                                                                    // Refresh the teacher history
+                                                                                    await loadTeacherHistory();
+
+                                                                                    alert('Status updated successfully!');
+                                                                                } catch (error) {
+                                                                                    console.error('Error updating status:', error);
+                                                                                    alert('Failed to update status. Please try again.');
+                                                                                }
+                                                                            }}
+                                                                            className={`text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer ${evaluation.status === 'present' ? 'bg-green-100 text-green-800' :
+                                                                                evaluation.status === 'late' ? 'bg-yellow-100 text-yellow-800' :
+                                                                                    evaluation.status === 'justified' ? 'bg-purple-100 text-purple-800' :
+                                                                                        'bg-red-100 text-red-800'
+                                                                                }`}
+                                                                        >
+                                                                            <option value="present">Present</option>
+                                                                            <option value="late">Late</option>
+                                                                            <option value="absent">Absent</option>
+                                                                            <option value="justified">Justified</option>
+                                                                        </select>
+                                                                    ) : (
+                                                                        <select
+                                                                            value="-"
+                                                                            onChange={async (e) => {
+                                                                                const newStatus = e.target.value;
+                                                                                if (newStatus === '-') return;
+
+                                                                                try {
+                                                                                    // Create a new evaluation record in the database
+                                                                                    const { error } = await supabase
+                                                                                        .from('teacher_attendance')
+                                                                                        .insert({
+                                                                                            teacher_id: selectedHistoryTeacher.id,
+                                                                                            session_id: session.id,
+                                                                                            group_id: selectedHistoryGroup,
+                                                                                            date: session.date,
+                                                                                            status: newStatus,
+                                                                                            notes: `Teacher evaluation created from history view`,
+                                                                                            evaluated_by: null
+                                                                                        });
+
+                                                                                    if (error) {
+                                                                                        console.error('Error creating evaluation:', error);
+                                                                                        alert('Failed to create evaluation. Please try again.');
+                                                                                        return;
+                                                                                    }
+
+                                                                                    // Refresh the teacher history
+                                                                                    await loadTeacherHistory();
+
+                                                                                    alert('Evaluation created successfully!');
+                                                                                } catch (error) {
+                                                                                    console.error('Error creating evaluation:', error);
+                                                                                    alert('Failed to create evaluation. Please try again.');
+                                                                                }
+                                                                            }}
+                                                                            className="text-xs font-semibold rounded-full px-2 py-1 border-0 cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 border border-dashed border-gray-400"
+                                                                        >
+                                                                            <option value="-">Not Evaluated</option>
+                                                                            <option value="present">Present</option>
+                                                                            <option value="late">Late</option>
+                                                                            <option value="absent">Absent</option>
+                                                                            <option value="justified">Justified</option>
+                                                                        </select>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    });
+                                                })()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowHistoryModal(false);
+                                    setSelectedHistoryTeacher(null);
+                                    setSelectedHistoryGroup(null);
+                                    setHistorySearchTerm('');
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    {/* Teacher Salary Management Modal */}
+                    <Modal
+                        isOpen={showSalaryModal}
+                        onClose={() => {
                             setShowSalaryModal(false);
                             setSelectedSalaryTeacher(null);
                             setUnpaidGroups([]);
                             setSalarySearchTerm('');
                         }}
+                        title="Teacher Salary Management"
+                        maxWidth="4xl"
                     >
-                        Close
-                    </Button>
-                </div>
-            </Modal>
-
-            {/* Salary Details & Payment Modal */}
-            <Modal
-                isOpen={showSalaryDetails}
-                onClose={() => {
-                    setShowSalaryDetails(false);
-                    setSelectedGroupSalary(null);
-                    setSalaryHistory([]);
-                }}
-                title={selectedGroupSalary ?
-                    `Salary Details - ${selectedGroupSalary.group_name}` :
-                    `Salary History - ${selectedSalaryTeacher?.name}`
-                }
-                maxWidth="4xl"
-            >
-                {selectedGroupSalary && (
-                    <div className="space-y-6">
-                        <div className="bg-gray-50 rounded-lg p-4">
-                            <h3 className="text-lg font-medium text-gray-900 mb-4">Group Summary</h3>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                    <span className="text-gray-600">Group Name:</span>
-                                    <span className="ml-2 font-medium">{selectedGroupSalary.group_name}</span>
-                                </div>
-                                <div>
-                                    <span className="text-gray-600">Group ID:</span>
-                                    <span className="ml-2 font-medium">#{selectedGroupSalary.group_id.toString().padStart(6, '0')}</span>
-                                </div>
-                                <div>
-                                    <span className="text-gray-600">Total Sessions:</span>
-                                    <span className="ml-2 font-medium">{selectedGroupSalary.total_sessions}</span>
-                                </div>
-                                <div>
-                                    <span className="text-gray-600">Calculated Salary:</span>
-                                    <span className="ml-2 font-medium text-green-600 font-bold">
-                                        {selectedGroupSalary.calculated_salary} DA
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-blue-50 rounded-lg p-4" id="salary-breakdown">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-lg font-medium text-blue-900">Salary Breakdown</h3>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                        const printContent = document.getElementById('salary-breakdown');
-                                        if (printContent) {
-                                            const originalDisplay = printContent.style.display;
-                                            printContent.style.display = 'block';
-                                            window.print();
-                                            printContent.style.display = originalDisplay;
-                                        }
-                                    }}
-                                >
-                                    🖨️ Print
-                                </Button>
-                            </div>
-                            <div className="space-y-3">
-                                <div className="flex justify-between">
-                                    <span className="text-blue-700">Present Sessions ({selectedGroupSalary.present_sessions}):</span>
-                                    <span className="font-medium text-blue-900">
-                                        +{selectedGroupSalary.present_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
-                                    </span>
-                                </div>
-                                {selectedGroupSalary.covering_sessions && selectedGroupSalary.covering_sessions > 0 && (
-                                    <div className="flex justify-between">
-                                        <span className="text-green-700 font-semibold">
-                                            🔄 Covering Sessions ({selectedGroupSalary.covering_sessions}):
-                                        </span>
-                                        <span className="font-medium text-green-900">
-                                            +{selectedGroupSalary.covering_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
-                                        </span>
+                        <div className="space-y-6">
+                            {!selectedSalaryTeacher ? (
+                                // Step 1: Teacher Selection
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            <MagnifyingGlassIcon className="h-4 w-4 inline mr-1" />
+                                            Search for Teacher
+                                        </label>
+                                        <Input
+                                            type="text"
+                                            placeholder="Enter teacher name..."
+                                            value={salarySearchTerm}
+                                            onChange={(e) => setSalarySearchTerm(e.target.value)}
+                                            className="w-full"
+                                        />
                                     </div>
-                                )}
-                                <div className="flex justify-between">
-                                    <span className="text-blue-700">Late Sessions ({selectedGroupSalary.late_sessions}):</span>
-                                    <span className="font-medium text-blue-900">
-                                        -{selectedGroupSalary.late_sessions * 200} DA
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-blue-700">Absent Sessions ({selectedGroupSalary.absent_sessions}):</span>
-                                    <span className="font-medium text-blue-900">
-                                        -{selectedGroupSalary.absent_sessions * 500} DA
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-blue-700">Justified Sessions ({selectedGroupSalary.justified_sessions}):</span>
-                                    <span className="font-medium text-blue-900">
-                                        ±0 DA
-                                    </span>
-                                </div>
-                                <hr className="border-blue-200" />
-                                <div className="flex justify-between font-bold text-lg">
-                                    <span className="text-blue-700">Total Salary:</span>
-                                    <span className="text-green-600">
-                                        {selectedGroupSalary.calculated_salary} DA
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div className="bg-green-50 rounded-lg p-4">
-                            <h3 className="text-lg font-medium text-green-900 mb-4">Payment Confirmation</h3>
-                            <p className="text-sm text-green-700 mb-4">
-                                Click the button below to confirm payment and add this group to the teacher's salary history.
-                            </p>
-                            <Button
-                                className="w-full bg-green-600 hover:bg-green-700"
-                                onClick={async () => {
-                                    try {
-                                        // Pay the teacher salary
-                                        await payTeacherSalary({
-                                            teacher_id: selectedSalaryTeacher!.id,
-                                            group_id: selectedGroupSalary.group_id,
-                                            total_sessions: selectedGroupSalary.total_sessions,
-                                            present_sessions: selectedGroupSalary.present_sessions,
-                                            late_sessions: selectedGroupSalary.late_sessions,
-                                            absent_sessions: selectedGroupSalary.absent_sessions,
-                                            justified_sessions: selectedGroupSalary.justified_sessions,
-                                            calculated_salary: selectedGroupSalary.calculated_salary,
-                                            paid_amount: selectedGroupSalary.calculated_salary,
-                                            payment_date: new Date().toISOString().split('T')[0],
-                                            payment_notes: `Salary payment for group ${selectedGroupSalary.group_name}`
-                                        });
+                                    <div>
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Teacher
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Price/Session
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Actions
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {(() => {
+                                                    const term = (salarySearchTerm || '').toLowerCase();
+                                                    const filteredTeachers = teachers.filter(teacher => {
+                                                        if (!teacher) return false;
+                                                        const matchesSearch = term === '' ||
+                                                            (teacher.name || '').toLowerCase().includes(term) ||
+                                                            (formatTeacherId(teacher) || '').toLowerCase().includes(term);
+                                                        return matchesSearch;
+                                                    });
 
-                                        // Refresh unpaid groups
-                                        const updatedUnpaidGroups = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
-                                        setUnpaidGroups(updatedUnpaidGroups);
+                                                    if (filteredTeachers.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td colSpan={3} className="px-6 py-4 text-center text-gray-500">
+                                                                    {salarySearchTerm ? 'No teachers found matching your search.' : 'No teachers available.'}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
 
-                                        // Close the details modal
-                                        setShowSalaryDetails(false);
-                                        setSelectedGroupSalary(null);
-
-                                        alert('Salary payment processed successfully!');
-                                    } catch (error) {
-                                        console.error('Error processing salary payment:', error);
-
-                                        // Check if it's the service role key error
-                                        if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
-                                            alert('Salary payment requires admin access. Please add the SUPABASE_SERVICE_ROLE_KEY to your .env.local file. See the setup guide for instructions.');
-                                        } else {
-                                            alert('Failed to process salary payment. Please try again.');
-                                        }
-                                    }
-                                }}
-                            >
-                                Confirm Payment - {selectedGroupSalary.calculated_salary} DA
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Salary History Display */}
-                {!selectedGroupSalary && salaryHistory.length > 0 && (
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-medium text-blue-900">Salary History</h3>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={async () => {
-                                    try {
-                                        const unpaidGroupsData = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
-                                        setUnpaidGroups(unpaidGroupsData);
-                                        setSalaryHistory([]);
-                                        setSelectedGroupSalary(null);
-                                    } catch (error) {
-                                        console.error('Error fetching unpaid groups:', error);
-                                        alert('Failed to fetch unpaid groups. Please try again.');
-                                    }
-                                }}
-                            >
-                                ← Back to Unpaid Groups
-                            </Button>
-                        </div>
-                        <div className="bg-blue-50 rounded-lg p-4">
-                            <h3 className="text-lg font-medium text-blue-900 mb-4">Payment History</h3>
-                            <div className="space-y-3">
-                                {salaryHistory.map((payment) => (
-                                    <div key={payment.id} className="bg-white rounded-lg p-3 border border-blue-200">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <div className="font-medium text-blue-900">
-                                                    Group #{payment.group_id.toString().padStart(6, '0')}
-                                                </div>
-                                                <div className="text-sm text-blue-700">
-                                                    {payment.payment_date} • {payment.total_sessions} sessions
-                                                </div>
-                                                <div className="text-xs text-blue-600 mt-1">
-                                                    Present: {payment.present_sessions} •
-                                                    Late: {payment.late_sessions} •
-                                                    Absent: {payment.absent_sessions} •
-                                                    Justified: {payment.justified_sessions}
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-lg font-bold text-green-600">
-                                                    {payment.paid_amount} DA
-                                                </div>
-                                                <div className="text-xs text-blue-600">
-                                                    Paid on {payment.payment_date}
-                                                </div>
-                                            </div>
+                                                    return filteredTeachers.map(teacher => (
+                                                        <tr key={teacher.id} className="hover:bg-gray-50">
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div>
+                                                                    <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
+                                                                    <div className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div className="text-sm text-gray-900">
+                                                                    {teacher.price_per_session ? `${teacher.price_per_session} DA` : 'Not set'}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                                <div className="flex space-x-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        onClick={async () => {
+                                                                            setSelectedSalaryTeacher(teacher);
+                                                                            try {
+                                                                                console.log('🔄 Fetching unpaid groups for teacher:', teacher.id);
+                                                                                const unpaidGroupsData = await getTeacherUnpaidGroups(teacher.id);
+                                                                                console.log('✅ Unpaid groups data:', unpaidGroupsData);
+                                                                                setUnpaidGroups(unpaidGroupsData);
+                                                                            } catch (error) {
+                                                                                console.error('❌ Error fetching unpaid groups:', error);
+                                                                                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                                                                                alert(`Failed to fetch unpaid groups: ${errorMessage}\n\nPlease make sure you have run the SQL setup script in Supabase.`);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        View Unpaid Groups
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        onClick={async () => {
+                                                                            try {
+                                                                                const { getTeacherSalaryHistory } = useMySchoolStore.getState();
+                                                                                const historyData = await getTeacherSalaryHistory(teacher.id);
+                                                                                setSalaryHistory(historyData);
+                                                                                setSelectedSalaryTeacher(teacher);
+                                                                                setShowSalaryDetails(true);
+                                                                            } catch (error) {
+                                                                                console.error('Error fetching salary history:', error);
+                                                                                alert('Failed to fetch salary history. Please try again.');
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        View History
+                                                                    </Button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ));
+                                                })()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            ) : (
+                                // Step 2: Unpaid Groups Display
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-medium text-gray-900">
+                                                {selectedSalaryTeacher.name} - Unpaid Groups
+                                            </h3>
+                                            <p className="text-sm text-gray-500">
+                                                ID: {formatTeacherId(selectedSalaryTeacher)} •
+                                                Price per session: {selectedSalaryTeacher.price_per_session ? `${selectedSalaryTeacher.price_per_session} DA` : 'Not set'}
+                                            </p>
                                         </div>
-                                        {payment.payment_notes && (
-                                            <div className="mt-2 text-xs text-blue-600 bg-blue-100 p-2 rounded">
-                                                {payment.payment_notes}
-                                            </div>
-                                        )}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                setSelectedSalaryTeacher(null);
+                                                setUnpaidGroups([]);
+                                            }}
+                                        >
+                                            ← Back to Teachers
+                                        </Button>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
 
-                        <div className="bg-green-50 rounded-lg p-4">
-                            <h3 className="text-lg font-medium text-green-900 mb-4">Summary</h3>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                    <span className="text-green-700">Total Payments:</span>
-                                    <span className="ml-2 font-medium">{salaryHistory.length}</span>
-                                </div>
-                                <div>
-                                    <span className="text-green-700">Total Amount Paid:</span>
-                                    <span className="ml-2 font-medium text-green-600 font-bold">
-                                        {salaryHistory.reduce((sum, payment) => sum + payment.paid_amount, 0)} DA
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                                    {unpaidGroups.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <CheckCircleIcon className="h-12 w-12 mx-auto mb-4 text-green-400" />
+                                            <p>All groups have been paid for this teacher!</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {unpaidGroups.map(group => (
+                                                <div key={group.group_id} className="border rounded-lg p-4 bg-gray-50">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <h4 className="font-medium text-gray-900">{group.group_name}</h4>
+                                                            <p className="text-sm text-gray-500">
+                                                                Group #{group.group_id.toString().padStart(6, '0')}
+                                                            </p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-lg font-bold text-green-600">
+                                                                {group.calculated_salary} DA
+                                                            </div>
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setSelectedGroupSalary(group);
+                                                                    setShowSalaryDetails(true);
+                                                                }}
+                                                            >
+                                                                View Details & Pay
+                                                            </Button>
+                                                        </div>
+                                                    </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setShowSalaryDetails(false);
-                            setSelectedGroupSalary(null);
-                        }}
-                    >
-                        Close
-                    </Button>
-                </div>
-            </Modal>
-
-            {/* Covering Sessions Modal */}
-            <Modal
-                isOpen={showCoveringModal}
-                onClose={() => {
-                    setShowCoveringModal(false);
-                    setCoveringSessions([]);
-                }}
-                title="Covering Sessions"
-                maxWidth="4xl"
-            >
-                <div className="space-y-6">
-                    {selectedHistoryTeacher && (
-                        <div className="mb-4">
-                            <h3 className="text-lg font-medium text-gray-900">
-                                {selectedHistoryTeacher.name} - Covering Sessions
-                            </h3>
-                            <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
-                        </div>
-                    )}
-
-                    {coveringSessions.length === 0 ? (
-                        <div className="text-center py-8">
-                            <ClipboardDocumentCheckIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-gray-500">No covering sessions found for this teacher.</p>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Date
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Group
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Session Time
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Notes
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {coveringSessions.map((session) => (
-                                        <tr key={session.id} className="hover:bg-orange-50 transition-colors">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {new Date(session.cover_date).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                <div>
-                                                    <div className="font-medium">{session.groups?.name || 'Unknown Group'}</div>
-                                                    <div className="text-xs text-gray-500">
-                                                        #{session.group_id?.toString().padStart(6, '0')}
+                                                    <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+                                                        <div>
+                                                            <span className="text-gray-600">Total Sessions:</span>
+                                                            <span className="ml-2 font-medium">{group.total_sessions}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-gray-600">Present:</span>
+                                                            <span className="ml-2 font-medium text-green-600">{group.present_sessions}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-gray-600">Late:</span>
+                                                            <span className="ml-2 font-medium text-yellow-600">{group.late_sessions}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-gray-600">Absent:</span>
+                                                            <span className="ml-2 font-medium text-red-600">{group.absent_sessions}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-gray-600">Justified:</span>
+                                                            <span className="ml-2 font-medium text-purple-600">{group.justified_sessions}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {session.sessions?.start_time && session.sessions?.end_time ? (
-                                                    `${session.sessions.start_time} - ${session.sessions.end_time}`
-                                                ) : (
-                                                    'N/A'
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {session.notes || '-'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
-                    )}
-                </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowSalaryModal(false);
+                                    setSelectedSalaryTeacher(null);
+                                    setUnpaidGroups([]);
+                                    setSalarySearchTerm('');
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    {/* Salary Details & Payment Modal */}
+                    <Modal
+                        isOpen={showSalaryDetails}
+                        onClose={() => {
+                            setShowSalaryDetails(false);
+                            setSelectedGroupSalary(null);
+                            setSalaryHistory([]);
+                        }}
+                        title={selectedGroupSalary ?
+                            `Salary Details - ${selectedGroupSalary.group_name}` :
+                            `Salary History - ${selectedSalaryTeacher?.name}`
+                        }
+                        maxWidth="4xl"
+                    >
+                        {selectedGroupSalary && (
+                            <div className="space-y-6">
+                                <div className="bg-gray-50 rounded-lg p-4">
+                                    <h3 className="text-lg font-medium text-gray-900 mb-4">Group Summary</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <span className="text-gray-600">Group Name:</span>
+                                            <span className="ml-2 font-medium">{selectedGroupSalary.group_name}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-600">Group ID:</span>
+                                            <span className="ml-2 font-medium">#{selectedGroupSalary.group_id.toString().padStart(6, '0')}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-600">Total Sessions:</span>
+                                            <span className="ml-2 font-medium">{selectedGroupSalary.total_sessions}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-600">Calculated Salary:</span>
+                                            <span className="ml-2 font-medium text-green-600 font-bold">
+                                                {selectedGroupSalary.calculated_salary} DA
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-blue-50 rounded-lg p-4" id="salary-breakdown">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-lg font-medium text-blue-900">Salary Breakdown</h3>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => {
+                                                const printContent = document.getElementById('salary-breakdown');
+                                                if (printContent) {
+                                                    const originalDisplay = printContent.style.display;
+                                                    printContent.style.display = 'block';
+                                                    window.print();
+                                                    printContent.style.display = originalDisplay;
+                                                }
+                                            }}
+                                        >
+                                            🖨️ Print
+                                        </Button>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Present Sessions ({selectedGroupSalary.present_sessions}):</span>
+                                            <span className="font-medium text-blue-900">
+                                                +{selectedGroupSalary.present_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
+                                            </span>
+                                        </div>
+                                        {selectedGroupSalary.covering_sessions && selectedGroupSalary.covering_sessions > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-green-700 font-semibold">
+                                                    🔄 Covering Sessions ({selectedGroupSalary.covering_sessions}):
+                                                </span>
+                                                <span className="font-medium text-green-900">
+                                                    +{selectedGroupSalary.covering_sessions * (selectedSalaryTeacher?.price_per_session || 0)} DA
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Late Sessions ({selectedGroupSalary.late_sessions}):</span>
+                                            <span className="font-medium text-blue-900">
+                                                -{selectedGroupSalary.late_sessions * 200} DA
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Absent Sessions ({selectedGroupSalary.absent_sessions}):</span>
+                                            <span className="font-medium text-blue-900">
+                                                -{selectedGroupSalary.absent_sessions * 500} DA
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-blue-700">Justified Sessions ({selectedGroupSalary.justified_sessions}):</span>
+                                            <span className="font-medium text-blue-900">
+                                                ±0 DA
+                                            </span>
+                                        </div>
+                                        <hr className="border-blue-200" />
+                                        <div className="flex justify-between font-bold text-lg">
+                                            <span className="text-blue-700">Total Salary:</span>
+                                            <span className="text-green-600">
+                                                {selectedGroupSalary.calculated_salary} DA
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-green-50 rounded-lg p-4">
+                                    <h3 className="text-lg font-medium text-green-900 mb-4">Payment Confirmation</h3>
+                                    <p className="text-sm text-green-700 mb-4">
+                                        Click the button below to confirm payment and add this group to the teacher's salary history.
+                                    </p>
+                                    <Button
+                                        className="w-full bg-green-600 hover:bg-green-700"
+                                        onClick={async () => {
+                                            try {
+                                                // Pay the teacher salary
+                                                await payTeacherSalary({
+                                                    teacher_id: selectedSalaryTeacher!.id,
+                                                    group_id: selectedGroupSalary.group_id,
+                                                    total_sessions: selectedGroupSalary.total_sessions,
+                                                    present_sessions: selectedGroupSalary.present_sessions,
+                                                    late_sessions: selectedGroupSalary.late_sessions,
+                                                    absent_sessions: selectedGroupSalary.absent_sessions,
+                                                    justified_sessions: selectedGroupSalary.justified_sessions,
+                                                    calculated_salary: selectedGroupSalary.calculated_salary,
+                                                    paid_amount: selectedGroupSalary.calculated_salary,
+                                                    payment_date: new Date().toISOString().split('T')[0],
+                                                    payment_notes: `Salary payment for group ${selectedGroupSalary.group_name}`
+                                                });
+
+                                                // Refresh unpaid groups
+                                                const updatedUnpaidGroups = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
+                                                setUnpaidGroups(updatedUnpaidGroups);
+
+                                                // Close the details modal
+                                                setShowSalaryDetails(false);
+                                                setSelectedGroupSalary(null);
+
+                                                alert('Salary payment processed successfully!');
+                                            } catch (error) {
+                                                console.error('Error processing salary payment:', error);
+
+                                                // Check if it's the service role key error
+                                                if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+                                                    alert('Salary payment requires admin access. Please add the SUPABASE_SERVICE_ROLE_KEY to your .env.local file. See the setup guide for instructions.');
+                                                } else {
+                                                    alert('Failed to process salary payment. Please try again.');
+                                                }
+                                            }
+                                        }}
+                                    >
+                                        Confirm Payment - {selectedGroupSalary.calculated_salary} DA
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Salary History Display */}
+                        {!selectedGroupSalary && salaryHistory.length > 0 && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-lg font-medium text-blue-900">Salary History</h3>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async () => {
+                                            try {
+                                                const unpaidGroupsData = await getTeacherUnpaidGroups(selectedSalaryTeacher!.id);
+                                                setUnpaidGroups(unpaidGroupsData);
+                                                setSalaryHistory([]);
+                                                setSelectedGroupSalary(null);
+                                            } catch (error) {
+                                                console.error('Error fetching unpaid groups:', error);
+                                                alert('Failed to fetch unpaid groups. Please try again.');
+                                            }
+                                        }}
+                                    >
+                                        ← Back to Unpaid Groups
+                                    </Button>
+                                </div>
+                                <div className="bg-blue-50 rounded-lg p-4">
+                                    <h3 className="text-lg font-medium text-blue-900 mb-4">Payment History</h3>
+                                    <div className="space-y-3">
+                                        {salaryHistory.map((payment) => (
+                                            <div key={payment.id} className="bg-white rounded-lg p-3 border border-blue-200">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <div className="font-medium text-blue-900">
+                                                            Group #{payment.group_id.toString().padStart(6, '0')}
+                                                        </div>
+                                                        <div className="text-sm text-blue-700">
+                                                            {payment.payment_date} • {payment.total_sessions} sessions
+                                                        </div>
+                                                        <div className="text-xs text-blue-600 mt-1">
+                                                            Present: {payment.present_sessions} •
+                                                            Late: {payment.late_sessions} •
+                                                            Absent: {payment.absent_sessions} •
+                                                            Justified: {payment.justified_sessions}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-lg font-bold text-green-600">
+                                                            {payment.paid_amount} DA
+                                                        </div>
+                                                        <div className="text-xs text-blue-600">
+                                                            Paid on {payment.payment_date}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {payment.payment_notes && (
+                                                    <div className="mt-2 text-xs text-blue-600 bg-blue-100 p-2 rounded">
+                                                        {payment.payment_notes}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-green-50 rounded-lg p-4">
+                                    <h3 className="text-lg font-medium text-green-900 mb-4">Summary</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <span className="text-green-700">Total Payments:</span>
+                                            <span className="ml-2 font-medium">{salaryHistory.length}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-green-700">Total Amount Paid:</span>
+                                            <span className="ml-2 font-medium text-green-600 font-bold">
+                                                {salaryHistory.reduce((sum, payment) => sum + payment.paid_amount, 0)} DA
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowSalaryDetails(false);
+                                    setSelectedGroupSalary(null);
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    {/* Covering Sessions Modal */}
+                    <Modal
+                        isOpen={showCoveringModal}
+                        onClose={() => {
                             setShowCoveringModal(false);
                             setCoveringSessions([]);
                         }}
+                        title="Covering Sessions"
+                        maxWidth="4xl"
                     >
-                        Close
-                    </Button>
-                </div>
-            </Modal>
-
-            {/* Covering Popup Modal */}
-            <Modal
-                isOpen={showCoveringPopup}
-                onClose={() => {
-                    setShowCoveringPopup(false);
-                    setCoveringData(null);
-                }}
-                title="Assign Covering Teacher"
-                maxWidth="lg"
-            >
-                <div className="space-y-6">
-                    {coveringData && (
-                        <>
-                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                                <h3 className="text-lg font-medium text-orange-900 mb-2">
-                                    Teacher Marked as {coveringData.status === 'absent' ? 'Absent' : 'Justified'}
-                                </h3>
-                                <div className="space-y-2 text-sm text-orange-800">
-                                    <p><strong>Group:</strong> {coveringData.groupName}</p>
-                                    <p><strong>Date:</strong> {new Date(coveringData.date).toLocaleDateString()}</p>
-                                    <p><strong>Group ID:</strong> #{coveringData.groupId.toString().padStart(6, '0')}</p>
+                        <div className="space-y-6">
+                            {selectedHistoryTeacher && (
+                                <div className="mb-4">
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        {selectedHistoryTeacher.name} - Covering Sessions
+                                    </h3>
+                                    <p className="text-sm text-gray-500">ID: {formatTeacherId(selectedHistoryTeacher)}</p>
                                 </div>
-                            </div>
+                            )}
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Select Covering Teacher:
-                                </label>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
-                                    {teachers
-                                        .filter(teacher => teacher.id !== coveringData.originalTeacherId)
-                                        .map(teacher => (
-                                            <div
-                                                key={teacher.id}
-                                                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-orange-50 cursor-pointer transition-colors"
-                                                onClick={async () => {
-                                                    try {
-                                                        // Create covering record
-                                                        await coveringService.createCovering({
-                                                            originalTeacherId: coveringData.originalTeacherId,
-                                                            coveringTeacherId: teacher.id,
-                                                            sessionId: coveringData.sessionId,
-                                                            groupId: coveringData.groupId,
-                                                            coverDate: new Date(coveringData.date),
-                                                            notes: `Covering for ${coveringData.status} teacher`
-                                                        });
-
-                                                        // Close popup
-                                                        setShowCoveringPopup(false);
-                                                        setCoveringData(null);
-
-                                                        alert(`Successfully assigned ${teacher.name} as covering teacher!`);
-                                                    } catch (error) {
-                                                        console.error('Error creating covering record:', error);
-                                                        alert('Failed to assign covering teacher. Please try again.');
-                                                    }
-                                                }}
-                                            >
-                                                <div className="flex items-center">
-                                                    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                                        <UsersIcon className="h-4 w-4 text-orange-600" />
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-medium text-gray-900">{teacher.name}</p>
-                                                        <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
-                                                    </div>
-                                                </div>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
-                                                >
-                                                    Assign
-                                                </Button>
-                                            </div>
-                                        ))}
+                            {coveringSessions.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <ClipboardDocumentCheckIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                                    <p className="text-gray-500">No covering sessions found for this teacher.</p>
                                 </div>
-                            </div>
-                        </>
-                    )}
-                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Date
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Group
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Session Time
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Notes
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {coveringSessions.map((session) => (
+                                                <tr key={session.id} className="hover:bg-orange-50 transition-colors">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {new Date(session.cover_date).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        <div>
+                                                            <div className="font-medium">{session.groups?.name || 'Unknown Group'}</div>
+                                                            <div className="text-xs text-gray-500">
+                                                                #{session.group_id?.toString().padStart(6, '0')}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {session.sessions?.start_time && session.sessions?.end_time ? (
+                                                            `${session.sessions.start_time} - ${session.sessions.end_time}`
+                                                        ) : (
+                                                            'N/A'
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {session.notes || '-'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowCoveringModal(false);
+                                    setCoveringSessions([]);
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    {/* Covering Popup Modal */}
+                    <Modal
+                        isOpen={showCoveringPopup}
+                        onClose={() => {
                             setShowCoveringPopup(false);
                             setCoveringData(null);
                         }}
+                        title="Assign Covering Teacher"
+                        maxWidth="lg"
                     >
-                        Skip
-                    </Button>
-                </div>
-            </Modal>
+                        <div className="space-y-6">
+                            {coveringData && (
+                                <>
+                                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                        <h3 className="text-lg font-medium text-orange-900 mb-2">
+                                            Teacher Marked as {coveringData.status === 'absent' ? 'Absent' : 'Justified'}
+                                        </h3>
+                                        <div className="space-y-2 text-sm text-orange-800">
+                                            <p><strong>Group:</strong> {coveringData.groupName}</p>
+                                            <p><strong>Date:</strong> {new Date(coveringData.date).toLocaleDateString()}</p>
+                                            <p><strong>Group ID:</strong> #{coveringData.groupId.toString().padStart(6, '0')}</p>
+                                        </div>
+                                    </div>
 
-            <GlobalKeyboardShortcuts
-                onAddNew={() => setIsCreateModalOpen(true)}
-                isModalOpen={isCreateModalOpen}
-            />
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Select Covering Teacher:
+                                        </label>
+                                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                                            {teachers
+                                                .filter(teacher => teacher.id !== coveringData.originalTeacherId)
+                                                .map(teacher => (
+                                                    <div
+                                                        key={teacher.id}
+                                                        className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-orange-50 cursor-pointer transition-colors"
+                                                        onClick={async () => {
+                                                            try {
+                                                                // Create covering record
+                                                                await coveringService.createCovering({
+                                                                    originalTeacherId: coveringData.originalTeacherId,
+                                                                    coveringTeacherId: teacher.id,
+                                                                    sessionId: coveringData.sessionId,
+                                                                    groupId: coveringData.groupId,
+                                                                    coverDate: new Date(coveringData.date),
+                                                                    notes: `Covering for ${coveringData.status} teacher`
+                                                                });
+
+                                                                // Close popup
+                                                                setShowCoveringPopup(false);
+                                                                setCoveringData(null);
+
+                                                                alert(`Successfully assigned ${teacher.name} as covering teacher!`);
+                                                            } catch (error) {
+                                                                console.error('Error creating covering record:', error);
+                                                                alert('Failed to assign covering teacher. Please try again.');
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div className="flex items-center">
+                                                            <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                                                <UsersIcon className="h-4 w-4 text-orange-600" />
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-medium text-gray-900">{teacher.name}</p>
+                                                                <p className="text-sm text-gray-500">ID: {formatTeacherId(teacher)}</p>
+                                                            </div>
+                                                        </div>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                                        >
+                                                            Assign
+                                                        </Button>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setShowCoveringPopup(false);
+                                    setCoveringData(null);
+                                }}
+                            >
+                                Skip
+                            </Button>
+                        </div>
+                    </Modal>
+
+                    <GlobalKeyboardShortcuts
+                        onAddNew={() => router.push('/teachers/new')}
+                        isModalOpen={isCreateModalOpen}
+                    />
+                </div>
+            </div>
         </AuthGuard>
     );
 } 

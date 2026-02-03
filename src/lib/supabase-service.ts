@@ -2637,22 +2637,14 @@ export const paymentService = {
             let obligatorySessions = 0; // present, absent, too_late = MUST PAY
             let freeSessions = 0; // justified, change, new, stop = NOT COUNTED
 
-            // 🎯 USER EXCEPTION: If a discount is applied, all sessions are counted as PRESENT (obligatory)
-            // No justification, new student refund, or stop refund for discounted students.
-            if (appliedDiscount > 0) {
-              console.log(`  🎖️ DISCOUNT EXCEPTION: Student has ${appliedDiscount}% discount. Charging for all ${groupSessions.length} sessions.`);
-              obligatorySessions = groupSessions.length;
-              freeSessions = 0;
-            } else {
-              for (const session of groupSessions) {
-                const attendance = attendanceRecords.find(a => a.session_id === session.id);
-                const status = attendance?.status || 'default';
+            for (const session of groupSessions) {
+              const attendance = attendanceRecords.find(a => a.session_id === session.id);
+              const status = attendance?.status || 'default';
 
-                if (['present', 'absent', 'too_late', 'default'].includes(status)) {
-                  obligatorySessions++; // MUST PAY
-                } else {
-                  freeSessions++; // NOT COUNTED (justified, new, change, stop)
-                }
+              if (['present', 'absent', 'too_late', 'default'].includes(status)) {
+                obligatorySessions++; // MUST PAY
+              } else {
+                freeSessions++; // NOT COUNTED (justified, new, change, stop)
               }
             }
 
@@ -4468,7 +4460,6 @@ export const paymentService = {
         .select(`
           group_id,
           status,
-          group_discount,
           groups!inner(
             id,
             name,
@@ -4594,33 +4585,26 @@ export const paymentService = {
           attendanceMap.set(att.session_id, att.status);
         });
 
-        // 🎯 USER EXCEPTION: If a discount is applied, all sessions are counted as PRESENT (obligatory)
-        const studentDefaultDiscount = Number(student.default_discount || 0);
-        const groupSpecificDiscount = Number(studentGroup.group_discount || 0);
-        const appliedDiscount = groupSpecificDiscount > 0 ? groupSpecificDiscount : studentDefaultDiscount;
+        // 🎯 YOUR SIMPLE LOGIC: Count only obligatory sessions
+        // MUST PAY: present, absent, too_late
+        // NOT COUNTED: justified, change, new, stop, default
 
         let obligatorySessions = 0; // Sessions that MUST be paid for
         let freeSessions = 0; // Sessions NOT counted for payment
 
-        const totalSessions = groupInfo?.total_sessions || groupInfo?.groups?.total_sessions || 0;
-        const fullGroupPrice = groupInfo?.price || groupInfo?.groups?.price || 0;
-        const pricePerSession = totalSessions > 0 ? fullGroupPrice / totalSessions : 0;
+        for (const session of sessions || []) {
+          const status = attendanceMap.get(session.id) || 'default';
 
-        if (appliedDiscount > 0) {
-          console.log(`  🎖️ STOPPED DISCOUNT EXCEPTION: Student has ${appliedDiscount}% discount. Charging for all sessions.`);
-          obligatorySessions = sessions?.length || totalSessions || 0;
-          freeSessions = 0;
-        } else {
-          for (const session of sessions || []) {
-            const status = attendanceMap.get(session.id) || 'default';
-
-            if (['present', 'absent', 'too_late', 'default'].includes(status)) {
-              obligatorySessions++; // MUST PAY
-            } else {
-              freeSessions++; // NOT COUNTED (justified, new, change, stop)
-            }
+          if (['present', 'absent', 'too_late', 'default'].includes(status)) {
+            obligatorySessions++; // MUST PAY
+          } else {
+            freeSessions++; // NOT COUNTED (justified, new, change, stop)
           }
         }
+
+        const totalSessions = groupInfo.total_sessions;
+        const fullGroupPrice = groupInfo.price;
+        const pricePerSession = fullGroupPrice / totalSessions;
 
         // 💰 ACTUAL group fee = only obligatory sessions
         const actualGroupFee = obligatorySessions * pricePerSession;

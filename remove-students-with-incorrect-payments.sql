@@ -17,7 +17,7 @@ LEFT JOIN payments p ON s.id = p.student_id
 LEFT JOIN student_groups sg ON s.id = sg.student_id
 LEFT JOIN groups g ON sg.group_id = g.id
 GROUP BY s.id, s.name
-ORDER BY s.name;
+ORDER BY s.name; 
 
 -- Step 2: Delete all student and group-related data in correct order
 

@@ -310,6 +310,7 @@ export default function GroupDetailPage() {
     });
     const [lastPaymentCallNote, setLastPaymentCallNote] = useState<string | null>(null);
     const [groupRemainingFees, setGroupRemainingFees] = useState<number | null>(null);
+    const [groupDiscount, setGroupDiscount] = useState<number | null>(null);
 
     // New state for student search
     const [searchTerm, setSearchTerm] = useState('');
@@ -503,6 +504,7 @@ export default function GroupDetailPage() {
             setIsCallLogModalOpen(false);
             setLastPaymentCallNote(null);
             setGroupRemainingFees(null);
+            setGroupDiscount(null);
 
             alert(`${callLogData.callType.charAt(0).toUpperCase() + callLogData.callType.slice(1)} call log added successfully!`);
         } catch (error) {
@@ -537,10 +539,12 @@ export default function GroupDetailPage() {
             const balance = await getStudentBalance(student.id);
             const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
             setGroupRemainingFees(groupBalance ? groupBalance.remainingAmount : 0);
+            setGroupDiscount(groupBalance?.discount || null);
         } catch (error) {
             console.error('Error fetching call log data:', error);
             setLastPaymentCallNote(null);
             setGroupRemainingFees(null);
+            setGroupDiscount(null);
         }
     };
 
@@ -1554,6 +1558,7 @@ export default function GroupDetailPage() {
                                 });
                                 setLastPaymentCallNote(null);
                                 setGroupRemainingFees(null);
+                                setGroupDiscount(null);
                             }}
                             title={`Add Call Log - ${selectedStudentForCall?.name || 'Student'}`}
                         >
@@ -1614,14 +1619,26 @@ export default function GroupDetailPage() {
                                         </div>
 
                                         {/* Remaining Fees for Current Group */}
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Remaining Fees for This Group
-                                            </label>
-                                            <div className="bg-red-50 p-3 rounded-md border border-red-200">
-                                                <p className="text-sm text-red-800">
-                                                    {groupRemainingFees !== null ? `${groupRemainingFees.toFixed(2)} DZD` : 'Loading...'}
-                                                </p>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Remaining Fees
+                                                </label>
+                                                <div className="bg-red-50 p-3 rounded-md border border-red-200">
+                                                    <p className="text-sm text-red-800 font-bold">
+                                                        {groupRemainingFees !== null ? `${groupRemainingFees.toFixed(2)} DZD` : 'Loading...'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Applied Discount
+                                                </label>
+                                                <div className={`${groupDiscount && groupDiscount > 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'} p-3 rounded-md border`}>
+                                                    <p className={`text-sm ${groupDiscount && groupDiscount > 0 ? 'text-blue-800 font-bold' : 'text-gray-500'}`}>
+                                                        {groupDiscount && groupDiscount > 0 ? `${groupDiscount}% Off` : 'No discount'}
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                     </>
@@ -1653,6 +1670,7 @@ export default function GroupDetailPage() {
                                         });
                                         setLastPaymentCallNote(null);
                                         setGroupRemainingFees(null);
+                                        setGroupDiscount(null);
                                     }}
                                 >
                                     Cancel

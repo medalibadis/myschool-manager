@@ -102,27 +102,27 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
     // Re-run status check whenever groups data refreshes (e.g. after discount change)
     const groupsSnapshot = useMySchoolStore(state => state.groups);
     const [isPending, setIsPending] = React.useState(true);
-    const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'unknown'>('unknown');
+    const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'free' | 'unknown'>('unknown');
 
     React.useEffect(() => {
         const checkPaymentStatus = async () => {
             try {
                 // Use the centralized service for balance calculation
-                // This correctly handles:
-                // 1. Group-specific discounts
-                // 2. Student default discounts
-                // 3. Attendance-based fee waiving (new, justified, stop, change)
                 const balance = await paymentService.getStudentBalance(studentId);
 
                 // Find the balance for this specific group
                 const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
 
                 if (groupBalance) {
-                    const isPaid = groupBalance.remainingAmount <= 0;
-                    setPaymentStatus(isPaid ? 'paid' : 'pending');
+                    if (groupBalance.discount === 100) {
+                        setPaymentStatus('free');
+                    } else {
+                        const isPaid = groupBalance.remainingAmount <= 0;
+                        setPaymentStatus(isPaid ? 'paid' : 'pending');
+                    }
 
                     // Debug log for troubleshooting
-                    if (!isPaid) {
+                    if (groupBalance.remainingAmount > 0 && groupBalance.discount !== 100) {
                         console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: Total Fee=${groupBalance.groupFees}, Paid=${groupBalance.amountPaid}, Remaining=${groupBalance.remainingAmount}, status=pending`);
                     }
                 } else {
@@ -133,8 +133,13 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                         .eq('id', groupId)
                         .single();
 
-                    if (groupData && Number(groupData.price) > 0) {
-                        setPaymentStatus('pending');
+                    if (groupData) {
+                        const price = Number(groupData.price);
+                        if (price === 0) {
+                            setPaymentStatus('free');
+                        } else {
+                            setPaymentStatus('pending');
+                        }
                     } else {
                         setPaymentStatus('paid');
                     }
@@ -169,6 +174,11 @@ const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: strin
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                     <CheckIcon className="h-3 w-3 mr-1" />
                     Paid
+                </span>
+            ) : paymentStatus === 'free' ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <CheckIcon className="h-3 w-3 mr-1" />
+                    FREE
                 </span>
             ) : (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">

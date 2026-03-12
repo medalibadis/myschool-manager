@@ -26,6 +26,7 @@ interface MySchoolStore {
 
     addStudentToGroup: (groupId: number, student: Omit<Student, 'id'>) => Promise<Student>;
     updateStudent: (groupId: number, studentId: string, student: Partial<Student>) => Promise<void>;
+    updateStudentDiscount: (groupId: number, studentId: string, discount: number) => Promise<void>;
     removeStudentFromGroup: (groupId: number, studentId: string) => Promise<void>;
     undoStudentAffectation: (groupId: number, studentId: string) => Promise<void>;
 
@@ -381,6 +382,18 @@ Thank you for your payment!`,
                 ),
                 loading: false,
             }));
+        } catch (error) {
+            set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    updateStudentDiscount: async (groupId, studentId, discount) => {
+        set({ loading: true, error: null });
+        try {
+            await studentService.updateGroupDiscount(studentId, groupId, discount);
+            // Refresh to update balances
+            const { fetchGroups } = get();
+            await fetchGroups();
         } catch (error) {
             set({ error: (error as Error).message, loading: false });
         }

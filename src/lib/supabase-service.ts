@@ -448,6 +448,7 @@ export const groupService = {
                 courseFee: student.price_per_session,
                 totalPaid: student.total_paid,
                 groupId: group.id,
+                groupDiscount: studentGroup?.group_discount || 0,
                 parentName: student.parent_name,
                 secondPhone: student.second_phone,
                 defaultDiscount: student.default_discount || 0,
@@ -1073,6 +1074,19 @@ export const studentService = {
     if (error) {
       console.error('Error removing student from group:', error);
       throw new Error(`Failed to remove student from group: ${error.message}`);
+    }
+  },
+
+  async updateGroupDiscount(studentId: string, groupId: number, discount: number): Promise<void> {
+    const { error } = await supabase
+      .from('student_groups')
+      .update({ group_discount: discount })
+      .eq('student_id', studentId)
+      .eq('group_id', groupId);
+
+    if (error) {
+      console.error('Error updating student group discount:', error);
+      throw new Error(`Failed to update student discount: ${error.message}`);
     }
   },
 };

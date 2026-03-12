@@ -200,6 +200,7 @@ export default function GroupDetailPage() {
         addStudentToGroup,
         removeStudentFromGroup,
         updateStudent,
+        updateStudentDiscount,
         updateGroup,
         generateSessions,
         updateAttendance,
@@ -362,6 +363,12 @@ export default function GroupDetailPage() {
                 address: editingStudent.address || undefined,
                 birthDate: editingStudent.birthDate ? new Date(editingStudent.birthDate) : undefined,
             });
+
+            // Check if discount changed
+            const originalStudent = uniqueStudents.find(s => s.id === editingStudent.id);
+            if (originalStudent && originalStudent.groupDiscount !== editingStudent.groupDiscount) {
+                await updateStudentDiscount(groupId, editingStudent.id, editingStudent.groupDiscount || 0);
+            }
 
             setIsEditStudentModalOpen(false);
             setEditingStudent(null);
@@ -1436,6 +1443,22 @@ export default function GroupDetailPage() {
                                                 value={editingStudent.birthDate ? format(new Date(editingStudent.birthDate), 'yyyy-MM-dd') : ''}
                                                 onChange={(e) => setEditingStudent({ ...editingStudent, birthDate: new Date(e.target.value) })}
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Discount (%) for this group
+                                            </label>
+                                            <Input
+                                                type="number"
+                                                value={editingStudent.groupDiscount || 0}
+                                                onChange={(e) => setEditingStudent({ ...editingStudent, groupDiscount: parseFloat(e.target.value) || 0 })}
+                                                placeholder="0"
+                                                min="0"
+                                                max="100"
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Adjust the percentage of discount for this specific group.
+                                            </p>
                                         </div>
                                     </div>
                                     <div className="flex justify-end gap-3 mt-6">

@@ -48,6 +48,7 @@ export interface Student {
     // Registration fee
     registrationFeePaid?: boolean;
     registrationFeeAmount?: number;
+    groupDiscount?: number;
 }
 
 export interface WaitingListStudent {

@@ -1130,6 +1130,9 @@ export default function GroupDetailPage() {
                                                             <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                 Payment Status
                                                             </th>
+                                                            <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                                Actions
+                                                            </th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1183,6 +1186,24 @@ export default function GroupDetailPage() {
                                                                 </td>
                                                                 <td className="px-3 py-4 whitespace-nowrap text-center">
                                                                     <PaymentStatusCell studentId={student.id} groupId={groupId} />
+                                                                </td>
+                                                                <td className="px-3 py-4 whitespace-nowrap text-center">
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <button
+                                                                            onClick={() => handleEditStudentClick(student)}
+                                                                            className="text-gray-400 hover:text-blue-600 transition-colors"
+                                                                            title="Edit Student"
+                                                                        >
+                                                                            <PencilIcon className="h-5 w-5" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteStudent(student.id)}
+                                                                            className="text-gray-400 hover:text-red-600 transition-colors"
+                                                                            title="Remove from group"
+                                                                        >
+                                                                            <TrashIcon className="h-5 w-5" />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))}

@@ -782,6 +782,18 @@ export default function AttendancePage() {
     };
 
 
+    const handleUpdateSessionDate = async (sessionId: string, newDate: Date) => {
+        try {
+            await useMySchoolStore.getState().rescheduleSession(sessionId, newDate);
+            alert('Session date updated successfully!');
+            // Refresh groups data to show updated date and sort
+            await fetchGroups();
+        } catch (error) {
+            console.error('Error updating session date:', error);
+            alert('Failed to update session date.');
+        }
+    };
+
     return (
         <AuthGuard>
             <div className="min-h-screen bg-gray-50">
@@ -1039,13 +1051,27 @@ export default function AttendancePage() {
                                             </th>
                                             {showHistory ? (
                                                 // Show all sessions in history view
-                                                allSessionsForGroup.map((session) => {
+                                                allSessionsForGroup.map((session, index) => {
                                                     const sessionNumber = getSessionNumber(session, allSessionsForGroup);
                                                     return (
-                                                        <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            <div className="flex flex-col items-center">
+                                                        <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors relative">
+                                                            <div className="flex flex-col items-center group/header relative">
                                                                 <span className="font-bold text-blue-600">#{sessionNumber}</span>
-                                                                <span>{format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'MMM dd')}</span>
+                                                                <span className="underline decoration-dotted underline-offset-4 decoration-blue-400">
+                                                                    {format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'MMM dd')}
+                                                                </span>
+                                                                <input
+                                                                    type="date"
+                                                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                                    value={format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'yyyy-MM-dd')}
+                                                                    onChange={(e) => {
+                                                                        if (e.target.value) {
+                                                                            handleUpdateSessionDate(session.id, new Date(e.target.value));
+                                                                        }
+                                                                    }}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    title="Click to reschedule this session"
+                                                                />
                                                             </div>
                                                         </th>
                                                     );
@@ -1055,10 +1081,24 @@ export default function AttendancePage() {
                                                 sessionsForSelectedDate.map((session) => {
                                                     const sessionNumber = getSessionNumber(session, selectedGroup.sessions);
                                                     return (
-                                                        <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            <div className="flex flex-col items-center">
+                                                        <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors relative">
+                                                            <div className="flex flex-col items-center group/header relative">
                                                                 <span className="font-bold text-blue-600">#{sessionNumber}</span>
-                                                                <span>{format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'MMM dd')}</span>
+                                                                <span className="underline decoration-dotted underline-offset-4 decoration-blue-400">
+                                                                    {format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'MMM dd')}
+                                                                </span>
+                                                                <input
+                                                                    type="date"
+                                                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                                    value={format(typeof session.date === 'string' ? new Date(session.date) : session.date, 'yyyy-MM-dd')}
+                                                                    onChange={(e) => {
+                                                                        if (e.target.value) {
+                                                                            handleUpdateSessionDate(session.id, new Date(e.target.value));
+                                                                        }
+                                                                    }}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    title="Click to reschedule this session"
+                                                                />
                                                             </div>
                                                         </th>
                                                     );

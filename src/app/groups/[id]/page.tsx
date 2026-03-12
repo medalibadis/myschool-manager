@@ -201,6 +201,7 @@ export default function GroupDetailPage() {
         getStudentBalance,
         getLastPaymentCallNote,
         addGroup,
+        rescheduleSession,
         teachers,
         loading,
         error
@@ -215,6 +216,26 @@ export default function GroupDetailPage() {
         }
         return Array.from(byId.values());
     }, [group?.students]);
+
+    const sortedSessions = React.useMemo(() => {
+        if (!group?.sessions) return [];
+        return [...group.sessions].sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            return dateA.getTime() - dateB.getTime();
+        });
+    }, [group?.sessions]);
+
+    const handleUpdateSessionDate = async (sessionId: string, newDate: Date) => {
+        try {
+            await rescheduleSession(sessionId, newDate);
+            alert('Session date updated successfully!');
+        } catch (error) {
+            console.error('Error updating session date:', error);
+            alert('Failed to update session date.');
+        }
+    };
+
     const teacher = group ? getTeacherById(group.teacherId) : null;
 
     React.useEffect(() => {
@@ -997,15 +1018,15 @@ export default function GroupDetailPage() {
                                                             <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                                 Status
                                                             </th>
-                                                            {group.sessions.map((session, index) => {
+                                                            {sortedSessions.map((session, index) => {
                                                                 const canMoveLeft = index > 0;
-                                                                const canMoveRight = index < group.sessions.length - 1;
+                                                                const canMoveRight = index < sortedSessions.length - 1;
 
                                                                 const handleMoveSession = async (direction: 'left' | 'right') => {
                                                                     try {
-                                                                        const currentSession = group.sessions[index];
+                                                                        const currentSession = sortedSessions[index];
                                                                         const targetIndex = direction === 'left' ? index - 1 : index + 1;
-                                                                        const targetSession = group.sessions[targetIndex];
+                                                                        const targetSession = sortedSessions[targetIndex];
 
                                                                         if (!currentSession.sessionNumber || !targetSession.sessionNumber) {
                                                                             alert('Session numbers not set. Please run the session order fix script first.');
@@ -1039,24 +1060,40 @@ export default function GroupDetailPage() {
                                                                 };
 
                                                                 return (
-                                                                    <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                        <div className="flex flex-col items-center gap-1">
+                                                                    <th key={session.id} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors relative">
+                                                                        <div className="flex flex-col items-center gap-1 group/header relative">
                                                                             <div className="flex items-center gap-1">
                                                                                 <button
-                                                                                    onClick={() => handleMoveSession('left')}
+                                                                                    onClick={(e) => { e.stopPropagation(); handleMoveSession('left'); }}
                                                                                     disabled={!canMoveLeft}
-                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${!canMoveLeft ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors relative z-10 ${!canMoveLeft ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
                                                                                     title="Move left"
                                                                                 >
                                                                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                                                                                     </svg>
                                                                                 </button>
-                                                                                <span>{format(session.date, 'MMM dd')}</span>
+                                                                                <div className="relative">
+                                                                                    <span className="underline decoration-dotted underline-offset-4 decoration-blue-400">
+                                                                                        {format(session.date, 'MMM dd')}
+                                                                                    </span>
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                                                        value={format(session.date, 'yyyy-MM-dd')}
+                                                                                        onChange={(e) => {
+                                                                                            if (e.target.value) {
+                                                                                                handleUpdateSessionDate(session.id, new Date(e.target.value));
+                                                                                            }
+                                                                                        }}
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                        title="Click to reschedule this session"
+                                                                                    />
+                                                                                </div>
                                                                                 <button
-                                                                                    onClick={() => handleMoveSession('right')}
+                                                                                    onClick={(e) => { e.stopPropagation(); handleMoveSession('right'); }}
                                                                                     disabled={!canMoveRight}
-                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${!canMoveRight ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                                    className={`p-0.5 rounded hover:bg-gray-200 transition-colors relative z-10 ${!canMoveRight ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
                                                                                     title="Move right"
                                                                                 >
                                                                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1064,9 +1101,7 @@ export default function GroupDetailPage() {
                                                                                     </svg>
                                                                                 </button>
                                                                             </div>
-                                                                            {session.sessionNumber && (
-                                                                                <span className="text-[10px] text-gray-400">#{session.sessionNumber}</span>
-                                                                            )}
+                                                                            <span className="text-[10px] text-blue-600 font-bold">#{index + 1}</span>
                                                                         </div>
                                                                     </th>
                                                                 );
@@ -1093,7 +1128,7 @@ export default function GroupDetailPage() {
                                                                 <td className="px-3 py-4 whitespace-nowrap text-center">
                                                                     <StudentStatusBadge studentId={student.id} groupId={groupId} />
                                                                 </td>
-                                                                {group.sessions.map((session) => {
+                                                                {sortedSessions.map((session) => {
                                                                     const attendance = session.attendance && typeof session.attendance === 'object'
                                                                         ? session.attendance[student.id]
                                                                         : 'default';

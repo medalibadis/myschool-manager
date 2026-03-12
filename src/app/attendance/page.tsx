@@ -219,13 +219,37 @@ export default function AttendancePage() {
     };
 
     const handleAttendanceUpdate = (sessionId: string, studentId: string, status: AttendanceStatus) => {
-        setAttendanceMap(prev => ({
-            ...prev,
-            [sessionId]: {
-                ...(prev[sessionId] || {}),
-                [studentId]: status
+        setAttendanceMap(prev => {
+            const nextMap = { ...prev };
+
+            // Apply current change
+            if (!nextMap[sessionId]) {
+                nextMap[sessionId] = {};
             }
-        }));
+            nextMap[sessionId] = {
+                ...nextMap[sessionId],
+                [studentId]: status
+            };
+
+            // If status is 'change', propagate to all future sessions
+            if (status === 'change' && selectedGroup) {
+                const sessionIndex = allSessionsForGroup.findIndex(s => s.id === sessionId);
+                if (sessionIndex !== -1) {
+                    for (let i = sessionIndex + 1; i < allSessionsForGroup.length; i++) {
+                        const futureSessionId = allSessionsForGroup[i].id;
+                        if (!nextMap[futureSessionId]) {
+                            nextMap[futureSessionId] = {};
+                        }
+                        nextMap[futureSessionId] = {
+                            ...nextMap[futureSessionId],
+                            [studentId]: 'change'
+                        };
+                    }
+                }
+            }
+
+            return nextMap;
+        });
     };
 
     const handleSaveChanges = async () => {

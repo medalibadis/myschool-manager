@@ -193,6 +193,7 @@ export default function GroupDetailPage() {
         updateGroup,
         generateSessions,
         updateAttendance,
+        updateAttendanceBulk,
         fetchGroups,
         fetchTeachers,
         getWaitingListByCriteria,
@@ -706,9 +707,26 @@ export default function GroupDetailPage() {
 
         const newStatus = getNextAttendanceStatus(currentStatus);
         try {
-            await updateAttendance(sessionId, studentId, newStatus);
-            // Re-fetch the group to update the attendance in the table
-            fetchGroups();
+            if (newStatus === 'change') {
+                // If propagating "change", use bulk update for all future sessions
+                const sessionIndex = sortedSessions.findIndex(s => s.id === sessionId);
+                if (sessionIndex !== -1) {
+                    const updates = [];
+                    for (let i = sessionIndex; i < sortedSessions.length; i++) {
+                        updates.push({
+                            sessionId: sortedSessions[i].id,
+                            studentId: studentId,
+                            status: 'change' as AttendanceStatus
+                        });
+                    }
+                    await updateAttendanceBulk(groupId, updates);
+                } else {
+                    await updateAttendance(sessionId, studentId, newStatus);
+                }
+            } else {
+                await updateAttendance(sessionId, studentId, newStatus);
+            }
+            // Re-fetch handled by store action
         } catch (error) {
             console.error('Error updating attendance:', error);
             alert('Failed to update attendance. Please try again.');

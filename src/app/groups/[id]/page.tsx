@@ -773,7 +773,7 @@ export default function GroupDetailPage() {
         try {
             // Create the new group
             const newGroup = await addGroup({
-                name: `${nextGroupFormData.language} ${nextGroupFormData.level} - ${nextGroupFormData.category} (Next)`,
+                name: `${nextGroupFormData.language}|${nextGroupFormData.level}|${nextGroupFormData.category} (Next)`,
                 teacherId: nextGroupFormData.teacherId,
                 startDate: new Date(nextGroupFormData.startDate),
                 totalSessions: nextGroupFormData.totalSessions,
@@ -898,7 +898,7 @@ export default function GroupDetailPage() {
                                                 teacherId: group.teacherId,
                                                 startDate: new Date().toISOString().split('T')[0], // Today's date
                                                 totalSessions: group.totalSessions,
-                                                recurringDays: group.recurringDays,
+                                                recurringDays: group.recurringDays || [],
                                                 price: group.price || 0,
                                                 language: group.language || '',
                                                 level: group.level || '',

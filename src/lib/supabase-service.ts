@@ -606,6 +606,7 @@ export const groupService = {
       price: group.price || 0,
       start_time: group.startTime || null,
       end_time: group.endTime || null,
+      recurring_days: group.recurringDays || [1],
       custom_language: group.customLanguage || null,
       custom_level: group.customLevel || null,
       custom_category: group.customCategory || null,
@@ -629,7 +630,7 @@ export const groupService = {
       name: data.name,
       teacherId: data.teacher_id,
       startDate: new Date(data.start_date),
-      recurringDays: [1], // Default to Monday since we don't have this column
+      recurringDays: data.recurring_days || [1],
       totalSessions: data.total_sessions,
       language: data.language,
       level: data.level,
@@ -660,6 +661,7 @@ export const groupService = {
         price: group.price,
         start_time: group.startTime,
         end_time: group.endTime,
+        recurring_days: group.recurringDays,
         custom_language: group.customLanguage,
         custom_level: group.customLevel,
         custom_category: group.customCategory,
@@ -678,7 +680,7 @@ export const groupService = {
       name: data.name,
       teacherId: data.teacher_id,
       startDate: new Date(data.start_date),
-      recurringDays: [1], // Default to Monday since we don't have this column
+      recurringDays: data.recurring_days || [1],
       totalSessions: data.total_sessions,
       language: data.language,
       level: data.level,

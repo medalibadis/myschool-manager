@@ -21,6 +21,7 @@ import {
     CalendarIcon,
     CalculatorIcon,
     ArrowUturnLeftIcon,
+    PhoneIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 import { format } from 'date-fns';
@@ -62,6 +63,7 @@ export default function PaymentsPage() {
         error,
         depositAndAllocate,
         undoPaymentAllocation,
+        addCallLog,
     } = useMySchoolStore();
 
     const { isSuperuser } = useAuth();
@@ -144,6 +146,9 @@ export default function PaymentsPage() {
     const [isDebtsModalOpen, setIsDebtsModalOpen] = useState(false);
     const [debtsSearchTerm, setDebtsSearchTerm] = useState('');
     const [refundsSearchTerm, setRefundsSearchTerm] = useState('');
+    // Attendance data for each group (groupId -> array of session attendance)
+    const [groupAttendanceMap, setGroupAttendanceMap] = useState<Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>>>({}); 
+    const [isCreatingCallLog, setIsCreatingCallLog] = useState(false);
     const [refundList, setRefundList] = useState<Array<{
         studentId: string;
         studentName: string;
@@ -464,10 +469,36 @@ export default function PaymentsPage() {
 
             setUnpaidGroups(list);
 
+            // Fetch attendance data for each group this student belongs to
+            const attendanceMap: Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>> = {};
+            for (const group of groups) {
+                // Check if the student is in this group
+                const studentInGroup = group.students?.some(s => s.id === selectedStudent.id);
+                if (studentInGroup && group.sessions && group.sessions.length > 0) {
+                    const sessionRecords = group.sessions
+                        .filter(session => {
+                            // Only include sessions that have attendance data for this student
+                            const status = session.attendance?.[selectedStudent.id];
+                            return status && status !== 'new';
+                        })
+                        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                        .map(session => ({
+                            date: new Date(session.date),
+                            status: session.attendance[selectedStudent.id] || 'default',
+                            sessionNumber: session.sessionNumber
+                        }));
+                    if (sessionRecords.length > 0) {
+                        attendanceMap[group.id] = sessionRecords;
+                    }
+                }
+            }
+            setGroupAttendanceMap(attendanceMap);
+
             console.log('Selected student data refreshed:', {
                 balance: balance.remainingBalance,
                 unpaidGroupsCount: list.length,
-                rawGroupBalancesCount: balance.groupBalances.length
+                rawGroupBalancesCount: balance.groupBalances.length,
+                attendanceGroupsCount: Object.keys(attendanceMap).length
             });
         } catch (error) {
             console.error('Error refreshing selected student data:', error);
@@ -1759,6 +1790,7 @@ Thank you!`;
                         setIsSearchModalOpen(true);
                         setSelectedStudent(null);
                         setSelectedGroup(null);
+                        setGroupAttendanceMap({});
                         setPaymentData({
                             amount: '',
                             discount: '',
@@ -1767,6 +1799,7 @@ Thank you!`;
                         });
                     }}
                     title={`Add Payment - ${selectedStudent?.name || 'Student'}`}
+                    maxWidth="5xl"
                 >
                     {selectedStudent && (
                         <div className="space-y-6">
@@ -1778,14 +1811,59 @@ Thank you!`;
                                         <div className="text-sm text-orange-600">{selectedStudent.email}</div>
                                         <div className="text-sm text-orange-600">{selectedStudent.phone}</div>
                                     </div>
-                                    <Button
-                                        onClick={refreshSelectedStudentData}
-                                        size="sm"
-                                        variant="outline"
-                                        className="text-xs px-2 py-1"
-                                    >
-                                        🔄 Refresh
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            onClick={async () => {
+                                                if (!selectedStudent) return;
+                                                setIsCreatingCallLog(true);
+                                                try {
+                                                    // Build notes with all unpaid groups
+                                                    const unpaidGroupsNotes = unpaidGroups.length > 0
+                                                        ? unpaidGroups.map(g => `${g.name}: -${g.remaining.toFixed(2)} DZD`).join(', ')
+                                                        : 'No unpaid groups';
+                                                    const callNotes = `Payment follow-up — ${unpaidGroupsNotes}`;
+
+                                                    await addCallLog({
+                                                        studentId: selectedStudent.id,
+                                                        studentName: selectedStudent.name,
+                                                        studentPhone: selectedStudent.phone || selectedStudent.email || '',
+                                                        callDate: new Date(),
+                                                        callType: 'payment',
+                                                        status: 'pending',
+                                                        notes: callNotes,
+                                                        adminName: 'Dalila',
+                                                    });
+
+                                                    // Try to open phone dialer
+                                                    if (selectedStudent.phone) {
+                                                        window.open(`tel:${selectedStudent.phone}`, '_self');
+                                                    }
+
+                                                    alert(`✅ Call log created for ${selectedStudent.name}`);
+                                                } catch (err) {
+                                                    console.error('Error creating call log:', err);
+                                                    alert('Failed to create call log.');
+                                                } finally {
+                                                    setIsCreatingCallLog(false);
+                                                }
+                                            }}
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={isCreatingCallLog}
+                                            className="text-xs px-2 py-1 border-green-300 text-green-700 hover:bg-green-50"
+                                        >
+                                            <PhoneIcon className="h-3.5 w-3.5 mr-1 inline" />
+                                            {isCreatingCallLog ? 'Calling...' : 'Call'}
+                                        </Button>
+                                        <Button
+                                            onClick={refreshSelectedStudentData}
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-xs px-2 py-1"
+                                        >
+                                            🔄 Refresh
+                                        </Button>
+                                    </div>
                                 </div>
                                 <div className="text-sm text-gray-700 flex flex-col gap-1">
                                     {/* Primary Balance: Net student standing */}
@@ -1902,6 +1980,45 @@ Thank you!`;
                                                         )}
                                                     </div>
                                                 </div>
+                                                {/* Attendance Circles */}
+                                                {g.id !== 0 && groupAttendanceMap[g.id] && groupAttendanceMap[g.id].length > 0 && (
+                                                    <div className="mt-3 pt-3 border-t border-gray-200">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Attendance</span>
+                                                            <span className="text-[10px] text-gray-400">
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'present').length}P
+                                                                {' / '}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'absent').length}A
+                                                                {' / '}
+                                                                {groupAttendanceMap[g.id].filter(a => ['default', 'justified', 'too_late', 'change', 'stop'].includes(a.status)).length}O
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {groupAttendanceMap[g.id].map((att, attIdx) => {
+                                                                const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
+                                                                    present: { bg: 'bg-emerald-100 border-emerald-400', text: 'text-emerald-700', label: 'P' },
+                                                                    absent: { bg: 'bg-red-100 border-red-400', text: 'text-red-700', label: 'A' },
+                                                                    default: { bg: 'bg-gray-100 border-gray-300', text: 'text-gray-500', label: 'D' },
+                                                                    justified: { bg: 'bg-yellow-100 border-yellow-400', text: 'text-yellow-700', label: 'J' },
+                                                                    too_late: { bg: 'bg-orange-100 border-orange-400', text: 'text-orange-700', label: 'L' },
+                                                                    change: { bg: 'bg-blue-100 border-blue-400', text: 'text-blue-700', label: 'C' },
+                                                                    stop: { bg: 'bg-purple-100 border-purple-400', text: 'text-purple-700', label: 'S' },
+                                                                };
+                                                                const config = statusConfig[att.status] || statusConfig['default'];
+                                                                const dateStr = format(att.date, 'dd/MM');
+                                                                return (
+                                                                    <div
+                                                                        key={attIdx}
+                                                                        title={`${dateStr} — ${att.status.charAt(0).toUpperCase() + att.status.slice(1)}`}
+                                                                        className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-bold cursor-default ${config.bg} ${config.text}`}
+                                                                    >
+                                                                        {config.label}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </li>
                                         ))}
                                     </ul>
@@ -1970,6 +2087,7 @@ Thank you!`;
                                 setIsSearchModalOpen(true);
                                 setSelectedStudent(null);
                                 setSelectedGroup(null);
+                                setGroupAttendanceMap({});
                                 setPaymentData({
                                     amount: '',
                                     discount: '',

@@ -1824,11 +1824,7 @@ Thank you!`;
                                         <Button
                                             onClick={() => {
                                                 if (!selectedStudent) return;
-                                                // Open phone dialer
-                                                if (selectedStudent.phone) {
-                                                    window.open(`tel:${selectedStudent.phone}`, '_self');
-                                                }
-                                                // Reset form and open call log modal
+                                                // Just open the call log modal — no auto-dial
                                                 setCallLogForm({ status: 'pending', notes: '' });
                                                 setIsCallLogModalOpen(true);
                                             }}

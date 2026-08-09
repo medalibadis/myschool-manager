@@ -66,7 +66,7 @@ export default function PaymentsPage() {
         addCallLog,
     } = useMySchoolStore();
 
-    const { isSuperuser } = useAuth();
+    const { isSuperuser, user } = useAuth();
 
     const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -147,8 +147,17 @@ export default function PaymentsPage() {
     const [debtsSearchTerm, setDebtsSearchTerm] = useState('');
     const [refundsSearchTerm, setRefundsSearchTerm] = useState('');
     // Attendance data for each group (groupId -> array of session attendance)
-    const [groupAttendanceMap, setGroupAttendanceMap] = useState<Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>>>({}); 
-    const [isCreatingCallLog, setIsCreatingCallLog] = useState(false);
+    const [groupAttendanceMap, setGroupAttendanceMap] = useState<Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>>>({});
+    // Call log modal state
+    const [isCallLogModalOpen, setIsCallLogModalOpen] = useState(false);
+    const [isSubmittingCallLog, setIsSubmittingCallLog] = useState(false);
+    const [callLogForm, setCallLogForm] = useState<{
+        status: 'pending' | 'coming' | 'not_coming';
+        notes: string;
+    }>({
+        status: 'pending',
+        notes: '',
+    });
     const [refundList, setRefundList] = useState<Array<{
         studentId: string;
         studentName: string;
@@ -1813,47 +1822,22 @@ Thank you!`;
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <Button
-                                            onClick={async () => {
+                                            onClick={() => {
                                                 if (!selectedStudent) return;
-                                                setIsCreatingCallLog(true);
-                                                try {
-                                                    // Build notes with all unpaid groups
-                                                    const unpaidGroupsNotes = unpaidGroups.length > 0
-                                                        ? unpaidGroups.map(g => `${g.name}: -${g.remaining.toFixed(2)} DZD`).join(', ')
-                                                        : 'No unpaid groups';
-                                                    const callNotes = `Payment follow-up — ${unpaidGroupsNotes}`;
-
-                                                    await addCallLog({
-                                                        studentId: selectedStudent.id,
-                                                        studentName: selectedStudent.name,
-                                                        studentPhone: selectedStudent.phone || selectedStudent.email || '',
-                                                        callDate: new Date(),
-                                                        callType: 'payment',
-                                                        status: 'pending',
-                                                        notes: callNotes,
-                                                        adminName: 'Dalila',
-                                                    });
-
-                                                    // Try to open phone dialer
-                                                    if (selectedStudent.phone) {
-                                                        window.open(`tel:${selectedStudent.phone}`, '_self');
-                                                    }
-
-                                                    alert(`✅ Call log created for ${selectedStudent.name}`);
-                                                } catch (err) {
-                                                    console.error('Error creating call log:', err);
-                                                    alert('Failed to create call log.');
-                                                } finally {
-                                                    setIsCreatingCallLog(false);
+                                                // Open phone dialer
+                                                if (selectedStudent.phone) {
+                                                    window.open(`tel:${selectedStudent.phone}`, '_self');
                                                 }
+                                                // Reset form and open call log modal
+                                                setCallLogForm({ status: 'pending', notes: '' });
+                                                setIsCallLogModalOpen(true);
                                             }}
                                             size="sm"
                                             variant="outline"
-                                            disabled={isCreatingCallLog}
                                             className="text-xs px-2 py-1 border-green-300 text-green-700 hover:bg-green-50"
                                         >
                                             <PhoneIcon className="h-3.5 w-3.5 mr-1 inline" />
-                                            {isCreatingCallLog ? 'Calling...' : 'Call'}
+                                            Call
                                         </Button>
                                         <Button
                                             onClick={refreshSelectedStudentData}
@@ -2107,7 +2091,156 @@ Thank you!`;
                     </div>
                 </Modal>
 
+                {/* Call Log Modal */}
+                <Modal
+                    isOpen={isCallLogModalOpen}
+                    onClose={() => setIsCallLogModalOpen(false)}
+                    title="📞 Log Call"
+                    maxWidth="lg"
+                >
+                    {selectedStudent && (
+                        <div className="space-y-5">
+                            {/* Student Info Header */}
+                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
+                                <div className="flex items-start gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                                        <PhoneIcon className="h-5 w-5 text-green-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-bold text-gray-900 text-base">{selectedStudent.name}</div>
+                                        <div className="text-green-700 font-mono text-sm mt-0.5">{selectedStudent.phone || '—'}</div>
+                                        {selectedStudent.email && (
+                                            <div className="text-gray-500 text-xs mt-0.5">{selectedStudent.email}</div>
+                                        )}
+                                    </div>
+                                    <div className={`text-right`}>
+                                        <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-0.5">Total Owed</div>
+                                        <div className="font-black text-red-600 text-lg">
+                                            {Math.abs(selectedStudent.remainingBalance).toFixed(2)} <span className="text-xs font-semibold">DZD</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Unpaid Groups Summary */}
+                            {unpaidGroups.length > 0 && (
+                                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">📋 Unpaid Groups</div>
+                                    <div className="space-y-2">
+                                        {unpaidGroups.map((g, idx) => (
+                                            <div key={g.id} className="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-5 h-5 rounded-full bg-gray-300 text-white text-[10px] flex items-center justify-center font-bold">{idx + 1}</span>
+                                                    <span className="text-sm text-gray-800 font-medium">{g.id === 0 ? 'Registration Fee' : g.name}</span>
+                                                </div>
+                                                <span className="text-sm font-bold text-red-600">-{g.remaining.toFixed(2)} DZD</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between items-center">
+                                        <span className="text-sm font-semibold text-gray-700">Total to Pay</span>
+                                        <span className="text-base font-black text-red-700">
+                                            -{unpaidGroups.reduce((sum, g) => sum + g.remaining, 0).toFixed(2)} DZD
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Status: Did they answer? */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">📲 Call Status</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {([
+                                        { value: 'coming', label: '✅ Answered', color: 'border-green-400 bg-green-50 text-green-700' },
+                                        { value: 'not_coming', label: '❌ No Answer', color: 'border-red-400 bg-red-50 text-red-700' },
+                                        { value: 'pending', label: '⏳ Pending', color: 'border-yellow-400 bg-yellow-50 text-yellow-700' },
+                                    ] as const).map(opt => (
+                                        <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => setCallLogForm(prev => ({ ...prev, status: opt.value }))}
+                                            className={`py-2 px-3 rounded-lg border-2 text-xs font-semibold transition-all ${
+                                                callLogForm.status === opt.value
+                                                    ? opt.color + ' ring-2 ring-offset-1 ring-current'
+                                                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Notes */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">🗒️ Notes</label>
+                                <textarea
+                                    value={callLogForm.notes}
+                                    onChange={e => setCallLogForm(prev => ({ ...prev, notes: e.target.value }))}
+                                    placeholder="What was discussed during the call..."
+                                    rows={3}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none text-sm"
+                                />
+                            </div>
+
+                            {/* Admin Info */}
+                            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                                <UserIcon className="h-4 w-4" />
+                                <span>Called by <span className="font-semibold text-gray-700">{user?.name || user?.username || 'Admin'}</span></span>
+                                <span className="ml-auto text-gray-400">{new Date().toLocaleDateString('fr-DZ')}</span>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex justify-end gap-3 pt-1">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setIsCallLogModalOpen(false)}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    disabled={isSubmittingCallLog}
+                                    onClick={async () => {
+                                        if (!selectedStudent) return;
+                                        setIsSubmittingCallLog(true);
+                                        try {
+                                            const unpaidGroupsNotes = unpaidGroups.length > 0
+                                                ? unpaidGroups.map(g => `${g.name}: -${g.remaining.toFixed(2)} DZD`).join(' | ')
+                                                : 'No unpaid groups';
+                                            const autoNotes = `Payment follow-up — ${unpaidGroupsNotes}`;
+                                            const finalNotes = callLogForm.notes
+                                                ? `${callLogForm.notes}\n---\n${autoNotes}`
+                                                : autoNotes;
+
+                                            await addCallLog({
+                                                studentId: selectedStudent.id,
+                                                studentName: selectedStudent.name,
+                                                studentPhone: selectedStudent.phone || '',
+                                                callDate: new Date(),
+                                                callType: 'payment',
+                                                status: callLogForm.status,
+                                                notes: finalNotes,
+                                                adminName: user?.name || user?.username || 'Admin',
+                                            });
+                                            setIsCallLogModalOpen(false);
+                                        } catch (err) {
+                                            console.error('Error saving call log:', err);
+                                            alert('Failed to save call log.');
+                                        } finally {
+                                            setIsSubmittingCallLog(false);
+                                        }
+                                    }}
+                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                >
+                                    {isSubmittingCallLog ? 'Saving...' : '💾 Save Call Log'}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </Modal>
+
                 {/* Allocation Summary Modal */}
+
                 <Modal
                     isOpen={isAllocationModalOpen}
                     onClose={() => {

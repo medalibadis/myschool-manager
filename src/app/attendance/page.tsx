@@ -231,23 +231,7 @@ export default function AttendancePage() {
                 [studentId]: status
             };
 
-            // If status is 'change', propagate to all future sessions
-            if (status === 'change' && selectedGroup) {
-                const sessionIndex = allSessionsForGroup.findIndex(s => s.id === sessionId);
-                if (sessionIndex !== -1) {
-                    for (let i = sessionIndex + 1; i < allSessionsForGroup.length; i++) {
-                        const futureSessionId = allSessionsForGroup[i].id;
-                        if (!nextMap[futureSessionId]) {
-                            nextMap[futureSessionId] = {};
-                        }
-                        nextMap[futureSessionId] = {
-                            ...nextMap[futureSessionId],
-                            [studentId]: 'change'
-                        };
-                    }
-                }
-            }
-
+            // Apply current change only — no auto-propagation to future sessions
             return nextMap;
         });
     };

@@ -839,9 +839,9 @@ export default function PaymentsPage() {
 
             console.log('✅ Group discount saved successfully');
 
-            // Close modal and refresh data
+            // Close modal but keep selected group for payment targeting
             setShowGroupPaymentModal(false);
-            setSelectedGroupForPayment(null);
+            // Don't clear selectedGroupForPayment — keep it so deposit targets this group
             setGroupPaymentData({ amount: '', discount: '', notes: '' });
 
             // Refresh student data
@@ -2019,6 +2019,23 @@ Thank you!`;
 
                             {/* Deposit Form */}
                             <div className="space-y-4">
+                                {/* Show which group is targeted */}
+                                {selectedGroupForPayment && (
+                                    <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                        <div className="text-sm text-blue-800">
+                                            <span className="font-semibold">🎯 Depositing to:</span>{' '}
+                                            <span className="font-bold">{selectedGroupForPayment.name}</span>
+                                            <span className="text-blue-600 ml-1">(Group #{selectedGroupForPayment.id})</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedGroupForPayment(null)}
+                                            className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+                                        >
+                                            ✕ Clear (Auto-Allocate)
+                                        </button>
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Deposit Amount *
@@ -2082,7 +2099,7 @@ Thank you!`;
                             onClick={handleAddPayment}
                             disabled={!selectedStudent || !paymentData.amount || isProcessingPayment}
                         >
-                            {isProcessingPayment ? 'Processing...' : 'Deposit & Auto-Allocate'}
+                            {isProcessingPayment ? 'Processing...' : selectedGroupForPayment ? `💰 Pay → ${selectedGroupForPayment.name}` : 'Deposit & Auto-Allocate'}
                         </Button>
                     </div>
                 </Modal>
@@ -3172,7 +3189,7 @@ Thank you!`;
                     isOpen={showGroupPaymentModal}
                     onClose={() => {
                         setShowGroupPaymentModal(false);
-                        setSelectedGroupForPayment(null);
+                        // Keep selectedGroupForPayment so deposit targets this group
                         setGroupPaymentData({ amount: '', discount: '', notes: '' });
                     }}
                     title={`Set Discount for ${selectedGroupForPayment?.name || 'Group'}`}
@@ -3274,7 +3291,7 @@ Thank you!`;
                                     variant="outline"
                                     onClick={() => {
                                         setShowGroupPaymentModal(false);
-                                        setSelectedGroupForPayment(null);
+                                        // Keep selectedGroupForPayment so deposit targets this group
                                         setGroupPaymentData({ amount: '', discount: '', notes: '' });
                                     }}
                                 >

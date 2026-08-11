@@ -196,14 +196,20 @@ export default function AttendancePage() {
         });
 
         return Array.from(uniqueSessionsMap.values()).sort((a, b) => {
-            // Primary sort: by session_number (if available)
+            // Primary sort: by date
+            const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
+            const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
+            const timeDiff = dateA.getTime() - dateB.getTime();
+            
+            if (timeDiff !== 0) {
+                return timeDiff;
+            }
+            
+            // Secondary sort (tie-breaker for same date): by session_number (if available)
             if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
                 return a.sessionNumber - b.sessionNumber;
             }
-            // Fallback: sort by date if session_number is not available
-            const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
-            const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
-            return dateA.getTime() - dateB.getTime();
+            return 0;
         });
     }, [selectedGroup]);
 
@@ -739,7 +745,16 @@ export default function AttendancePage() {
         const sortedSessions = [...allSessions].sort((a, b) => {
             const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
             const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
-            return dateA.getTime() - dateB.getTime();
+            const timeDiff = dateA.getTime() - dateB.getTime();
+            
+            if (timeDiff !== 0) {
+                return timeDiff;
+            }
+            
+            if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
+                return a.sessionNumber - b.sessionNumber;
+            }
+            return 0;
         });
 
         // Find the index of the current session

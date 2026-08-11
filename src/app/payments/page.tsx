@@ -485,15 +485,15 @@ export default function PaymentsPage() {
                 const studentInGroup = group.students?.some(s => s.id === selectedStudent.id);
                 if (studentInGroup && group.sessions && group.sessions.length > 0) {
                     const sessionRecords = group.sessions
-                        .filter(session => {
-                            // Only include sessions that have attendance data for this student
-                            const status = session.attendance?.[selectedStudent.id];
-                            return status && status !== 'new';
+                        .sort((a, b) => {
+                            if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
+                                return a.sessionNumber - b.sessionNumber;
+                            }
+                            return new Date(a.date).getTime() - new Date(b.date).getTime();
                         })
-                        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                         .map(session => ({
                             date: new Date(session.date),
-                            status: session.attendance[selectedStudent.id] || 'default',
+                            status: session.attendance?.[selectedStudent.id] || 'default',
                             sessionNumber: session.sessionNumber
                         }));
                     if (sessionRecords.length > 0) {
@@ -1970,10 +1970,10 @@ Thank you!`;
                                                                 {' / '}
                                                                 {groupAttendanceMap[g.id].filter(a => a.status === 'absent').length}A
                                                                 {' / '}
-                                                                {groupAttendanceMap[g.id].filter(a => ['default', 'justified', 'too_late', 'change', 'stop'].includes(a.status)).length}O
+                                                                {groupAttendanceMap[g.id].filter(a => ['default', 'justified', 'too_late', 'change', 'stop', 'new'].includes(a.status)).length}O
                                                             </span>
                                                         </div>
-                                                        <div className="flex flex-wrap gap-1.5">
+                                                        <div className="flex flex-wrap gap-2 pt-1">
                                                             {groupAttendanceMap[g.id].map((att, attIdx) => {
                                                                 const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
                                                                     present: { bg: 'bg-emerald-100 border-emerald-400', text: 'text-emerald-700', label: 'P' },
@@ -1983,16 +1983,19 @@ Thank you!`;
                                                                     too_late: { bg: 'bg-orange-100 border-orange-400', text: 'text-orange-700', label: 'L' },
                                                                     change: { bg: 'bg-blue-100 border-blue-400', text: 'text-blue-700', label: 'C' },
                                                                     stop: { bg: 'bg-purple-100 border-purple-400', text: 'text-purple-700', label: 'S' },
+                                                                    new: { bg: 'bg-slate-100 border-slate-300 border-dashed', text: 'text-slate-600', label: 'N' },
                                                                 };
                                                                 const config = statusConfig[att.status] || statusConfig['default'];
                                                                 const dateStr = format(att.date, 'dd/MM');
                                                                 return (
-                                                                    <div
-                                                                        key={attIdx}
-                                                                        title={`${dateStr} — ${att.status.charAt(0).toUpperCase() + att.status.slice(1)}`}
-                                                                        className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-bold cursor-default ${config.bg} ${config.text}`}
-                                                                    >
-                                                                        {config.label}
+                                                                    <div key={attIdx} className="flex flex-col items-center gap-0.5">
+                                                                        <span className="text-[8px] text-gray-400 font-semibold tracking-tighter">{dateStr}</span>
+                                                                        <div
+                                                                            title={`${dateStr} — ${att.status.charAt(0).toUpperCase() + att.status.slice(1)}`}
+                                                                            className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-bold cursor-default shadow-sm ${config.bg} ${config.text}`}
+                                                                        >
+                                                                            {config.label}
+                                                                        </div>
                                                                     </div>
                                                                 );
                                                             })}

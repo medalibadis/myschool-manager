@@ -1263,7 +1263,7 @@ export const sessionService = {
     // Check if sessions already exist for this group
     const { data: existingSessions, error: existingError } = await supabase
       .from('sessions')
-      .select('id, date')
+      .select('id, date, session_number')
       .eq('group_id', groupId);
 
     if (existingError) {
@@ -1271,101 +1271,117 @@ export const sessionService = {
       throw new Error(`Failed to check existing sessions: ${existingError.message}`);
     }
 
-    // Check if we need to regenerate sessions based on total_sessions count
-    if (existingSessions && existingSessions.length > 0) {
-      console.log('Sessions already exist for group', groupId, 'checking if regeneration needed');
-      console.log('Existing sessions count:', existingSessions.length, 'Required sessions count:', group.total_sessions);
-
-      // If the count matches, return existing sessions
-      if (existingSessions.length === group.total_sessions) {
-        console.log('Session count matches, returning existing sessions');
-        return existingSessions.map((session: { id: any; date: any }) => ({
-          id: session.id,
-          date: new Date(session.date),
-          groupId: groupId,
-          attendance: {},
-        }));
-      } else {
-        console.log('Session count mismatch, deleting existing sessions and regenerating');
-        // Delete existing sessions to regenerate with correct count
-        const { error: deleteError } = await supabase
-          .from('sessions')
-          .delete()
-          .eq('group_id', groupId);
-
-        if (deleteError) {
-          console.error('Error deleting existing sessions:', deleteError);
-          throw new Error(`Failed to delete existing sessions: ${deleteError.message}`);
+    // Sort existing sessions by session_number (fallback to date)
+    const sortedExistingSessions = [...(existingSessions || [])].sort((a: any, b: any) => {
+        if (a.session_number !== undefined && b.session_number !== undefined && a.session_number !== null && b.session_number !== null) {
+            return a.session_number - b.session_number;
         }
-
-        console.log('Successfully deleted existing sessions, proceeding with regeneration');
-      }
-    }
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+    });
 
     const sessions: Session[] = [];
     let currentDate = new Date(group.start_date);
     let sessionCount = 0;
 
-    console.log('Starting session generation for group:', {
+    console.log('Starting session generation/update for group:', {
       groupId: groupId,
-      groupName: group.name,
       startDate: group.start_date,
       recurringDays: group.recurring_days,
       totalSessions: group.total_sessions,
-      currentDate: currentDate.toISOString()
+      existingCount: sortedExistingSessions.length
     });
 
-    // Generate sessions based on recurring days
-    let maxIterations = group.total_sessions * 10; // Safety limit to prevent infinite loops
+    let maxIterations = group.total_sessions * 10; // Safety limit
     let iterationCount = 0;
 
+    // 1. Update existing or create new up to total_sessions
     while (sessionCount < group.total_sessions && iterationCount < maxIterations) {
       iterationCount++;
       const dayOfWeek = currentDate.getDay();
-      console.log(`Checking date ${currentDate.toISOString().split('T')[0]} (day ${dayOfWeek}) - recurring days: ${group.recurring_days} (iteration ${iterationCount}/${maxIterations})`);
 
       if (group.recurring_days.includes(dayOfWeek)) {
-        const { data: session, error: sessionError } = await supabase
-          .from('sessions')
-          .insert({
-            date: currentDate.toISOString().split('T')[0],
-            group_id: groupId,
-            session_number: sessionCount + 1, // Add session number
-          })
-          .select()
-          .single();
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const currentSessionNum = sessionCount + 1;
+        
+        let sessionObj = null;
 
-        if (sessionError) {
-          console.error('Error creating session:', {
-            error: sessionError,
-            message: sessionError.message,
-            details: sessionError.details,
-            hint: sessionError.hint,
-            code: sessionError.code,
-            groupId: groupId,
-            date: currentDate.toISOString().split('T')[0],
-            groupData: group
-          });
-          throw new Error(`Failed to create session: ${sessionError.message || 'Unknown error'}`);
+        if (sessionCount < sortedExistingSessions.length) {
+            // Update existing session
+            const existing = sortedExistingSessions[sessionCount];
+            const { data: updatedSession, error: updateError } = await supabase
+              .from('sessions')
+              .update({
+                  date: dateStr,
+                  session_number: currentSessionNum
+              })
+              .eq('id', existing.id)
+              .select()
+              .single();
+
+            if (updateError) {
+                console.error(`Error updating session ${existing.id}:`, updateError);
+                throw new Error(`Failed to update session: ${updateError.message}`);
+            }
+            sessionObj = updatedSession;
+            console.log(`Successfully updated session ${sessionObj.id} to date ${dateStr} (num ${currentSessionNum})`);
+        } else {
+            // Insert new session
+            const { data: newSession, error: insertError } = await supabase
+              .from('sessions')
+              .insert({
+                  date: dateStr,
+                  group_id: groupId,
+                  session_number: currentSessionNum
+              })
+              .select()
+              .single();
+
+            if (insertError) {
+                console.error(`Error creating session:`, insertError);
+                throw new Error(`Failed to create session: ${insertError.message}`);
+            }
+            sessionObj = newSession;
+            console.log(`Successfully created session ${sessionObj.id} for date ${dateStr} (num ${currentSessionNum})`);
         }
 
-        console.log(`Successfully created session ${session.id} for date ${currentDate.toISOString().split('T')[0]}`);
-
-        sessions.push({
-          id: session.id,
-          date: new Date(session.date),
-          groupId: session.group_id,
-          attendance: {},
-        });
-        sessionCount++;
+        if (sessionObj) {
+            sessions.push({
+              id: sessionObj.id,
+              date: new Date(sessionObj.date),
+              groupId: sessionObj.group_id,
+              attendance: {},
+            });
+            sessionCount++;
+        }
       }
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
+    // 2. Delete any extra sessions if total_sessions decreased
+    if (sortedExistingSessions.length > group.total_sessions) {
+        const sessionsToDelete = sortedExistingSessions.slice(group.total_sessions).map((s: any) => s.id);
+        if (sessionsToDelete.length > 0) {
+            console.log(`Deleting ${sessionsToDelete.length} extra sessions...`);
+            // First delete attendance for these sessions to avoid foreign key constraints
+            await supabase.from('attendance').delete().in('session_id', sessionsToDelete);
+            // Then delete the sessions
+            const { error: deleteError } = await supabase
+              .from('sessions')
+              .delete()
+              .in('id', sessionsToDelete);
+            
+            if (deleteError) {
+                console.error('Error deleting extra sessions:', deleteError);
+            } else {
+                console.log('Successfully deleted extra sessions.');
+            }
+        }
+    }
+
     if (sessionCount < group.total_sessions) {
-      console.warn(`Session generation incomplete for group ${groupId}. Created ${sessions.length}/${group.total_sessions} sessions. This might indicate an issue with recurring days configuration.`);
+      console.warn(`Session generation incomplete for group ${groupId}. Created/Updated ${sessions.length}/${group.total_sessions} sessions.`);
     } else {
-      console.log(`Session generation complete for group ${groupId}. Created ${sessions.length} sessions.`);
+      console.log(`Session generation complete for group ${groupId}. Total ${sessions.length} sessions active.`);
     }
     return sessions;
   },

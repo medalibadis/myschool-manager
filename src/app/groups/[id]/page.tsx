@@ -423,13 +423,17 @@ export default function GroupDetailPage() {
                 endTime: editGroupFormData.endTime,
             };
 
-            // Check if totalSessions changed
-            const sessionsChanged = editingGroup && editingGroup.totalSessions !== editGroupFormData.totalSessions;
+            // Check if any schedule-related fields changed
+            const scheduleChanged = editingGroup && (
+                editingGroup.totalSessions !== editGroupFormData.totalSessions ||
+                new Date(editingGroup.startDate).getTime() !== new Date(editGroupFormData.startDate).getTime() ||
+                JSON.stringify([...editingGroup.recurringDays].sort()) !== JSON.stringify([...editGroupFormData.recurringDays].sort())
+            );
 
             await updateGroup(editingGroup.id, updatedGroup);
 
-            // If session count changed, regenerate sessions
-            if (sessionsChanged) {
+            // If schedule changed, regenerate/update sessions
+            if (scheduleChanged) {
                 await generateSessions(editingGroup.id);
             }
 

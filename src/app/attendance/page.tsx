@@ -303,10 +303,10 @@ export default function AttendancePage() {
         try {
             console.log(`🚫 Auto-stopping future sessions for student ${studentId} in group ${groupId} after session ${currentSessionId}`);
 
-            // Get the current session date first
+            // Get the current session number first
             const { data: currentSession, error: currentSessionError } = await supabase
                 .from('sessions')
-                .select('date')
+                .select('session_number, date')
                 .eq('id', currentSessionId)
                 .maybeSingle();
 
@@ -315,20 +315,20 @@ export default function AttendancePage() {
                 return;
             }
 
-            if (!currentSession) {
-                console.error('Current session not found');
+            if (!currentSession || currentSession.session_number == null) {
+                console.error('Current session or session_number not found');
                 return;
             }
 
-            console.log(`📅 Current session date: ${currentSession.date}`);
+            console.log(`📅 Current session number: ${currentSession.session_number} (date: ${currentSession.date})`);
 
-            // Find all future sessions for this group after the current session
+            // Find all future sessions for this group after the current session using session_number
             const { data: futureSessions, error: futureSessionsError } = await supabase
                 .from('sessions')
-                .select('id, date')
+                .select('id, session_number, date')
                 .eq('group_id', groupId)
-                .gt('date', currentSession.date)
-                .order('date', { ascending: true });
+                .gt('session_number', currentSession.session_number)
+                .order('session_number', { ascending: true });
 
             if (futureSessionsError) {
                 console.error('Error fetching future sessions:', futureSessionsError);

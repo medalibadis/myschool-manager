@@ -1983,7 +1983,7 @@ Thank you!`;
                                                                     too_late: { bg: 'bg-orange-100 border-orange-400', text: 'text-orange-700', label: 'L' },
                                                                     change: { bg: 'bg-blue-100 border-blue-400', text: 'text-blue-700', label: 'C' },
                                                                     stop: { bg: 'bg-purple-100 border-purple-400', text: 'text-purple-700', label: 'S' },
-                                                                    new: { bg: 'bg-slate-100 border-slate-300 border-dashed', text: 'text-slate-600', label: 'N' },
+                                                                    new: { bg: 'bg-pink-100 border-pink-400', text: 'text-pink-700', label: 'N' },
                                                                 };
                                                                 const config = statusConfig[att.status] || statusConfig['default'];
                                                                 const dateStr = format(att.date, 'dd/MM');

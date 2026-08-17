@@ -85,7 +85,7 @@ interface MySchoolStore {
         studentName: string;
         groupName: string;
     }>>;
-    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => Promise<{
+    depositAndAllocate: (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number, targetGroupId?: number) => Promise<{
         depositId: string;
         totalPaid: number;
         remainingCredit: number;
@@ -764,11 +764,11 @@ Thank you for your payment!`,
         }
     },
 
-    depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number) => {
+    depositAndAllocate: async (studentId: string, amount: number, date: Date, notes?: string, discount?: number, originalAmount?: number, targetGroupId?: number) => {
         set({ loading: true, error: null });
         try {
-            console.log(`🏪 STORE: depositAndAllocate called with:`, { studentId, amount, date, notes, discount, originalAmount });
-            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila', discount, originalAmount });
+            console.log(`🏪 STORE: depositAndAllocate called with:`, { studentId, amount, date, notes, discount, originalAmount, targetGroupId });
+            const result = await paymentService.depositAndAllocate({ studentId, amount, date, notes, adminName: 'Dalila', discount, originalAmount, targetGroupId });
             console.log(`🏪 STORE: depositAndAllocate result:`, result);
             // Refresh payments list
             const payments = await paymentService.getAll();

@@ -2992,6 +2992,7 @@ export const paymentService = {
     adminName?: string;
     discount?: number;
     originalAmount?: number;
+    targetGroupId?: number;
   }): Promise<{
     depositId: string;
     totalPaid: number;
@@ -3008,7 +3009,7 @@ export const paymentService = {
       notes?: string;
     }>;
   }> {
-    const { studentId, amount, date, notes, adminName, discount = 0, originalAmount } = params;
+    const { studentId, amount, date, notes, adminName, discount = 0, originalAmount, targetGroupId } = params;
 
     console.log(`🚀 DEPOSIT AND ALLOCATE CALLED:`, { studentId, amount, date, notes, adminName });
 
@@ -3121,6 +3122,12 @@ export const paymentService = {
     let unpaidGroups = currentBalance.groupBalances
       .filter(gb => !gb.isRegistrationFee && gb.remainingAmount > 0)
       .sort((a, b) => {
+        // Sort by targetGroupId first (prioritize targeted group)
+        if (targetGroupId) {
+          if (a.groupId === targetGroupId && b.groupId !== targetGroupId) return -1;
+          if (b.groupId === targetGroupId && a.groupId !== targetGroupId) return 1;
+        }
+        
         // Sort by remaining amount (highest debt first) for debt payments
         if (notes?.includes('debt payment') || notes?.includes('Debt payment')) {
           return b.remainingAmount - a.remainingAmount; // Highest debt first
@@ -3143,6 +3150,12 @@ export const paymentService = {
       unpaidGroups = currentBalance.groupBalances
         .filter(gb => !gb.isRegistrationFee && (gb.remainingAmount > 0 || gb.groupFees > gb.amountPaid))
         .sort((a, b) => {
+          // Sort by targetGroupId first (prioritize targeted group)
+          if (targetGroupId) {
+            if (a.groupId === targetGroupId && b.groupId !== targetGroupId) return -1;
+            if (b.groupId === targetGroupId && a.groupId !== targetGroupId) return 1;
+          }
+
           // Calculate actual debt for each group
           const groupDebt = Math.max(0, a.groupFees - a.amountPaid);
           const groupBDebt = Math.max(0, b.groupFees - b.amountPaid);

@@ -877,104 +877,38 @@ export default function PaymentsPage() {
                 depositAmount,
                 date: paymentData.date,
                 notes: paymentData.notes,
-                selectedGroupForPayment: selectedGroupForPayment
             });
 
-            // Check if a specific group was selected for payment
-            if (selectedGroupForPayment && selectedGroupForPayment.id !== 0) {
-                // Direct payment to the selected group
-                console.log(`💰 Creating direct payment to group: ${selectedGroupForPayment.name} (ID: ${selectedGroupForPayment.id})`);
+            // Use the central depositAndAllocate function for ALL payments,
+            // but pass the targetGroupId so it prioritizes paying that group first.
+            const targetGroupId = selectedGroupForPayment && selectedGroupForPayment.id !== 0 
+                ? selectedGroupForPayment.id 
+                : undefined;
 
-                const { data: paymentRecord, error: paymentError } = await supabase
-                    .from('payments')
-                    .insert({
-                        student_id: selectedStudent.id,
-                        group_id: selectedGroupForPayment.id,
-                        amount: depositAmount,
-                        date: paymentData.date,
-                        notes: paymentData.notes || `Payment for ${selectedGroupForPayment.name}`,
-                        admin_name: 'Dalila',
-                        payment_type: 'group_payment'
-                    })
-                    .select()
-                    .single();
-
-                if (paymentError) {
-                    throw new Error(`Failed to create payment: ${paymentError.message}`);
-                }
-
-                console.log('✅ Direct payment created:', paymentRecord);
-
-                // Create a simple allocation result
-                const formattedResult = {
-                    depositId: paymentRecord.id,
-                    allocations: [{
-                        groupId: selectedGroupForPayment.id,
-                        groupName: selectedGroupForPayment.name,
-                        amountAllocated: depositAmount,
-                        wasFullyPaid: depositAmount >= selectedGroupForPayment.remaining,
-                        remainingAfterPayment: Math.max(0, selectedGroupForPayment.remaining - depositAmount),
-                        paymentId: paymentRecord.id,
-                        notes: `Payment for ${selectedGroupForPayment.name}`
-                    }],
-                    totalPaid: depositAmount,
-                    remainingCredit: 0,
-                    receipts: []
-                };
-
-                // Clear the selected group
-                setSelectedGroupForPayment(null);
-
-                // Refresh and show results
-                const updatedBalance = await getStudentBalance(selectedStudent.id);
-                setSelectedStudent(prev => prev ? {
-                    ...prev,
-                    remainingBalance: updatedBalance.remainingBalance
-                } : null);
-
-                await refreshSelectedStudentData();
-                setPaymentData({
-                    amount: '',
-                    discount: '',
-                    notes: '',
-                    date: new Date().toISOString().split('T')[0],
-                });
-
-                await loadRecentPayments();
-                await loadReceipts();
-                await fetchPayments();
-
-                setAllocationResult(formattedResult);
-                setIsAllocationModalOpen(true);
-
-                console.log('✅ Direct payment process completed successfully!');
-                return;
+            if (targetGroupId) {
+                console.log(`💰 Prioritizing payment to group: ${selectedGroupForPayment!.name} (ID: ${targetGroupId})`);
             }
 
-            // Use the backend service to properly allocate payments and reduce debt
-            console.log('🔍 Student ID format check:', {
-                studentId: selectedStudent.id,
-                studentIdType: typeof selectedStudent.id,
-                studentIdLength: selectedStudent.id?.length
-            });
-
-            // Call the backend service to properly allocate payments and reduce debt
             const result = await depositAndAllocate(
                 selectedStudent.id,
                 depositAmount,
                 new Date(paymentData.date),
                 paymentData.notes || '',
                 0, // No discount for main deposit
-                depositAmount
+                depositAmount,
+                targetGroupId
             );
 
-            // Convert backend result to expected format
+            // Clear the selected group only after successful payment
+            setSelectedGroupForPayment(null);
+
+            // Format result for the modal
             const formattedResult = {
                 depositId: result.depositId || `deposit_${Date.now()}`,
-                allocations: result.allocations || [],
+                allocations: result.allocations,
                 totalPaid: depositAmount,
-                remainingCredit: 0,
-                receipts: []
+                remainingCredit: result.remainingCredit,
+                receipts: result.receipts
             };
 
             console.log('Payment allocation result from backend:', result);

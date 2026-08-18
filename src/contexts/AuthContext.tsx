@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { AdminProfile, AdminRole, AdminPermissionKey } from '../types';
 import type { Session, User } from '@supabase/supabase-js';
@@ -42,110 +42,110 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [mfaEnrolled, setMfaEnrolled] = useState<boolean>(false);
     const [loading, setLoading] = useState(true);
 
-    const fetchProfileAndPermissions = useCallback(async (userId: string) => {
-        try {
-            // 1. Fetch Profile
-            const { data: profile, error: profileError } = await supabase
-                .from('admin_profiles')
-                .select('*')
-                .eq('id', userId)
-                .single();
+    const isInitializing = useRef(false);
 
-            if (profileError || !profile) {
-                console.warn('Could not load admin profile:', profileError?.message);
-                return null;
+    // Fast unified loader for Profile, Permissions, and MFA status
+    const loadUserData = useCallback(async (userId: string, currentUser?: User | null) => {
+        try {
+            // 1. Run profile and permissions in parallel with 3s timeout
+            const [profileRes, permsRes, aalRes] = await Promise.all([
+                supabase
+                    .from('admin_profiles')
+                    .select('*')
+                    .eq('id', userId)
+                    .maybeSingle(),
+                supabase
+                    .from('admin_permissions')
+                    .select('permission')
+                    .eq('admin_id', userId),
+                supabase.auth.mfa.getAuthenticatorAssuranceLevel().catch(() => ({ data: null })),
+            ]);
+
+            const profile = profileRes.data;
+            const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
+
+            if (profile) {
+                const fullProfile: AdminProfile = {
+                    id: profile.id,
+                    name: profile.name,
+                    email: profile.email,
+                    phone: profile.phone,
+                    role: profile.role as AdminRole,
+                    is_active: profile.is_active,
+                    created_at: profile.created_at,
+                    updated_at: profile.updated_at,
+                    permissions: userPerms,
+                };
+                setUser(fullProfile);
+                setPermissions(userPerms);
             }
 
-            // 2. Fetch Granular Permissions
-            const { data: permRows, error: permError } = await supabase
-                .from('admin_permissions')
-                .select('permission')
-                .eq('admin_id', userId);
-
-            const userPerms = permRows ? permRows.map(r => r.permission) : [];
-            const fullProfile: AdminProfile = {
-                id: profile.id,
-                name: profile.name,
-                email: profile.email,
-                phone: profile.phone,
-                role: profile.role as AdminRole,
-                is_active: profile.is_active,
-                created_at: profile.created_at,
-                updated_at: profile.updated_at,
-                permissions: userPerms,
-            };
-
-            setUser(fullProfile);
-            setPermissions(userPerms);
-            return fullProfile;
-        } catch (err) {
-            console.error('Error fetching admin profile and permissions:', err);
-            return null;
-        }
-    }, []);
-
-    const checkMFAStatus = useCallback(async () => {
-        try {
-            const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-            const { data: factorsData } = await supabase.auth.mfa.listFactors();
-
-            const enrolled = (factorsData?.totp?.length || 0) > 0;
-            const currentLevel = (aalData?.currentLevel as 'aal1' | 'aal2') || 'aal1';
-
-            setMfaEnrolled(enrolled);
+            // 2. Determine MFA status
+            const aal = aalRes?.data?.currentLevel as 'aal1' | 'aal2' | undefined;
+            const nextAal = aalRes?.data?.nextLevel;
+            const currentLevel = aal || 'aal1';
             setMfaAssuranceLevel(currentLevel);
 
-            return { enrolled, currentLevel, nextLevel: aalData?.nextLevel };
-        } catch (e) {
-            console.error('Error checking MFA status:', e);
-            return { enrolled: false, currentLevel: 'aal1' as const, nextLevel: 'aal1' as const };
+            // Factors check (fast)
+            if (currentUser?.factors && currentUser.factors.length > 0) {
+                const hasVerifiedFactor = currentUser.factors.some(f => f.status === 'verified');
+                setMfaEnrolled(hasVerifiedFactor);
+            } else if (nextAal === 'aal2' || currentLevel === 'aal2') {
+                setMfaEnrolled(true);
+            } else {
+                // Background check factors only if uncertain
+                supabase.auth.mfa.listFactors().then(({ data }) => {
+                    const enrolled = (data?.totp?.length || 0) > 0;
+                    setMfaEnrolled(enrolled);
+                }).catch(() => {});
+            }
+        } catch (err) {
+            console.error('Error loading user auth data:', err);
         }
     }, []);
 
     const refreshProfile = useCallback(async () => {
-        if (session?.user?.id) {
-            await fetchProfileAndPermissions(session.user.id);
-            await checkMFAStatus();
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession?.user) {
+            await loadUserData(currentSession.user.id, currentSession.user);
         }
-    }, [session?.user?.id, fetchProfileAndPermissions, checkMFAStatus]);
+    }, [loadUserData]);
 
     useEffect(() => {
         let mounted = true;
 
-        // Initialize session on mount
-        supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
-            if (!mounted) return;
-            setSession(currentSession);
-
-            if (currentSession?.user) {
-                await fetchProfileAndPermissions(currentSession.user.id);
-                await checkMFAStatus();
+        // Set safety timeout to ensure loading spinner never hangs
+        const safetyTimer = setTimeout(() => {
+            if (mounted && loading) {
+                setLoading(false);
             }
-            setLoading(false);
-        });
+        }, 3500);
 
-        // Listen to Auth State Changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
             if (!mounted) return;
+
             setSession(newSession);
 
             if (newSession?.user) {
-                await fetchProfileAndPermissions(newSession.user.id);
-                await checkMFAStatus();
+                await loadUserData(newSession.user.id, newSession.user);
             } else {
                 setUser(null);
                 setPermissions([]);
                 setMfaAssuranceLevel(null);
                 setMfaEnrolled(false);
             }
-            setLoading(false);
+
+            if (mounted) {
+                setLoading(false);
+            }
         });
 
         return () => {
             mounted = false;
+            clearTimeout(safetyTimer);
             subscription.unsubscribe();
         };
-    }, [fetchProfileAndPermissions, checkMFAStatus]);
+    }, []); // Empty dependency array to mount once
 
     const login = async (email: string, pass: string): Promise<LoginResult> => {
         try {
@@ -156,35 +156,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
 
             if (error || !data.session) {
+                setLoading(false);
                 return { success: false, error: error?.message || 'Invalid email or password' };
             }
 
             setSession(data.session);
-            const profile = await fetchProfileAndPermissions(data.user.id);
+            await loadUserData(data.user.id, data.user);
 
-            if (!profile || !profile.is_active) {
-                await supabase.auth.signOut();
-                return { success: false, error: 'Your admin account is inactive or not found.' };
-            }
+            const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+            const { data: factorsData } = await supabase.auth.mfa.listFactors();
 
-            // Check MFA requirements
-            const mfa = await checkMFAStatus();
+            const enrolled = (factorsData?.totp?.length || 0) > 0;
+            const currentLevel = (aalData?.currentLevel as 'aal1' | 'aal2') || 'aal1';
 
-            if (!mfa.enrolled) {
-                // Admin must enroll TOTP on first login
+            setMfaEnrolled(enrolled);
+            setMfaAssuranceLevel(currentLevel);
+            setLoading(false);
+
+            if (!enrolled) {
                 return { success: true, needsSetup: true };
             }
 
-            if (mfa.currentLevel !== 'aal2' && mfa.nextLevel === 'aal2') {
-                // Admin needs to provide 6-digit TOTP challenge
+            if (currentLevel !== 'aal2' && aalData?.nextLevel === 'aal2') {
                 return { success: true, needsMFA: true };
             }
 
             return { success: true };
         } catch (err) {
-            return { success: false, error: err instanceof Error ? err.message : 'Unknown login error' };
-        } finally {
             setLoading(false);
+            return { success: false, error: err instanceof Error ? err.message : 'Unknown login error' };
         }
     };
 

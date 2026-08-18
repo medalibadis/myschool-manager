@@ -14,6 +14,43 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
 
 export async function POST(request: NextRequest) {
     try {
+        // 1. Verify Authorization Token
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader?.replace('Bearer ', '');
+
+        if (!token) {
+            return NextResponse.json({ error: 'Unauthorized: Missing token' }, { status: 401 });
+        }
+
+        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+        if (authError || !user) {
+            return NextResponse.json({ error: 'Unauthorized: Invalid session' }, { status: 401 });
+        }
+
+        // 2. Check Permissions (Super Admin or salary.manage)
+        const { data: profile } = await supabaseAdmin
+            .from('admin_profiles')
+            .select('role, is_active')
+            .eq('id', user.id)
+            .single();
+
+        if (!profile || !profile.is_active) {
+            return NextResponse.json({ error: 'Forbidden: Account inactive' }, { status: 403 });
+        }
+
+        if (profile.role !== 'SUPER_ADMIN') {
+            const { data: perm } = await supabaseAdmin
+                .from('admin_permissions')
+                .select('id')
+                .eq('admin_id', user.id)
+                .eq('permission', 'salary.manage')
+                .single();
+
+            if (!perm) {
+                return NextResponse.json({ error: 'Forbidden: Missing salary.manage permission' }, { status: 403 });
+            }
+        }
+
         const body = await request.json();
         const { action, data } = body;
 

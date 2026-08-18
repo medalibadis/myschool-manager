@@ -7,18 +7,58 @@ export interface Teacher {
     price_per_session?: number; // Amount paid per session for this teacher
 }
 
+export type AdminRole = 'SUPER_ADMIN' | 'ADMIN';
+
+export type AdminPermissionKey =
+    | 'students.view'
+    | 'students.create'
+    | 'students.edit'
+    | 'students.delete'
+    | 'groups.view'
+    | 'groups.create'
+    | 'groups.edit'
+    | 'groups.delete'
+    | 'attendance.view'
+    | 'attendance.edit'
+    | 'payments.view'
+    | 'payments.create'
+    | 'payments.edit'
+    | 'payments.refund'
+    | 'payments.delete'
+    | 'teachers.view'
+    | 'teachers.create'
+    | 'teachers.edit'
+    | 'teachers.delete'
+    | 'salary.manage'
+    | 'waiting_list.manage'
+    | 'call_logs.manage'
+    | 'admin.manage';
+
+export interface AdminProfile {
+    id: string;
+    name: string;
+    email: string;
+    phone?: string;
+    role: AdminRole;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+    permissions?: string[];
+    mfa_enabled?: boolean;
+}
+
 export interface Admin {
     id: string;
-    username: string;
+    username?: string;
     name: string;
     email?: string;
     phone?: string;
-    role: 'superuser' | 'admin';
+    role: 'superuser' | 'admin' | 'SUPER_ADMIN' | 'ADMIN';
     isActive: boolean;
     createdBy?: string;
     createdAt: Date;
     updatedAt: Date;
-    password_hash?: string;
+    permissions?: string[];
 }
 
 export interface AdminSession {

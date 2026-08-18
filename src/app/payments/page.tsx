@@ -2312,7 +2312,7 @@ Thank you!`;
                             {/* Admin Info */}
                             <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
                                 <UserIcon className="h-4 w-4" />
-                                <span>Called by <span className="font-semibold text-gray-700">{user?.name || user?.username || 'Admin'}</span></span>
+                                <span>Called by <span className="font-semibold text-gray-700">{user?.name || user?.email || 'Admin'}</span></span>
                                 <span className="ml-auto text-gray-400">{new Date().toLocaleDateString('fr-DZ')}</span>
                             </div>
 
@@ -2346,7 +2346,7 @@ Thank you!`;
                                                 callType: 'payment',
                                                 status: callLogForm.status,
                                                 notes: finalNotes,
-                                                adminName: user?.name || user?.username || 'Admin',
+                                                adminName: user?.name || user?.email || 'Admin',
                                             });
                                             setIsCallLogModalOpen(false);
                                         } catch (err) {

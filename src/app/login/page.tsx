@@ -6,24 +6,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useAuth } from '../../contexts/AuthContext';
-import { LockClosedIcon, UserIcon } from '@heroicons/react/24/outline';
+import { LockClosedIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { login, isAuthenticated, loading } = useAuth();
-    const [credentials, setCredentials] = useState({
-        username: '',
-        password: ''
-    });
+    const { login, isAuthenticated, mfaEnrolled, mfaAssuranceLevel, loading } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Redirect if already authenticated
     useEffect(() => {
         if (isAuthenticated && !loading) {
-            router.push('/');
+            if (!mfaEnrolled) {
+                router.push('/mfa-setup');
+            } else if (mfaAssuranceLevel !== 'aal2') {
+                router.push('/mfa-challenge');
+            } else {
+                router.push('/');
+            }
         }
-    }, [isAuthenticated, loading, router]);
+    }, [isAuthenticated, mfaEnrolled, mfaAssuranceLevel, loading, router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -31,97 +34,95 @@ export default function LoginPage() {
         setIsSubmitting(true);
 
         try {
-            const success = await login(credentials.username, credentials.password);
+            const result = await login(email, password);
 
-            if (success) {
-                router.push('/');
+            if (result.success) {
+                if (result.needsSetup) {
+                    router.push('/mfa-setup');
+                } else if (result.needsMFA) {
+                    router.push('/mfa-challenge');
+                } else {
+                    router.push('/');
+                }
             } else {
-                setError('Invalid username or password');
+                setError(result.error || 'Invalid credentials or inactive account.');
             }
-        } catch (error) {
-            setError('An error occurred during login');
+        } catch (err) {
+            setError('An error occurred during sign-in.');
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const handleInputChange = (field: string, value: string) => {
-        setCredentials(prev => ({
-            ...prev,
-            [field]: value
-        }));
-        // Clear error when user starts typing
-        if (error) setError('');
-    };
-
-    // Show loading screen while checking authentication
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">Loading...</p>
+                    <p className="text-gray-600">Verifying session...</p>
                 </div>
             </div>
         );
     }
 
-    // Don't show login form if already authenticated
-    if (isAuthenticated) {
-        return null;
-    }
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center p-4">
             <div className="w-full max-w-md">
-                <Card className="shadow-xl">
-                    <CardHeader className="text-center">
-                        <div className="mx-auto w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                <Card className="shadow-xl border border-orange-100/50">
+                    <CardHeader className="text-center pb-4">
+                        <div className="mx-auto w-16 h-16 bg-orange-100 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
                             <LockClosedIcon className="h-8 w-8 text-orange-600" />
                         </div>
                         <CardTitle className="text-2xl font-bold text-gray-900">
-                            School Manager
+                            MySchool Manager
                         </CardTitle>
                         <CardDescription className="text-gray-600">
-                            Admin Login
+                            Private Administration Portal
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-6">
+                        <form onSubmit={handleSubmit} className="space-y-5">
                             {error && (
-                                <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-md text-sm">
+                                <div className="p-3 bg-red-50 border border-red-300 text-red-700 rounded-lg text-sm">
                                     {error}
                                 </div>
                             )}
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Username
+                                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                                    Admin Email
                                 </label>
                                 <div className="relative">
-                                    <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                    <EnvelopeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                                     <Input
-                                        type="text"
-                                        value={credentials.username}
-                                        onChange={(e) => handleInputChange('username', e.target.value)}
-                                        placeholder="Enter username"
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => {
+                                            setEmail(e.target.value);
+                                            if (error) setError('');
+                                        }}
+                                        placeholder="admin@myschool.com"
                                         className="pl-10"
                                         required
+                                        autoFocus
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                                     Password
                                 </label>
                                 <div className="relative">
                                     <LockClosedIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                                     <Input
                                         type="password"
-                                        value={credentials.password}
-                                        onChange={(e) => handleInputChange('password', e.target.value)}
-                                        placeholder="Enter password"
+                                        value={password}
+                                        onChange={(e) => {
+                                            setPassword(e.target.value);
+                                            if (error) setError('');
+                                        }}
+                                        placeholder="••••••••••••"
                                         className="pl-10"
                                         required
                                     />
@@ -130,23 +131,21 @@ export default function LoginPage() {
 
                             <Button
                                 type="submit"
-                                className="w-full"
+                                className="w-full justify-center py-2.5 text-base"
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting ? 'Signing in...' : 'Sign In'}
+                                {isSubmitting ? 'Verifying...' : 'Sign In with Password'}
                             </Button>
                         </form>
 
-                        <div className="mt-6 p-4 bg-gray-50 rounded-md">
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Available Admins:</h4>
-                            <div className="space-y-1 text-xs text-gray-600">
-                                <div>• Dalila (username: dalila)</div>
-                                <div>• Raouf (username: raouf)</div>
-                            </div>
+                        <div className="mt-6 pt-4 border-t border-gray-100 text-center">
+                            <p className="text-xs text-gray-500">
+                                🔒 Secure access protected by Supabase Auth & TOTP Two-Factor Authentication.
+                            </p>
                         </div>
                     </CardContent>
                 </Card>
             </div>
         </div>
     );
-} 
+}

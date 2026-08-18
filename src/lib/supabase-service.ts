@@ -4778,10 +4778,12 @@ export const paymentService = {
     try {
       console.log('🔄 Using server-side calculation for teacher unpaid groups...');
 
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/teacher-salary', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           action: 'getUnpaidGroups',
@@ -4803,8 +4805,6 @@ export const paymentService = {
       throw error;
     }
   },
-
-
 
   async calculateGroupSalary(teacherId: string, groupId: number) {
     try {
@@ -4836,10 +4836,12 @@ export const paymentService = {
     payment_notes?: string;
   }) {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/teacher-salary', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           action: 'paySalary',
@@ -4862,10 +4864,12 @@ export const paymentService = {
 
   async getTeacherSalaryHistory(teacherId: string) {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/teacher-salary', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           action: 'getSalaryHistory',

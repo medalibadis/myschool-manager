@@ -23,27 +23,29 @@ import {
 const Navigation: React.FC = () => {
     const pathname = usePathname();
     const router = useRouter();
-    const { user, logout, isSuperuser } = useAuth();
+    const { user, logout, isSuperuser, isSuperAdmin, hasPermission } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const navigation = [
-        { name: 'Dashboard', href: '/', icon: AcademicCapIcon },
-        { name: 'Registration', href: '/waiting-list', icon: ClockIcon },
-        { name: 'Groups', href: '/groups', icon: UserGroupIcon },
-        { name: 'Students', href: '/students', icon: UsersIcon },
-        { name: 'Teachers', href: '/teachers', icon: UserIcon },
-        { name: 'Attendance', href: '/attendance', icon: CalendarIcon },
-        { name: 'Call Logs', href: '/call-logs', icon: PhoneIcon },
-        { name: 'Payments', href: '/payments', icon: CreditCardIcon },
+        { name: 'Dashboard', href: '/', icon: AcademicCapIcon, visible: true },
+        { name: 'Registration', href: '/waiting-list', icon: ClockIcon, visible: hasPermission('waiting_list.manage') },
+        { name: 'Groups', href: '/groups', icon: UserGroupIcon, visible: hasPermission('groups.view') },
+        { name: 'Students', href: '/students', icon: UsersIcon, visible: hasPermission('students.view') },
+        { name: 'Teachers', href: '/teachers', icon: UserIcon, visible: hasPermission('teachers.view') },
+        { name: 'Attendance', href: '/attendance', icon: CalendarIcon, visible: hasPermission('attendance.view') },
+        { name: 'Call Logs', href: '/call-logs', icon: PhoneIcon, visible: hasPermission('call_logs.manage') },
+        { name: 'Payments', href: '/payments', icon: CreditCardIcon, visible: hasPermission('payments.view') },
     ];
 
-    // Add superuser dashboard link for Raouf
-    if (isSuperuser) {
-        navigation.push({ name: 'Superuser', href: '/superuser', icon: ShieldCheckIcon });
+    // Add superuser dashboard link for Super Admins
+    if (isSuperAdmin || isSuperuser) {
+        navigation.push({ name: 'Superuser', href: '/superuser', icon: ShieldCheckIcon, visible: true });
     }
 
-    const handleLogout = () => {
-        logout();
+    const visibleNavigation = navigation.filter(item => item.visible);
+
+    const handleLogout = async () => {
+        await logout();
         router.push('/login');
     };
 
@@ -78,7 +80,7 @@ const Navigation: React.FC = () => {
 
                     {/* Navigation */}
                     <nav className="flex-1 px-2 py-4 space-y-2">
-                        {navigation.map((item) => {
+                        {visibleNavigation.map((item) => {
                             const isActive = pathname === item.href;
                             return (
                                 <Link

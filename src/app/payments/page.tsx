@@ -2354,90 +2354,71 @@ Thank you!`;
                         setSelectedReceipt(null);
                     }}
                     title={`Receipt - ${selectedReceipt?.student_name || 'Payment'}`}
+                    maxWidth="sm"
                 >
                     {selectedReceipt && (
-                        <div id="printable-receipt" className="space-y-6 printable-receipt">
-                            {/* Receipt Header */}
-                            <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                        <div id="printable-receipt" className="printable-receipt bg-white p-5 rounded-lg border border-gray-200 max-w-[340px] mx-auto text-gray-800 font-sans">
+                            {/* Receipt Header with Logo */}
+                            <div className="text-center pb-3 border-b border-dashed border-gray-300">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    src="/logo.png"
+                                    alt="MySchool"
+                                    className="h-10 mx-auto mb-1.5 object-contain"
+                                />
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">Payment Receipt</h3>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    {new Date(selectedReceipt.created_at).toLocaleDateString()} &bull; {new Date(selectedReceipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                </p>
+                            </div>
+
+                            {/* Receipt Details */}
+                            <div className="py-3 space-y-2 text-xs border-b border-dashed border-gray-300">
                                 <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="text-lg font-medium text-orange-700">Payment Receipt</h3>
-                                        <p className="text-sm text-orange-600">Receipt #{selectedReceipt.id}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-sm text-orange-600">Date: {new Date(selectedReceipt.created_at).toLocaleDateString()}</p>
-                                        <p className="text-sm text-orange-600">Time: {new Date(selectedReceipt.created_at).toLocaleTimeString()}</p>
-                                    </div>
+                                    <span className="text-gray-500 font-medium">Student:</span>
+                                    <span className="font-bold text-gray-900 text-right max-w-[200px]">{selectedReceipt.student_name}</span>
                                 </div>
+
+                                {selectedReceipt.group_name && selectedReceipt.group_name !== 'N/A' && selectedReceipt.group_name !== 'Registration Fee' && selectedReceipt.group_name !== 'Balance Credit' && (
+                                    <div className="flex justify-between items-start">
+                                        <span className="text-gray-500 font-medium">Group:</span>
+                                        <span className="font-semibold text-gray-800 text-right max-w-[200px]">{selectedReceipt.group_name}</span>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-500 font-medium">Type:</span>
+                                    <span className="font-medium text-gray-800">
+                                        {selectedReceipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
+                                            selectedReceipt.payment_type === 'group_payment' ? '👥 Group Course Fee' :
+                                                selectedReceipt.payment_type === 'balance_addition' ? '💰 Additional Credit' :
+                                                    selectedReceipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
+                                                        selectedReceipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
+                                                            selectedReceipt.payment_type || 'Payment'}
+                                    </span>
+                                </div>
+
+                                {selectedReceipt.notes && !selectedReceipt.notes.includes('null') && (
+                                    <div className="text-[11px] text-gray-500 pt-1">
+                                        <span className="text-gray-400">Note:</span> {selectedReceipt.notes}
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Student Information */}
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-medium text-gray-900 mb-2">Student Information</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <p className="text-sm text-gray-600">Name</p>
-                                        <p className="font-medium text-gray-900">{selectedReceipt.student_name}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm text-gray-600">Student ID</p>
-                                        <p className="font-medium text-gray-900">{selectedReceipt.student_id}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Payment Details */}
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-medium text-gray-900 mb-2">Payment Details</h4>
-                                <div className="space-y-3">
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Payment Type:</span>
-                                        <span className="font-medium text-gray-900">
-                                            {selectedReceipt.payment_type === 'registration_fee' ? '🎓 Registration Fee' :
-                                                selectedReceipt.payment_type === 'group_payment' ? '👥 Group Fee' :
-                                                    selectedReceipt.payment_type === 'balance_addition' ? '💰 Balance Credit' :
-                                                        selectedReceipt.payment_type === 'balance_credit' ? '✨ Attendance Credit' :
-                                                            selectedReceipt.payment_type === 'attendance_credit' ? '📅 Session Adjustment' :
-                                                                selectedReceipt.payment_type}
-                                        </span>
-                                    </div>
-                                    {selectedReceipt.group_name && (
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-600">Group:</span>
-                                            <span className="font-medium text-gray-900">
-                                                {selectedReceipt.group_name}
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Amount:</span>
-                                        <span className="font-bold text-lg text-green-600">
-                                            {selectedReceipt.amount.toFixed(2)} DZD
-                                        </span>
-                                    </div>
-
-
-                                </div>
-                            </div>
-
-                            {/* Receipt Text */}
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-medium text-gray-900 mb-2">Receipt Details</h4>
-                                <div className="bg-white p-3 rounded border font-mono text-sm whitespace-pre-wrap">
-                                    {selectedReceipt.receipt_text}
+                            {/* Total Paid Amount */}
+                            <div className="py-3 border-b border-dashed border-gray-300">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">TOTAL PAID:</span>
+                                    <span className="text-base font-extrabold text-green-600 font-mono">
+                                        {selectedReceipt.amount.toFixed(2)} DZD
+                                    </span>
                                 </div>
                             </div>
 
                             {/* Receipt Footer */}
-                            <div className="border-t pt-4">
-                                <div className="text-center">
-                                    <p className="text-sm text-gray-500">
-                                        Thank you for your payment!
-                                    </p>
-                                    <p className="text-xs text-gray-400 mt-1">
-                                        Receipt generated on {new Date(selectedReceipt.created_at).toLocaleDateString()} at {new Date(selectedReceipt.created_at).toLocaleTimeString()}
-                                    </p>
-                                </div>
+                            <div className="pt-3 text-center text-[11px] text-gray-400">
+                                <p className="font-medium text-gray-500">Thank you for your payment!</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5">MySchool Management</p>
                             </div>
                         </div>
                     )}

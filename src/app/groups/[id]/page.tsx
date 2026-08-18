@@ -95,7 +95,7 @@ export default function GroupDetailPage() {
     const groupId = parseInt(params.id as string, 10);
 
     const {
-        getGroupById,
+        groups,
         getTeacherById,
         addStudentToGroup,
         removeStudentFromGroup,
@@ -120,7 +120,9 @@ export default function GroupDetailPage() {
         error
     } = useMySchoolStore();
 
-    const group = getGroupById(groupId);
+    const group = React.useMemo(() => {
+        return groups.find(g => g.id === groupId);
+    }, [groups, groupId]);
     const uniqueStudents = React.useMemo(() => {
         if (!group || !group.students) return [] as Student[];
         const byId = new Map<string, Student>();
@@ -934,7 +936,10 @@ export default function GroupDetailPage() {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => fetchGroups()}
+                                                onClick={() => {
+                                                    fetchGroups(true);
+                                                    if (groupId) fetchGroupAttendance(groupId);
+                                                }}
                                                 className="flex items-center space-x-2"
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

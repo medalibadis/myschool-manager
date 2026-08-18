@@ -104,6 +104,7 @@ export default function AttendancePage() {
         updateAttendanceBulk,
         fetchGroups,
         fetchTeachers,
+        fetchGroupAttendance,
         loading,
         error
     } = useMySchoolStore();
@@ -128,8 +129,6 @@ export default function AttendancePage() {
     const [stopReasons, setStopReasons] = useState<{ [key: string]: string }>({});
     const [pendingUpdates, setPendingUpdates] = useState<Array<{ sessionId: string; studentId: string; status: AttendanceStatus }>>([]);
 
-
-
     // Reschedule modal state
     const [showRescheduleModal, setShowRescheduleModal] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState<Date>(new Date());
@@ -139,6 +138,13 @@ export default function AttendancePage() {
         fetchGroups();
         fetchTeachers();
     }, [fetchGroups, fetchTeachers]);
+
+    // Fetch attendance on demand when a group is selected
+    useEffect(() => {
+        if (selectedGroupId) {
+            fetchGroupAttendance(selectedGroupId);
+        }
+    }, [selectedGroupId, fetchGroupAttendance]);
 
 
 

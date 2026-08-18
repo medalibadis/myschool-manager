@@ -288,27 +288,52 @@ export const teacherService = {
 // Group operations
 export const groupService = {
   async getAll(): Promise<Group[]> {
-    // Try to ensure the student_groups table exists
-    try {
-      // Check if the table exists
-      const { data: tableCheck, error: checkError } = await supabase
-        .from('student_groups')
-        .select('*')
-        .limit(1);
-
-      if (checkError && checkError.message.includes('does not exist')) {
-        console.log('student_groups table does not exist, will use fallback approach');
-      }
-    } catch (error) {
-      console.log('Could not check student_groups table, continuing with fallback approach:', error);
-    }
-
+    console.log('🔄 Fetching groups with nested relations in a single query...');
     const { data, error } = await supabase
       .from('groups')
       .select(`
-        *,
+        id,
+        name,
+        teacher_id,
+        start_date,
+        recurring_days,
+        total_sessions,
+        language,
+        level,
+        category,
+        price,
+        start_time,
+        end_time,
+        custom_language,
+        custom_level,
+        custom_category,
+        is_frozen,
+        freeze_date,
+        unfreeze_date,
+        created_at,
         teachers (id, name, email, phone),
-        sessions (id, date, session_number)
+        sessions (id, date, session_number),
+        student_groups (
+          student_id,
+          status,
+          notes,
+          group_discount,
+          students (
+            id,
+            custom_id,
+            name,
+            email,
+            phone,
+            address,
+            birth_date,
+            price_per_session,
+            total_paid,
+            parent_name,
+            second_phone,
+            default_discount,
+            balance
+          )
+        )
       `)
       .order('created_at', { ascending: false });
 
@@ -317,276 +342,80 @@ export const groupService = {
       throw new Error(`Failed to fetch groups: ${error.message}`);
     }
 
-    // Fetch students for each group using the junction table
-    const groupsWithStudents = await Promise.all(
-      data?.map(async (group) => {
-        // Get students for this group using the junction table
-        console.log(`Fetching students for group ${group.id} (${group.name})`);
+    const now = new Date();
 
-        let studentGroups: any[] = [];
-        let studentGroupsError: any = null;
-
-        try {
-          // First try to use the new junction table approach
-          const { data: junctionData, error: junctionError } = await supabase
-            .from('student_groups')
-            .select(`
-            student_id,
-              status
-            `)
-            .eq('group_id', group.id);
-
-          if (junctionError) {
-            console.log('Junction table approach failed, trying fallback:', junctionError.message);
-            // Fallback: try to get students directly from the students table
-            const { data: fallbackData, error: fallbackError } = await supabase
-              .from('students')
-              .select(`
-              id, name, email, phone, address, birth_date, 
-              price_per_session, total_paid, parent_name, 
-              second_phone, default_discount, balance, custom_id
-          `)
-              .eq('group_id', group.id);
-
-            if (fallbackError) {
-              console.log('Fallback approach also failed:', fallbackError.message);
-              // If both approaches fail, try to check if the students table has a group_id field
-              const { data: schemaCheck, error: schemaError } = await supabase
-                .from('students')
-                .select('*')
-                .limit(1);
-
-              if (schemaError) {
-                console.error('Cannot access students table:', schemaError);
-                studentGroupsError = schemaError;
-              } else {
-                // Check if the first student has a group_id field
-                const firstStudent = schemaCheck?.[0];
-                if (firstStudent && 'group_id' in firstStudent) {
-                  console.log('Students table has group_id field, using direct query');
-                  // Try a different approach - get all students and filter by group
-                  const { data: allStudents, error: allStudentsError } = await supabase
-                    .from('students')
-                    .select('*');
-
-                  if (allStudentsError) {
-                    console.error('Error fetching all students:', allStudentsError);
-                    studentGroupsError = allStudentsError;
-                  } else {
-                    // Filter students by group_id
-                    const groupStudents = allStudents?.filter((s: any) => s.group_id === group.id) || [];
-                    studentGroups = groupStudents.map((student: any) => ({
-                      student_id: student.id,
-                      status: 'active' // Default to active
-                    }));
-                    console.log(`Direct filtering: Found ${studentGroups.length} students for group ${group.id}`);
-                  }
-                } else {
-                  console.log('Students table does not have group_id field, creating empty student list');
-                  studentGroups = [];
-                }
-              }
-            } else {
-              // Convert fallback data to match expected format
-              studentGroups = fallbackData?.map((student: any) => ({
-                student_id: student.id,
-                status: 'active' // Default to active for fallback
-              })) || [];
-              console.log(`Fallback: Found ${studentGroups.length} students for group ${group.id}`);
-            }
-          } else {
-            studentGroups = junctionData || [];
-            console.log(`Junction table: Found ${studentGroups.length} student groups for group ${group.id}`);
-          }
-        } catch (error) {
-          console.error('Unexpected error fetching students:', error);
-          studentGroupsError = error;
-        }
-
-        if (studentGroupsError) {
-          console.error('Error fetching students for group', group.id, ':', studentGroupsError);
-          console.error('Error details:', JSON.stringify(studentGroupsError, null, 2));
+    return (data || []).map((group: any) => {
+      // Map students from nested student_groups
+      const students: Student[] = (group.student_groups || [])
+        .map((sg: any) => {
+          const student = sg.students;
+          if (!student) return null;
           return {
-            ...group,
-            students: [],
+            id: student.id,
+            custom_id: student.custom_id,
+            name: student.name,
+            email: student.email,
+            phone: student.phone,
+            address: student.address,
+            birthDate: student.birth_date ? new Date(student.birth_date) : undefined,
+            courseFee: student.price_per_session,
+            totalPaid: student.total_paid || 0,
+            groupId: group.id,
+            groupDiscount: sg.group_discount || 0,
+            parentName: student.parent_name,
+            secondPhone: student.second_phone,
+            defaultDiscount: student.default_discount || 0,
+            balance: student.balance || 0,
+            groupStatus: sg.status || 'active',
+            stopReason: sg.notes || undefined,
           };
-        }
+        })
+        .filter((s: any): s is Student => s !== null);
 
-        // Now fetch the student details for each student_id
-        let students: any[] = [];
+      // Map sessions
+      const sessions = (group.sessions || []).map((session: any) => ({
+        id: session.id,
+        date: new Date(session.date),
+        groupId: group.id,
+        sessionNumber: session.session_number,
+        attendance: {}, // Populated on-demand when viewing group/attendance
+      }));
 
-        if (studentGroups.length > 0) {
-          const studentIds = studentGroups.map((sg: any) => sg.student_id);
+      // Calculate progress without downloading 11k attendance records
+      const completedSessionsCount = sessions.filter((s: any) => s.date <= now).length;
+      const total = group.total_sessions || 16;
+      const completed = Math.min(completedSessionsCount, total);
+      const progressPercentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-          const { data: studentsData, error: studentsError } = await supabase
-            .from('students')
-            .select(`
-              id, name, email, phone, address, birth_date, 
-              price_per_session, total_paid, parent_name, 
-              second_phone, default_discount, balance, custom_id
-            `)
-            .in('id', studentIds);
-
-          if (studentsError) {
-            console.error('Error fetching students:', studentsError);
-          } else {
-            // Map students with their group status
-            students = studentIds.map((studentId: string) => {
-              const student = studentsData?.find((s: any) => s.id === studentId);
-              const studentGroup = studentGroups?.find((sg: any) => sg.student_id === studentId);
-
-              if (!student) return null;
-
-              return {
-                id: student.id,
-                custom_id: student.custom_id,
-                name: student.name,
-                email: student.email,
-                phone: student.phone,
-                address: student.address,
-                birthDate: student.birth_date ? new Date(student.birth_date) : undefined,
-                courseFee: student.price_per_session,
-                totalPaid: student.total_paid,
-                groupId: group.id,
-                groupDiscount: studentGroup?.group_discount || 0,
-                parentName: student.parent_name,
-                secondPhone: student.second_phone,
-                defaultDiscount: student.default_discount || 0,
-                balance: student.balance || 0,
-                groupStatus: studentGroup?.status || 'active', // Add the group status
-              };
-            }).filter(Boolean) || [];
-          }
-        }
-
-        return {
-          ...group,
-          students,
-        };
-      }) || []
-    );
-
-    // Fetch attendance data for all sessions with batching to avoid URL length issues
-    const sessionIds = groupsWithStudents.flatMap(group =>
-      group.sessions?.map((session: any) => session.id) || []
-    );
-
-    let attendanceData: any[] = [];
-    if (sessionIds.length > 0) {
-      console.log(`📊 Fetching attendance for ${sessionIds.length} sessions...`);
-
-      // Batch the session IDs to avoid URL length limits
-      const batchSize = 50; // Reduced batch size to avoid URL length issues
-      const batches = [];
-      for (let i = 0; i < sessionIds.length; i += batchSize) {
-        batches.push(sessionIds.slice(i, i + batchSize));
-      }
-
-      console.log(`📦 Processing ${batches.length} batches of attendance data...`);
-
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        console.log(`🔄 Fetching batch ${i + 1}/${batches.length} (${batch.length} sessions)...`);
-
-        try {
-          const { data: attendance, error: attendanceError } = await supabase
-            .from('attendance')
-            .select('session_id, student_id, status')
-            .in('session_id', batch)
-            .order('updated_at', { ascending: false }); // Add ordering to ensure fresh data
-
-          if (attendanceError) {
-            console.error(`❌ Error fetching attendance batch ${i + 1}:`, attendanceError);
-            // Continue with other batches even if one fails
-          } else {
-            attendanceData = [...attendanceData, ...(attendance || [])];
-            console.log(`✅ Batch ${i + 1} completed: ${attendance?.length || 0} records`);
-          }
-        } catch (error) {
-          console.error(`❌ Exception in batch ${i + 1}:`, error);
-          // Continue with other batches
-        }
-      }
-
-      console.log(`📊 Total attendance records fetched: ${attendanceData.length}`);
-    }
-
-    return groupsWithStudents.map(group => ({
-      id: group.id,
-      name: group.name,
-      teacherId: group.teacher_id,
-      startDate: new Date(group.start_date),
-      recurringDays: group.recurring_days,
-      totalSessions: group.total_sessions,
-      language: group.language,
-      level: group.level,
-      category: group.category,
-      price: group.price, // This is now group fees
-      startTime: group.start_time,
-      endTime: group.end_time,
-      customLanguage: group.custom_language,
-      customLevel: group.custom_level,
-      customCategory: group.custom_category,
-      // Freeze functionality
-      isFrozen: group.is_frozen || false,
-      freezeDate: group.freeze_date ? new Date(group.freeze_date) : undefined,
-      unfreezeDate: group.unfreeze_date ? new Date(group.unfreeze_date) : undefined,
-      students: group.students,
-      sessions: group.sessions?.map((session: any) => {
-        // Get attendance data for this session
-        const sessionAttendance = attendanceData.filter(
-          (att: any) => att.session_id === session.id
-        );
-
-        // Convert to attendance map
-        const attendanceMap: Record<string, string> = {};
-        sessionAttendance.forEach((att: any) => {
-          attendanceMap[att.student_id] = att.status;
-        });
-
-        return {
-          id: session.id,
-          date: new Date(session.date),
-          groupId: session.group_id,
-          sessionNumber: session.session_number, // Include session number for proper ordering
-          attendance: attendanceMap,
-        };
-      }) || [],
-      createdAt: new Date(group.created_at),
-      progress: {
-        totalSessions: group.total_sessions,
-        completedSessions: (() => {
-          // Count only sessions that have been studied (have non-default attendance)
-          const studiedSessions = group.sessions?.filter((session: any) => {
-            const sessionAttendance = attendanceData.filter(
-              (att: any) => att.session_id === session.id
-            );
-            // A session is considered studied if at least one student has a "participation" status
-            // Positive statuses: present, absent, justified, late
-            // Excluded statuses: default, stopped, new, change
-            return sessionAttendance.some((att: any) =>
-              ['present', 'absent', 'justified', 'too_late'].includes(att.status)
-            );
-          }) || [];
-          return studiedSessions.length;
-        })(),
-        progressPercentage: (() => {
-          const completed = (() => {
-            const studiedSessions = group.sessions?.filter((session: any) => {
-              const sessionAttendance = attendanceData.filter(
-                (att: any) => att.session_id === session.id
-              );
-              // Same positive logic here
-              return sessionAttendance.some((att: any) =>
-                ['present', 'absent', 'justified', 'too_late'].includes(att.status)
-              );
-            }) || [];
-            return studiedSessions.length;
-          })();
-          return group.total_sessions > 0 ? Math.round((completed / group.total_sessions) * 100) : 0;
-        })(),
-      },
-    }));
+      return {
+        id: group.id,
+        name: group.name,
+        teacherId: group.teacher_id,
+        startDate: new Date(group.start_date),
+        recurringDays: group.recurring_days || [1],
+        totalSessions: total,
+        language: group.language,
+        level: group.level,
+        category: group.category,
+        price: group.price,
+        startTime: group.start_time,
+        endTime: group.end_time,
+        customLanguage: group.custom_language,
+        customLevel: group.custom_level,
+        customCategory: group.custom_category,
+        isFrozen: group.is_frozen || false,
+        freezeDate: group.freeze_date ? new Date(group.freeze_date) : undefined,
+        unfreezeDate: group.unfreeze_date ? new Date(group.unfreeze_date) : undefined,
+        students,
+        sessions,
+        createdAt: new Date(group.created_at),
+        progress: {
+          totalSessions: total,
+          completedSessions: completed,
+          progressPercentage,
+        },
+      };
+    });
   },
 
   async create(group: Omit<Group, 'id' | 'sessions' | 'createdAt'>): Promise<Group> {
@@ -1093,6 +922,43 @@ export const studentService = {
 
 // Session operations
 export const sessionService = {
+  async getAttendanceForGroup(groupId: number): Promise<Record<string, Record<string, string>>> {
+    try {
+      const { data: sessions, error: sessionsError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('group_id', groupId);
+
+      if (sessionsError || !sessions || sessions.length === 0) {
+        return {};
+      }
+
+      const sessionIds = sessions.map(s => s.id);
+      const { data: attendance, error: attError } = await supabase
+        .from('attendance')
+        .select('session_id, student_id, status')
+        .in('session_id', sessionIds);
+
+      if (attError) {
+        console.error(`Error fetching attendance for group ${groupId}:`, attError);
+        return {};
+      }
+
+      const attendanceBySession: Record<string, Record<string, string>> = {};
+      (attendance || []).forEach((att: any) => {
+        if (!attendanceBySession[att.session_id]) {
+          attendanceBySession[att.session_id] = {};
+        }
+        attendanceBySession[att.session_id][att.student_id] = att.status;
+      });
+
+      return attendanceBySession;
+    } catch (error) {
+      console.error(`Exception fetching attendance for group ${groupId}:`, error);
+      return {};
+    }
+  },
+
   async generateSessions(groupId: number): Promise<Session[]> {
     console.log('=== GENERATE SESSIONS FUNCTION CALLED ===');
     console.log(`Starting generateSessions for group ${groupId} (type: ${typeof groupId})`);
@@ -2052,6 +1918,59 @@ export const sessionService = {
 
 // Payment operations
 export const paymentService = {
+  async getGroupStudentPaymentStatuses(groupId: number, students: Student[]): Promise<Record<string, 'paid' | 'pending' | 'free'>> {
+    const statuses: Record<string, 'paid' | 'pending' | 'free'> = {};
+    if (!students || students.length === 0) return statuses;
+
+    try {
+      // Find group info to know price
+      const { data: groupData } = await supabase
+        .from('groups')
+        .select('price')
+        .eq('id', groupId)
+        .single();
+
+      const groupPrice = Number(groupData?.price || 0);
+
+      const studentIds = students.map(s => s.id);
+      const { data: payments, error: pError } = await supabase
+        .from('payments')
+        .select('student_id, amount')
+        .in('student_id', studentIds)
+        .eq('group_id', groupId);
+
+      if (pError) {
+        console.error('Error querying payments for group:', pError);
+      }
+
+      // Sum payments per student for this group
+      const paidByStudent: Record<string, number> = {};
+      (payments || []).forEach((p: any) => {
+        const amt = Number(p.amount || 0);
+        if (amt > 0) {
+          paidByStudent[p.student_id] = (paidByStudent[p.student_id] || 0) + amt;
+        }
+      });
+
+      students.forEach(student => {
+        const discount = student.groupDiscount !== undefined ? student.groupDiscount : (student.defaultDiscount || 0);
+        if (discount === 100 || groupPrice === 0) {
+          statuses[student.id] = 'free';
+        } else {
+          const effectivePrice = Math.max(0, groupPrice * (1 - discount / 100));
+          const totalPaid = paidByStudent[student.id] || 0;
+          statuses[student.id] = totalPaid >= effectivePrice ? 'paid' : 'pending';
+        }
+      });
+
+      return statuses;
+    } catch (error) {
+      console.error('Error calculating group student payment statuses:', error);
+      students.forEach(s => { statuses[s.id] = 'pending'; });
+      return statuses;
+    }
+  },
+
   async undoStudentAffectation(studentId: string, groupId: number): Promise<void> {
     try {
       console.log(`🔙 UNDO AFFECTATION: Starting for student ${studentId} in group ${groupId}`);

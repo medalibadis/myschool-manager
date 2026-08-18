@@ -202,34 +202,16 @@ export default function PaymentsPage() {
     useEffect(() => {
         const initializeData = async () => {
             try {
-                // Load basic data first
-                await fetchGroups();
-                await fetchPayments();
+                // Load basic data first (cached if already loaded)
+                await Promise.all([fetchGroups(), fetchPayments()]);
 
-                // Then load dependent data with individual error handling
-                try {
-                    await loadRecentPayments();
-                } catch (error) {
-                    console.error('Error loading recent payments:', error);
-                }
-
-                try {
-                    await loadReceipts();
-                } catch (error) {
-                    console.error('Error loading receipts:', error);
-                }
-
-                try {
-                    await loadRefundList();
-                } catch (error) {
-                    console.error('Error loading refund list:', error);
-                }
-
-                try {
-                    await loadDebtsList();
-                } catch (error) {
-                    console.error('Error loading debts list:', error);
-                }
+                // Then load dependent secondary data in parallel
+                await Promise.allSettled([
+                    loadRecentPayments().catch(e => console.error('Error loading recent payments:', e)),
+                    loadReceipts().catch(e => console.error('Error loading receipts:', e)),
+                    loadRefundList().catch(e => console.error('Error loading refund list:', e)),
+                    loadDebtsList().catch(e => console.error('Error loading debts list:', e)),
+                ]);
             } catch (error) {
                 console.error('Error initializing basic payment data:', error);
             }

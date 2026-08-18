@@ -32,48 +32,12 @@ import { getAttendanceClasses, getAttendanceDisplayLetter, getAttendanceTitle } 
 import { supabase } from '../../../lib/supabase';
 import { paymentService } from '../../../lib/supabase-service';
 
-// Component to check and display student status in the group - OPTIMIZED
-const StudentStatusBadge = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
-    const [status, setStatus] = React.useState<'active' | 'stopped' | 'loading'>('loading');
-    const [stopReason, setStopReason] = React.useState<string | null>(null);
-
-    React.useEffect(() => {
-        const checkStudentStatus = async () => {
-            try {
-                // Check student_groups table for status
-                const { data: studentGroup, error } = await supabase
-                    .from('student_groups')
-                    .select('status, notes')
-                    .eq('student_id', studentId)
-                    .eq('group_id', groupId)
-                    .single();
-
-                if (error && error.code !== 'PGRST116') {
-                    console.error('Error checking student status:', error);
-                    setStatus('active'); // Default to active if error
-                    return;
-                }
-
-                if (studentGroup) {
-                    setStatus(studentGroup.status as 'active' | 'stopped');
-                    if (studentGroup.status === 'stopped' && studentGroup.notes) {
-                        setStopReason(studentGroup.notes);
-                    }
-                } else {
-                    setStatus('active'); // Default to active if no record found
-                }
-            } catch (error) {
-                console.error('Error checking student status:', error);
-                setStatus('active');
-            }
-        };
-
-        checkStudentStatus();
-    }, [studentId, groupId]);
-
-    if (status === 'loading') {
-        return <span className="text-xs text-gray-400">Loading...</span>;
-    }
+// Component to check and display student status in the group - OPTIMIZED (0 DB Queries)
+const StudentStatusBadge = React.memo(({ studentId, groupId, initialStatus, initialStopReason }: { studentId: string; groupId: number; initialStatus?: string; initialStopReason?: string }) => {
+    const storeGroup = useMySchoolStore(state => state.groups.find(g => g.id === groupId));
+    const storeStudent = storeGroup?.students.find(s => s.id === studentId);
+    const status = initialStatus || storeStudent?.groupStatus || 'active';
+    const stopReason = initialStopReason || (storeStudent as any)?.stopReason;
 
     if (status === 'stopped') {
         return (
@@ -97,72 +61,8 @@ const StudentStatusBadge = React.memo(({ studentId, groupId }: { studentId: stri
     );
 });
 
-// PaymentStatusCell component - OPTIMIZED VERSION
-const PaymentStatusCell = React.memo(({ studentId, groupId }: { studentId: string; groupId: number }) => {
-    // Re-run status check whenever groups data refreshes (e.g. after discount change)
-    const groupsSnapshot = useMySchoolStore(state => state.groups);
-    const [isPending, setIsPending] = React.useState(true);
-    const [paymentStatus, setPaymentStatus] = React.useState<'paid' | 'pending' | 'free' | 'unknown'>('unknown');
-
-    React.useEffect(() => {
-        const checkPaymentStatus = async () => {
-            try {
-                // Use the centralized service for balance calculation
-                const balance = await paymentService.getStudentBalance(studentId);
-
-                // Find the balance for this specific group
-                const groupBalance = balance.groupBalances.find(gb => gb.groupId === groupId);
-
-                if (groupBalance) {
-                    if (groupBalance.discount === 100) {
-                        setPaymentStatus('free');
-                    } else {
-                        const isPaid = groupBalance.remainingAmount <= 0;
-                        setPaymentStatus(isPaid ? 'paid' : 'pending');
-                    }
-
-                    // Debug log for troubleshooting
-                    if (groupBalance.remainingAmount > 0 && groupBalance.discount !== 100) {
-                        console.log(`PaymentStatusCell: Student ${studentId.substring(0, 8)}... Group ${groupId}: Total Fee=${groupBalance.groupFees}, Paid=${groupBalance.amountPaid}, Remaining=${groupBalance.remainingAmount}, status=pending`);
-                    }
-                } else {
-                    // If no balance record exists for this group, fetch group price directly
-                    const { data: groupData } = await supabase
-                        .from('groups')
-                        .select('price')
-                        .eq('id', groupId)
-                        .single();
-
-                    if (groupData) {
-                        const price = Number(groupData.price);
-                        if (price === 0) {
-                            setPaymentStatus('free');
-                        } else {
-                            setPaymentStatus('pending');
-                        }
-                    } else {
-                        setPaymentStatus('paid');
-                    }
-                }
-            } catch (error) {
-                console.error('Error checking payment status:', error);
-                setPaymentStatus('unknown');
-            } finally {
-                setIsPending(false);
-            }
-        };
-
-        checkPaymentStatus();
-    }, [studentId, groupId, groupsSnapshot]);
-
-    if (isPending) {
-        return (
-            <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-            </div>
-        );
-    }
-
+// PaymentStatusCell component - OPTIMIZED (0 DB Queries, uses pre-batched status)
+const PaymentStatusCell = React.memo(({ studentId, paymentStatus = 'pending' }: { studentId: string; groupId?: number; paymentStatus?: 'paid' | 'pending' | 'free' | 'unknown' }) => {
     return (
         <div className="flex justify-center">
             {paymentStatus === 'pending' ? (
@@ -207,6 +107,7 @@ export default function GroupDetailPage() {
         updateAttendanceBulk,
         fetchGroups,
         fetchTeachers,
+        fetchGroupAttendance,
         getWaitingListByCriteria,
         moveFromWaitingListToGroup,
         addCallLog,
@@ -250,19 +151,25 @@ export default function GroupDetailPage() {
 
     const teacher = group ? getTeacherById(group.teacherId) : null;
 
+    // Payment statuses batched state
+    const [paymentStatuses, setPaymentStatuses] = useState<Record<string, 'paid' | 'pending' | 'free'>>({});
+
     React.useEffect(() => {
         fetchGroups();
         fetchTeachers();
-    }, [fetchGroups, fetchTeachers]);
+        if (groupId) {
+            fetchGroupAttendance(groupId);
+        }
+    }, [groupId, fetchGroups, fetchTeachers, fetchGroupAttendance]);
 
-    // Refresh data periodically to stay in sync with attendance page
+    // Batch fetch student payment statuses for this group in 1 single request
     React.useEffect(() => {
-        const interval = setInterval(() => {
-            fetchGroups();
-        }, 30000); // Refresh every 30 seconds instead of 5 seconds
-
-        return () => clearInterval(interval);
-    }, [fetchGroups]);
+        if (uniqueStudents && uniqueStudents.length > 0 && groupId) {
+            paymentService.getGroupStudentPaymentStatuses(groupId, uniqueStudents).then(statuses => {
+                setPaymentStatuses(statuses);
+            });
+        }
+    }, [groupId, uniqueStudents]);
 
     const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
@@ -1172,7 +1079,7 @@ export default function GroupDetailPage() {
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-3 py-4 whitespace-nowrap text-center">
-                                                                    <StudentStatusBadge studentId={student.id} groupId={groupId} />
+                                                                    <StudentStatusBadge studentId={student.id} groupId={groupId} initialStatus={student.groupStatus} initialStopReason={student.stopReason} />
                                                                 </td>
                                                                 {sortedSessions.map((session) => {
                                                                     const attendance = session.attendance && typeof session.attendance === 'object'
@@ -1210,7 +1117,7 @@ export default function GroupDetailPage() {
                                                                     </Button>
                                                                 </td>
                                                                 <td className="px-3 py-4 whitespace-nowrap text-center">
-                                                                    <PaymentStatusCell studentId={student.id} groupId={groupId} />
+                                                                    <PaymentStatusCell studentId={student.id} groupId={groupId} paymentStatus={paymentStatuses[student.id]} />
                                                                 </td>
                                                                 <td className="px-3 py-4 whitespace-nowrap text-center">
                                                                     <div className="flex items-center justify-center gap-2">
@@ -1914,7 +1821,7 @@ export default function GroupDetailPage() {
                                                         <div className="text-sm text-gray-500">{student.email}</div>
                                                     </div>
                                                 </div>
-                                                <StudentStatusBadge studentId={student.id} groupId={groupId} />
+                                                <StudentStatusBadge studentId={student.id} groupId={groupId} initialStatus={student.groupStatus} initialStopReason={student.stopReason} />
                                             </div>
                                         ))}
                                     </div>

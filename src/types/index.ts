@@ -49,6 +49,8 @@ export interface Student {
     registrationFeePaid?: boolean;
     registrationFeeAmount?: number;
     groupDiscount?: number;
+    groupStatus?: 'active' | 'stopped';
+    stopReason?: string;
 }
 
 export interface WaitingListStudent {

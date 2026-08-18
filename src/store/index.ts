@@ -14,12 +14,13 @@ interface MySchoolStore {
     error: string | null;
 
     // Actions
-    fetchTeachers: () => Promise<void>;
+    fetchTeachers: (force?: boolean) => Promise<void>;
     addTeacher: (teacher: Omit<Teacher, 'id'>) => Promise<void>;
     updateTeacher: (id: string, teacher: Partial<Teacher>) => Promise<void>;
     deleteTeacher: (id: string) => Promise<void>;
 
-    fetchGroups: () => Promise<void>;
+    fetchGroups: (force?: boolean) => Promise<void>;
+    fetchGroupAttendance: (groupId: number) => Promise<void>;
     addGroup: (group: Omit<Group, 'id' | 'sessions' | 'createdAt'>) => Promise<Group>;
     updateGroup: (id: number, group: Partial<Group>) => Promise<void>;
     deleteGroup: (id: number) => Promise<void>;
@@ -189,7 +190,10 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     error: null,
 
     // Teacher actions
-    fetchTeachers: async () => {
+    fetchTeachers: async (force = false) => {
+        if (!force && get().teachers.length > 0) {
+            return;
+        }
         set({ loading: true, error: null });
         try {
             const teachers = await teacherService.getAll();
@@ -241,16 +245,40 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     },
 
     // Group actions
-    fetchGroups: async () => {
+    fetchGroups: async (force = false) => {
+        if (!force && get().groups.length > 0) {
+            return;
+        }
         set({ loading: true, error: null });
         try {
-            console.log('🔄 Fetching fresh groups data...');
+            console.log('🔄 Fetching groups data...');
             const groups = await groupService.getAll();
             console.log(`✅ Successfully loaded ${groups.length} groups`);
             set({ groups, loading: false });
         } catch (error) {
             console.error('❌ Error fetching groups:', error);
             set({ error: (error as Error).message, loading: false });
+        }
+    },
+
+    // Scoped attendance fetch for a single group
+    fetchGroupAttendance: async (groupId: number) => {
+        try {
+            const attendanceMap = await sessionService.getAttendanceForGroup(groupId);
+            set((state) => ({
+                groups: state.groups.map((group) => {
+                    if (group.id !== groupId) return group;
+                    return {
+                        ...group,
+                        sessions: group.sessions.map((session) => ({
+                            ...session,
+                            attendance: (attendanceMap[session.id] as Record<string, import('../types').AttendanceStatus>) || session.attendance || {},
+                        })),
+                    };
+                }),
+            }));
+        } catch (error) {
+            console.error(`Error fetching attendance for group ${groupId}:`, error);
         }
     },
 

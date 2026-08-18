@@ -264,14 +264,13 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 5. INITIAL SUPER ADMIN BOOTSTRAP SNIPPET
+-- 5. LINK SUPER ADMIN TO ADMIN_PROFILES
 -- ============================================================================
--- After creating your Super Admin user in Supabase Dashboard -> Authentication -> Users (e.g. raouf@myschool.com):
--- Run the following query to link them to admin_profiles:
---
--- INSERT INTO public.admin_profiles (id, name, email, role, is_active)
--- SELECT id, COALESCE(raw_user_meta_data->>'name', 'Super Admin'), email, 'SUPER_ADMIN', true
--- FROM auth.users
--- WHERE email = 'raouf@myschool.com'
--- ON CONFLICT (id) DO UPDATE SET role = 'SUPER_ADMIN', is_active = true;
+
+INSERT INTO public.admin_profiles (id, name, email, role, is_active)
+SELECT id, COALESCE(raw_user_meta_data->>'name', 'Raouf'), email, 'SUPER_ADMIN', true
+FROM auth.users
+WHERE email = 'raouf@myschool.com'
+ON CONFLICT (id) DO UPDATE SET role = 'SUPER_ADMIN', is_active = true;
+
 

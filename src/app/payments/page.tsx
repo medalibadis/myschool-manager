@@ -1198,6 +1198,200 @@ Thank you!`;
         setIsReceiptModalOpen(true);
     };
 
+    // Handle thermal POS ticket printing (single page 80mm/72mm ticket)
+    const handlePrintThermalReceipt = (receipt: any) => {
+        if (!receipt) return;
+
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (!doc) return;
+
+        const dateStr = new Date(receipt.created_at).toLocaleDateString();
+        const timeStr = new Date(receipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        let typeLabel = 'Payment';
+        if (receipt.payment_type === 'registration_fee') typeLabel = 'Registration Fee';
+        else if (receipt.payment_type === 'group_payment') typeLabel = 'Group Course Fee';
+        else if (receipt.payment_type === 'balance_addition') typeLabel = 'Additional Credit';
+        else if (receipt.payment_type === 'balance_credit') typeLabel = 'Attendance Credit';
+        else if (receipt.payment_type === 'attendance_credit') typeLabel = 'Session Adjustment';
+        else if (receipt.payment_type) typeLabel = receipt.payment_type;
+
+        const groupRow = receipt.group_name && receipt.group_name !== 'N/A' && receipt.group_name !== 'Registration Fee' && receipt.group_name !== 'Balance Credit'
+            ? `<div class="row"><span class="label">Group:</span><span class="value">${receipt.group_name}</span></div>`
+            : '';
+
+        const notesRow = receipt.notes && !receipt.notes.includes('null')
+            ? `<div class="notes">Note: ${receipt.notes}</div>`
+            : '';
+
+        doc.open();
+        doc.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Receipt - ${receipt.student_name}</title>
+                <style>
+                    @page {
+                        size: 80mm auto;
+                        margin: 0;
+                    }
+                    * {
+                        box-sizing: border-box;
+                        margin: 0;
+                        padding: 0;
+                    }
+                    html, body {
+                        width: 72mm;
+                        max-width: 72mm;
+                        margin: 0 auto;
+                        padding: 4mm 1mm;
+                        background: #ffffff;
+                        color: #000000;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                        font-size: 12px;
+                        line-height: 1.35;
+                    }
+                    .logo-container {
+                        text-align: center;
+                        margin-bottom: 6px;
+                    }
+                    .logo-img {
+                        height: 56px;
+                        max-width: 100%;
+                        object-fit: contain;
+                        margin: 0 auto 4px auto;
+                        display: block;
+                    }
+                    .header-title {
+                        font-size: 12px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        text-align: center;
+                    }
+                    .header-meta {
+                        font-size: 10px;
+                        color: #333;
+                        text-align: center;
+                        margin-top: 2px;
+                    }
+                    .divider {
+                        border-bottom: 1px dashed #000;
+                        margin: 8px 0;
+                    }
+                    .row {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: flex-start;
+                        margin: 4px 0;
+                        font-size: 11.5px;
+                    }
+                    .label {
+                        color: #333;
+                        font-weight: 600;
+                        flex-shrink: 0;
+                        margin-right: 8px;
+                    }
+                    .value {
+                        font-weight: 700;
+                        color: #000;
+                        text-align: right;
+                        word-break: break-word;
+                    }
+                    .student-name {
+                        font-size: 13px;
+                        font-weight: 800;
+                    }
+                    .notes {
+                        font-size: 10px;
+                        color: #555;
+                        margin-top: 3px;
+                        font-style: italic;
+                    }
+                    .total-section {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 3px 0;
+                    }
+                    .total-label {
+                        font-size: 12px;
+                        font-weight: 800;
+                    }
+                    .total-val {
+                        font-size: 15px;
+                        font-weight: 900;
+                        font-family: monospace;
+                    }
+                    .footer {
+                        text-align: center;
+                        font-size: 10px;
+                        color: #555;
+                        margin-top: 8px;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="logo-container">
+                    <img src="/logo.png" alt="MySchool" class="logo-img" />
+                    <div class="header-title">Payment Receipt</div>
+                    <div class="header-meta">${dateStr} &bull; ${timeStr}</div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="row">
+                    <span class="label">Student:</span>
+                    <span class="value student-name">${receipt.student_name}</span>
+                </div>
+
+                ${groupRow}
+
+                <div class="row">
+                    <span class="label">Type:</span>
+                    <span class="value">${typeLabel}</span>
+                </div>
+
+                ${notesRow}
+
+                <div class="divider"></div>
+
+                <div class="total-section">
+                    <span class="total-label">TOTAL PAID:</span>
+                    <span class="total-val">${receipt.amount.toFixed(2)} DZD</span>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="footer">
+                    <div>Thank you for your payment!</div>
+                    <div style="font-size: 9px; color: #777; margin-top: 2px;">MySchool Management</div>
+                </div>
+            </body>
+            </html>
+        `);
+        doc.close();
+
+        setTimeout(() => {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+            setTimeout(() => {
+                if (document.body.contains(iframe)) {
+                    document.body.removeChild(iframe);
+                }
+            }, 2000);
+        }, 300);
+    };
+
     return (
         <AuthGuard>
             <div className="min-h-screen bg-gray-50">
@@ -2364,7 +2558,7 @@ Thank you!`;
                                 <img
                                     src="/logo.png"
                                     alt="MySchool"
-                                    className="h-10 mx-auto mb-1.5 object-contain"
+                                    className="h-14 mx-auto mb-2 object-contain"
                                 />
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">Payment Receipt</h3>
                                 <p className="text-[11px] text-gray-500 mt-1">
@@ -2467,7 +2661,7 @@ Thank you!`;
                         </Button>
                         <Button
                             onClick={() => {
-                                window.print();
+                                handlePrintThermalReceipt(selectedReceipt);
                             }}
                         >
                             Print Receipt

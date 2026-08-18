@@ -132,5 +132,32 @@ export const adminService = {
         } catch (e) {
             return { success: false, message: 'Failed to request MFA reset.' };
         }
-    }
+    },
+
+    // Create a new admin (Super Admin only, calls protected API)
+    async createAdmin(params: {
+        name: string;
+        email: string;
+        password: string;
+        phone?: string;
+        role?: string;
+        permissions?: string[];
+    }): Promise<{ success: boolean; message?: string; userId?: string }> {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch('/api/admin/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.access_token || ''}`,
+                },
+                body: JSON.stringify(params),
+            });
+
+            const data = await res.json();
+            return { success: res.ok, message: data.message || data.error, userId: data.userId };
+        } catch (e) {
+            return { success: false, message: 'Failed to create admin account.' };
+        }
+    },
 };

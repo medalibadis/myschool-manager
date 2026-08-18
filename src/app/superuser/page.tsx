@@ -729,6 +729,47 @@ export default function SuperuserDashboard() {
     const [showMfaResetModal, setShowMfaResetModal] = useState(false);
     const [selectedAdmin, setSelectedAdmin] = useState<AdminProfile | null>(null);
 
+    // Create Admin state
+    const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
+    const [createAdminLoading, setCreateAdminLoading] = useState(false);
+    const [newAdmin, setNewAdmin] = useState({
+        name: '',
+        email: '',
+        phone: '',
+        password: '',
+    });
+    const [newAdminPermissions, setNewAdminPermissions] = useState<string[]>([]);
+
+    const ALL_PERMISSIONS = [
+        { key: 'students.view', label: 'View Students', group: 'Students' },
+        { key: 'students.create', label: 'Create Students', group: 'Students' },
+        { key: 'students.edit', label: 'Edit Students', group: 'Students' },
+        { key: 'students.delete', label: 'Delete Students', group: 'Students' },
+        { key: 'groups.view', label: 'View Groups', group: 'Groups' },
+        { key: 'groups.create', label: 'Create Groups', group: 'Groups' },
+        { key: 'groups.edit', label: 'Edit Groups', group: 'Groups' },
+        { key: 'groups.delete', label: 'Delete Groups', group: 'Groups' },
+        { key: 'attendance.view', label: 'View Attendance', group: 'Attendance' },
+        { key: 'attendance.edit', label: 'Edit Attendance', group: 'Attendance' },
+        { key: 'payments.view', label: 'View Payments', group: 'Payments' },
+        { key: 'payments.create', label: 'Create Payments', group: 'Payments' },
+        { key: 'payments.edit', label: 'Edit Payments', group: 'Payments' },
+        { key: 'payments.delete', label: 'Delete Payments', group: 'Payments' },
+        { key: 'teachers.view', label: 'View Teachers', group: 'Teachers' },
+        { key: 'teachers.create', label: 'Create Teachers', group: 'Teachers' },
+        { key: 'teachers.edit', label: 'Edit Teachers', group: 'Teachers' },
+        { key: 'teachers.delete', label: 'Delete Teachers', group: 'Teachers' },
+        { key: 'salary.manage', label: 'Manage Salary', group: 'Salary' },
+        { key: 'waiting_list.manage', label: 'Manage Waiting List', group: 'Waiting List' },
+        { key: 'call_logs.manage', label: 'Manage Call Logs', group: 'Call Logs' },
+    ];
+
+    const permissionGroups = ALL_PERMISSIONS.reduce((acc, p) => {
+        if (!acc[p.group]) acc[p.group] = [];
+        acc[p.group].push(p);
+        return acc;
+    }, {} as Record<string, typeof ALL_PERMISSIONS>);
+
     useEffect(() => {
         if (!isSuperuser && !isSuperAdmin) {
             router.push('/');
@@ -776,6 +817,62 @@ export default function SuperuserDashboard() {
         }
     };
 
+    const handleSelectAllPermissions = () => {
+        if (newAdminPermissions.length === ALL_PERMISSIONS.length) {
+            setNewAdminPermissions([]);
+        } else {
+            setNewAdminPermissions(ALL_PERMISSIONS.map(p => p.key));
+        }
+    };
+
+    const handleTogglePermission = (key: string) => {
+        setNewAdminPermissions(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
+
+    const handleCreateAdmin = async () => {
+        if (!newAdmin.name || !newAdmin.email || !newAdmin.password) {
+            alert('Name, email, and password are required.');
+            return;
+        }
+        if (newAdmin.password.length < 12) {
+            alert('Password must be at least 12 characters.');
+            return;
+        }
+        if (newAdminPermissions.length === 0) {
+            alert('Please select at least one permission.');
+            return;
+        }
+
+        setCreateAdminLoading(true);
+        try {
+            const result = await adminService.createAdmin({
+                name: newAdmin.name,
+                email: newAdmin.email,
+                password: newAdmin.password,
+                phone: newAdmin.phone || undefined,
+                role: 'ADMIN',
+                permissions: newAdminPermissions,
+            });
+
+            if (result.success) {
+                alert(`✅ ${result.message}\n\nAdmin must set up MFA on first login.`);
+                setShowCreateAdminModal(false);
+                setNewAdmin({ name: '', email: '', phone: '', password: '' });
+                setNewAdminPermissions([]);
+                fetchAdmins();
+            } else {
+                alert(`❌ Error: ${result.message}`);
+            }
+        } catch (error) {
+            console.error('Error creating admin:', error);
+            alert('Failed to create admin.');
+        } finally {
+            setCreateAdminLoading(false);
+        }
+    };
+
     if (!isSuperuser && !isSuperAdmin) {
         return null;
     }
@@ -811,11 +908,19 @@ export default function SuperuserDashboard() {
 
                     {/* Admin Accounts Board */}
                     <Card className="p-6">
-                        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                            <UserIcon className="h-6 w-6 text-orange-600" />
-                            Admin Accounts
-                        </h2>
-
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                                <UserIcon className="h-6 w-6 text-orange-600" />
+                                Admin Accounts
+                            </h2>
+                            <Button
+                                onClick={() => setShowCreateAdminModal(true)}
+                                className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
+                            >
+                                <span className="text-lg leading-none">+</span>
+                                Create Admin
+                            </Button>
+                        </div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
@@ -957,6 +1062,103 @@ export default function SuperuserDashboard() {
                             className="bg-orange-600 hover:bg-orange-700"
                         >
                             Confirm MFA Reset
+                        </Button>
+                    </div>
+                </Modal>
+
+                {/* Create Admin Modal */}
+                <Modal
+                    isOpen={showCreateAdminModal}
+                    onClose={() => setShowCreateAdminModal(false)}
+                    title="Create New Admin"
+                >
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                            <Input
+                                value={newAdmin.name}
+                                onChange={(e) => setNewAdmin(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="e.g. Dalila Mostefaoui"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                            <Input
+                                type="email"
+                                value={newAdmin.email}
+                                onChange={(e) => setNewAdmin(prev => ({ ...prev, email: e.target.value }))}
+                                placeholder="e.g. dalila@myschool.com"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                            <Input
+                                value={newAdmin.phone}
+                                onChange={(e) => setNewAdmin(prev => ({ ...prev, phone: e.target.value }))}
+                                placeholder="Optional"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Password * (min 12 characters)</label>
+                            <Input
+                                type="password"
+                                value={newAdmin.password}
+                                onChange={(e) => setNewAdmin(prev => ({ ...prev, password: e.target.value }))}
+                                placeholder="Secure password"
+                            />
+                        </div>
+
+                        {/* Permissions */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="block text-sm font-medium text-gray-700">Permissions *</label>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAllPermissions}
+                                    className="text-xs text-orange-600 hover:text-orange-800 font-medium"
+                                >
+                                    {newAdminPermissions.length === ALL_PERMISSIONS.length ? 'Deselect All' : 'Select All'}
+                                </button>
+                            </div>
+                            <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-3">
+                                {Object.entries(permissionGroups).map(([groupName, perms]) => (
+                                    <div key={groupName}>
+                                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{groupName}</p>
+                                        <div className="grid grid-cols-2 gap-1">
+                                            {perms.map(p => (
+                                                <label key={p.key} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={newAdminPermissions.includes(p.key)}
+                                                        onChange={() => handleTogglePermission(p.key)}
+                                                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                                                    />
+                                                    {p.label}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {newAdminPermissions.length} of {ALL_PERMISSIONS.length} permissions selected
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 mt-6">
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowCreateAdminModal(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleCreateAdmin}
+                            className="bg-orange-600 hover:bg-orange-700"
+                            disabled={createAdminLoading}
+                        >
+                            {createAdminLoading ? 'Creating...' : 'Create Admin'}
                         </Button>
                     </div>
                 </Modal>

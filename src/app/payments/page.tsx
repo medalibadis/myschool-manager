@@ -2356,7 +2356,7 @@ Thank you!`;
                     title={`Receipt - ${selectedReceipt?.student_name || 'Payment'}`}
                 >
                     {selectedReceipt && (
-                        <div className="space-y-6">
+                        <div id="printable-receipt" className="space-y-6 printable-receipt">
                             {/* Receipt Header */}
                             <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
                                 <div className="flex justify-between items-start">
@@ -2442,7 +2442,7 @@ Thank you!`;
                         </div>
                     )}
 
-                    <div className="flex justify-end gap-3 mt-6">
+                    <div className="flex justify-end gap-3 mt-6 receipt-actions">
                         {selectedReceipt && selectedReceipt.group_name && selectedReceipt.group_name !== 'N/A' && selectedReceipt.group_name !== 'Registration Fee' && selectedReceipt.group_name !== 'Balance Credit' && (
                             <Button
                                 variant="outline"

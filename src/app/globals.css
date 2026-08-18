@@ -167,27 +167,97 @@ textarea::placeholder {
   opacity: 0.6 !important;
 }
 
-/* Print styles for reports */
+/* Print styles */
 @media print {
+  @page {
+    margin: 10mm;
+    size: auto;
+  }
 
-  /* Hide everything except reports */
+  /* Hide everything by default during print */
   * {
+    visibility: hidden;
+  }
+
+  /* Hide buttons, inputs, modal backdrops, dialog close buttons, navigation */
+  button,
+  input,
+  nav,
+  .no-print,
+  .no-print *,
+  .receipt-actions,
+  .receipt-actions * {
+    display: none !important;
     visibility: hidden !important;
   }
 
-  /* Show only reports section and its children */
+  /* 1. Receipt printing (for Payments receipt modal) */
+  .printable-receipt,
+  .printable-receipt * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .printable-receipt {
+    position: fixed !important;
+    left: 50% !important;
+    top: 20px !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 500px !important;
+    margin: 0 auto !important;
+    padding: 24px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 12px !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* 2. Reports printing (for Superuser / Reports page) */
   .reports-section,
   .reports-section * {
     visibility: visible !important;
   }
 
   .reports-section {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     page-break-inside: avoid !important;
   }
 
-  /* Force table display */
+  /* 3. Teacher salary breakdown printing */
+  #salary-breakdown,
+  #salary-breakdown * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #salary-breakdown {
+    position: fixed !important;
+    left: 50% !important;
+    top: 20px !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 600px !important;
+    margin: 0 auto !important;
+    padding: 20px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 12px !important;
+    background: white !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* Force table display for reports */
   .reports-table {
     display: table !important;
     width: 100% !important;
@@ -232,103 +302,86 @@ textarea::placeholder {
     text-align: center !important;
   }
 
-  /* Specific column widths */
+  /* Specific column widths for reports */
   .reports-table th:nth-child(1),
   .reports-table td:nth-child(1) {
     width: 8% !important;
   }
 
-  /* GID */
   .reports-table th:nth-child(2),
   .reports-table td:nth-child(2) {
     width: 15% !important;
   }
 
-  /* Group Name */
   .reports-table th:nth-child(3),
   .reports-table td:nth-child(3) {
     width: 8% !important;
   }
 
-  /* Language */
   .reports-table th:nth-child(4),
   .reports-table td:nth-child(4) {
     width: 6% !important;
   }
 
-  /* Level */
   .reports-table th:nth-child(5),
   .reports-table td:nth-child(5) {
     width: 8% !important;
   }
 
-  /* Category */
   .reports-table th:nth-child(6),
   .reports-table td:nth-child(6) {
     width: 12% !important;
   }
 
-  /* Teacher */
   .reports-table th:nth-child(7),
   .reports-table td:nth-child(7) {
     width: 6% !important;
   }
 
-  /* Total Students */
   .reports-table th:nth-child(8),
   .reports-table td:nth-child(8) {
     width: 6% !important;
   }
 
-  /* Active Students */
   .reports-table th:nth-child(9),
   .reports-table td:nth-child(9) {
     width: 6% !important;
   }
 
-  /* Stopped Students */
   .reports-table th:nth-child(10),
   .reports-table td:nth-child(10) {
     width: 6% !important;
   }
 
-  /* Sessions Taught */
   .reports-table th:nth-child(11),
   .reports-table td:nth-child(11) {
     width: 6% !important;
   }
 
-  /* Total Sessions */
   .reports-table th:nth-child(12),
   .reports-table td:nth-child(12) {
     width: 6% !important;
   }
 
-  /* Paid Students */
   .reports-table th:nth-child(13),
   .reports-table td:nth-child(13) {
     width: 6% !important;
   }
 
-  /* Unpaid Students */
   .reports-table th:nth-child(14),
   .reports-table td:nth-child(14) {
     width: 6% !important;
   }
 
-  /* Free Students */
   .reports-table th:nth-child(15),
   .reports-table td:nth-child(15) {
     width: 8% !important;
   }
 
-  /* Revenue */
-
-
   /* Body styling */
   body {
     margin: 0 !important;
-    padding: 5px !important;
+    padding: 0 !important;
     font-size: 10px !important;
     color: black !important;
     background: white !important;

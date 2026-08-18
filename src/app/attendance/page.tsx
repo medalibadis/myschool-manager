@@ -112,6 +112,7 @@ export default function AttendancePage() {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
     const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+    const [loadingAttendance, setLoadingAttendance] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
     const [attendanceMap, setAttendanceMap] = useState<{ [sessionId: string]: { [studentId: string]: AttendanceStatus } }>({});
 
@@ -139,12 +140,18 @@ export default function AttendancePage() {
         fetchTeachers();
     }, [fetchGroups, fetchTeachers]);
 
-    // Fetch attendance on demand when a group is selected
-    useEffect(() => {
-        if (selectedGroupId) {
-            fetchGroupAttendance(selectedGroupId);
+    const handleOpenGroupAttendance = async (groupId: number) => {
+        setSelectedGroupId(groupId);
+        setShowAttendanceModal(true);
+        setLoadingAttendance(true);
+        try {
+            await fetchGroupAttendance(groupId);
+        } catch (e) {
+            console.error('Failed to fetch attendance:', e);
+        } finally {
+            setLoadingAttendance(false);
         }
-    }, [selectedGroupId, fetchGroupAttendance]);
+    };
 
 
 
@@ -917,10 +924,7 @@ export default function AttendancePage() {
                                                     return (
                                                         <tr
                                                             key={group.id}
-                                                            onClick={() => {
-                                                                setSelectedGroupId(group.id);
-                                                                setShowAttendanceModal(true);
-                                                            }}
+                                                            onClick={() => handleOpenGroupAttendance(group.id)}
                                                             className="cursor-pointer transition-colors hover:bg-orange-50"
                                                         >
                                                             <td className="px-6 py-4 whitespace-nowrap">
@@ -1059,7 +1063,12 @@ export default function AttendancePage() {
                         </div>
 
                         {/* Attendance Table */}
-                        {selectedGroup.students.length === 0 ? (
+                        {loadingAttendance ? (
+                            <div className="text-center py-16">
+                                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-600 mx-auto mb-3"></div>
+                                <p className="text-sm text-gray-500 font-medium">Loading attendance records...</p>
+                            </div>
+                        ) : selectedGroup.students.length === 0 ? (
                             <div className="text-center py-8">
                                 <UsersIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                                 <h3 className="text-lg font-medium text-gray-900 mb-2">No students in this group</h3>

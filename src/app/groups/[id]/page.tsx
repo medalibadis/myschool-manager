@@ -157,11 +157,14 @@ export default function GroupDetailPage() {
     const [paymentStatuses, setPaymentStatuses] = useState<Record<string, 'paid' | 'pending' | 'free'>>({});
 
     React.useEffect(() => {
-        fetchGroups();
-        fetchTeachers();
-        if (groupId) {
-            fetchGroupAttendance(groupId);
-        }
+        const init = async () => {
+            await fetchTeachers();
+            await fetchGroups();
+            if (groupId) {
+                await fetchGroupAttendance(groupId);
+            }
+        };
+        init();
     }, [groupId, fetchGroups, fetchTeachers, fetchGroupAttendance]);
 
     // Batch fetch student payment statuses for this group in 1 single request

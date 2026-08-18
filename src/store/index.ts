@@ -264,6 +264,9 @@ export const useMySchoolStore = create<MySchoolStore>((set, get) => ({
     // Scoped attendance fetch for a single group
     fetchGroupAttendance: async (groupId: number) => {
         try {
+            if (get().groups.length === 0) {
+                await get().fetchGroups();
+            }
             const attendanceMap = await sessionService.getAttendanceForGroup(groupId);
             set((state) => ({
                 groups: state.groups.map((group) => {

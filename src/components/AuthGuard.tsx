@@ -29,8 +29,6 @@ export default function AuthGuard({
 
     const isPublicAuthRoute =
         pathname === '/login' ||
-        pathname === '/mfa-setup' ||
-        pathname === '/mfa-challenge' ||
         pathname === '/unauthorized';
 
     useEffect(() => {

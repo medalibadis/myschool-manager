@@ -47,8 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fast unified loader for Profile, Permissions, and MFA status
     const loadUserData = useCallback(async (userId: string, currentUser?: User | null) => {
         try {
-            // 1. Run profile and permissions in parallel with 3s timeout
-            const [profileRes, permsRes, aalRes] = await Promise.all([
+            // 1. Run profile, permissions, assurance level, and factors in parallel with 3s timeout
+            const [profileRes, permsRes, aalRes, factorsRes] = await Promise.all([
                 supabase
                     .from('admin_profiles')
                     .select('*')
@@ -59,10 +59,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     .select('permission')
                     .eq('admin_id', userId),
                 supabase.auth.mfa.getAuthenticatorAssuranceLevel().catch(() => ({ data: null })),
+                supabase.auth.mfa.listFactors().catch(() => ({ data: null })),
             ]);
 
             const profile = profileRes.data;
             const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
+            const factors = factorsRes?.data;
 
             if (profile) {
                 const fullProfile: AdminProfile = {
@@ -86,19 +88,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const currentLevel = aal || 'aal1';
             setMfaAssuranceLevel(currentLevel);
 
-            // Factors check (fast)
-            if (currentUser?.factors && currentUser.factors.length > 0) {
-                const hasVerifiedFactor = currentUser.factors.some(f => f.status === 'verified');
-                setMfaEnrolled(hasVerifiedFactor);
-            } else if (nextAal === 'aal2' || currentLevel === 'aal2') {
-                setMfaEnrolled(true);
-            } else {
-                // Background check factors only if uncertain
-                supabase.auth.mfa.listFactors().then(({ data }) => {
-                    const enrolled = (data?.totp?.length || 0) > 0;
-                    setMfaEnrolled(enrolled);
-                }).catch(() => {});
-            }
+            // Factors check (fully resolved, no background callback race conditions)
+            const hasVerifiedFactor =
+                (factors?.totp?.some(f => f.status === 'verified') || factors?.all?.some(f => f.status === 'verified')) ||
+                (currentUser?.factors && currentUser.factors.some(f => f.status === 'verified')) ||
+                nextAal === 'aal2' ||
+                currentLevel === 'aal2';
+
+            setMfaEnrolled(!!hasVerifiedFactor);
         } catch (err) {
             console.error('Error loading user auth data:', err);
         }

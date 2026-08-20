@@ -72,6 +72,9 @@ function ReportsSection() {
                 .select(`
                     student_id,
                     group_id,
+                    status,
+                    notes,
+                    stop_reason,
                     group_discount,
                     students!inner(
                         id,
@@ -127,8 +130,12 @@ function ReportsSection() {
                 const totalStudents = groupStudentGroups.length;
 
                 // Count active vs stopped students from student_groups status
-                const activeStudents = groupStudentGroups.filter(sg => (sg as any).status !== 'stopped').length;
-                const stoppedStudents = groupStudentGroups.filter(sg => (sg as any).status === 'stopped').length;
+                const stoppedStudents = groupStudentGroups.filter(sg => 
+                    sg.status === 'stopped' || 
+                    sg.notes === 'stop' || 
+                    sg.stop_reason !== null && sg.stop_reason !== undefined
+                ).length;
+                const activeStudents = Math.max(0, totalStudents - stoppedStudents);
 
                 // Count sessions taught (sessions with actual attendance records)
                 const sessionsTaught = groupSessions.filter(session => {
@@ -357,7 +364,7 @@ function ReportsSection() {
                                         <td className="px-3 py-2 text-sm text-gray-800 font-medium">{group.teacher}</td>
                                         <td className="px-3 py-2 text-center text-sm text-gray-900">{group.totalStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-emerald-600 font-semibold">{group.activeStudents}</td>
-                                        <td className="px-3 py-2 text-center text-sm text-gray-500">{group.stoppedStudents}</td>
+                                        <td className={`px-3 py-2 text-center text-sm ${group.stoppedStudents > 0 ? 'text-amber-600 font-semibold' : 'text-gray-400'}`}>{group.stoppedStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-gray-800">{group.completedSessionsCount}/{group.totalSessions}</td>
                                         <td className="px-3 py-2 text-center text-sm text-green-600 font-semibold">{group.paidStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-red-600 font-semibold">{group.unpaidStudents}</td>
@@ -375,7 +382,7 @@ function ReportsSection() {
                                         </td>
                                         <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-emerald-700">{totals.totalActiveStudents}</td>
-                                        <td className="px-3 py-2 text-center text-sm text-gray-700">{totals.totalStoppedStudents}</td>
+                                        <td className={`px-3 py-2 text-center text-sm ${totals.totalStoppedStudents > 0 ? 'text-amber-700' : 'text-gray-700'}`}>{totals.totalStoppedStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-gray-900">-</td>
                                         <td className="px-3 py-2 text-center text-sm text-green-700">{totals.totalPaidStudents}</td>
                                         <td className="px-3 py-2 text-center text-sm text-red-700">{totals.totalUnpaidStudents}</td>

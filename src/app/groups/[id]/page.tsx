@@ -810,7 +810,20 @@ export default function GroupDetailPage() {
 
                         <div className="flex justify-between items-center mb-8">
                             <div>
-                                <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
+                                    {((group.progress?.completedSessions || 0) >= group.totalSessions && group.totalSessions > 0) || group.isActive === false ? (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                                            <span className="w-2 h-2 rounded-full bg-gray-400"></span>
+                                            Finished / Inactive
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            Active Group
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="mt-2 text-gray-600">
                                     Teacher: {teacher?.name} {group.teacherId ? `(#${formatTeacherId(group.teacherId)})` : ''} • {uniqueStudents.length} students • {group.sessions.length} sessions
                                 </p>
@@ -886,6 +899,16 @@ export default function GroupDetailPage() {
                                                 <div>
                                                     <span className="text-orange-700">ID:</span>
                                                     <span className="text-gray-900 ml-2">#{group.id.toString().padStart(6, '0')}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-orange-700">Status:</span>
+                                                    <span className="ml-2">
+                                                        {((group.progress?.completedSessions || 0) >= group.totalSessions && group.totalSessions > 0) || group.isActive === false ? (
+                                                            <span className="text-gray-700 font-bold">Finished</span>
+                                                        ) : (
+                                                            <span className="text-emerald-700 font-bold">Active</span>
+                                                        )}
+                                                    </span>
                                                 </div>
                                                 <div>
                                                     <span className="text-orange-700">Start:</span>

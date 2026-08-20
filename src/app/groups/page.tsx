@@ -345,8 +345,24 @@ export default function GroupsPage() {
         return `T${number.toString().padStart(2, '0')}`;
     };
 
-    // Filter groups based on search term
+    // Status filter state
+    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+    // Helper to determine if a group is inactive/completed
+    const isGroupInactive = (group: any) => {
+        const completed = group.progress?.completedSessions || 0;
+        return group.isActive === false || (completed >= group.totalSessions && group.totalSessions > 0);
+    };
+
+    const activeGroupsCount = groups.filter(g => !isGroupInactive(g)).length;
+    const inactiveGroupsCount = groups.filter(g => isGroupInactive(g)).length;
+
+    // Filter groups based on search term and active/inactive status
     const filteredGroups = groups.filter(group => {
+        const isInactive = isGroupInactive(group);
+        if (statusFilter === 'active' && isInactive) return false;
+        if (statusFilter === 'inactive' && !isInactive) return false;
+
         if (searchTerm === '') return true;
 
         const searchLower = searchTerm.toLowerCase();
@@ -385,11 +401,11 @@ export default function GroupsPage() {
 
                         {/* Fixed Top Section */}
                         <div className="sticky top-0 bg-gray-50 pt-8 pb-4 z-10">
-                            <div className="flex justify-between items-center mb-8">
+                            <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h1 className="text-3xl font-bold text-gray-900">Groups</h1>
-                                    <p className="mt-2 text-gray-600">
-                                        Manage your educational groups and their sessions
+                                    <p className="mt-1 text-gray-600">
+                                        Manage your educational groups, sessions, and activity status
                                     </p>
                                 </div>
                                 <Button onClick={() => setIsCreateModalOpen(true)}>
@@ -398,15 +414,51 @@ export default function GroupsPage() {
                                 </Button>
                             </div>
 
+                            {/* Status Filter Tabs */}
+                            <div className="flex flex-wrap items-center gap-2 mb-4">
+                                <button
+                                    onClick={() => setStatusFilter('all')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                        statusFilter === 'all'
+                                            ? 'bg-orange-600 text-white shadow-sm'
+                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                                    }`}
+                                >
+                                    All Groups ({groups.length})
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('active')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                                        statusFilter === 'active'
+                                            ? 'bg-emerald-600 text-white shadow-sm'
+                                            : 'bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200'
+                                    }`}
+                                >
+                                    <span className={`w-2 h-2 rounded-full ${statusFilter === 'active' ? 'bg-white animate-pulse' : 'bg-emerald-500'}`}></span>
+                                    Active Groups ({activeGroupsCount})
+                                </button>
+                                <button
+                                    onClick={() => setStatusFilter('inactive')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                                        statusFilter === 'inactive'
+                                            ? 'bg-gray-700 text-white shadow-sm'
+                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                                    }`}
+                                >
+                                    <span className={`w-2 h-2 rounded-full ${statusFilter === 'inactive' ? 'bg-white' : 'bg-gray-400'}`}></span>
+                                    Inactive / Finished ({inactiveGroupsCount})
+                                </button>
+                            </div>
+
                             {/* Search */}
-                            <Card className="mb-6">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center">
-                                        <MagnifyingGlassIcon className="h-5 w-5 mr-2" />
+                            <Card className="mb-6 border border-gray-100 shadow-sm">
+                                <CardHeader className="py-3 px-4">
+                                    <CardTitle className="text-sm font-semibold flex items-center text-gray-700">
+                                        <MagnifyingGlassIcon className="h-4 w-4 mr-1.5 text-gray-500" />
                                         Search Groups
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="pt-0 pb-3 px-4">
                                     <div className="flex gap-4">
                                         <div className="flex-1">
                                             <div className="relative">
@@ -435,107 +487,128 @@ export default function GroupsPage() {
                         </div>
 
                         {/* Scrollable Table Section */}
-                        <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-                            <div className="overflow-x-auto max-h-[calc(100vh-300px)]">
+                        <div className="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-200">
+                            <div className="overflow-x-auto max-h-[calc(100vh-320px)]">
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50 sticky top-0 z-10">
                                         <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Group
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 ID
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                                Status
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Teacher
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Time
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Study Days
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Students
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 Progress
                                             </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {filteredGroups.map((group) => (
-                                            <tr
-                                                key={group.id}
-                                                className="hover:bg-gray-50 cursor-pointer transition-colors"
-                                                onClick={() => window.location.href = `/groups/${group.id}`}
-                                            >
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex items-center">
-                                                        <div>
-                                                            <div className="text-sm font-medium text-gray-900">
+                                        {filteredGroups.map((group) => {
+                                            const isInactive = isGroupInactive(group);
+                                            return (
+                                                <tr
+                                                    key={group.id}
+                                                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${
+                                                        isInactive ? 'bg-gray-50/50 opacity-90' : ''
+                                                    }`}
+                                                    onClick={() => window.location.href = `/groups/${group.id}`}
+                                                >
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div className="flex items-center">
+                                                            <div className="text-sm font-semibold text-gray-900">
                                                                 {group.name}
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    #{formatGroupId(group.id)}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    <div>
-                                                        <div className="font-medium">{teachers.find(t => t.id === group.teacherId)?.name || 'Unknown Teacher'}</div>
-                                                        <div className="text-gray-500">{group.teacherId ? `#${formatTeacherId(group.teacherId)}` : 'No Teacher'}</div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {group.startTime && group.endTime ? (
-                                                        formatDuration(group.startTime, group.endTime)
-                                                    ) : (
-                                                        'N/A'
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {group.recurringDays && group.recurringDays.length > 0 ? (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {group.recurringDays.map((day: number) => {
-                                                                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                                                                return (
-                                                                    <span
-                                                                        key={day}
-                                                                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800"
-                                                                    >
-                                                                        {dayNames[day]}
-                                                                    </span>
-                                                                );
-                                                            })}
+                                                    </td>
+                                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                                                        #{formatGroupId(group.id)}
+                                                    </td>
+                                                    <td className="px-4 py-4 whitespace-nowrap">
+                                                        {isInactive ? (
+                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                                                                Finished
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                                Active
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        <div>
+                                                            <div className="font-medium">{teachers.find(t => t.id === group.teacherId)?.name || 'Unknown Teacher'}</div>
+                                                            <div className="text-gray-500 text-xs">{group.teacherId ? `#${formatTeacherId(group.teacherId)}` : 'No Teacher'}</div>
                                                         </div>
-                                                    ) : (
-                                                        'N/A'
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {group.students.length} students
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex items-center">
-                                                        <div className="flex-1 mr-2">
-                                                            <div className="w-full bg-gray-200 rounded-full h-2">
-                                                                <div
-                                                                    className="bg-orange-600 h-2 rounded-full transition-all duration-300"
-                                                                    style={{
-                                                                        width: `${Math.min(100, ((group.progress?.completedSessions || 0) / group.totalSessions) * 100)}%`
-                                                                    }}
-                                                                ></div>
+                                                    </td>
+                                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {group.startTime && group.endTime ? (
+                                                            formatDuration(group.startTime, group.endTime)
+                                                        ) : (
+                                                            'N/A'
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {group.recurringDays && group.recurringDays.length > 0 ? (
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {group.recurringDays.map((day: number) => {
+                                                                    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                                                                    return (
+                                                                        <span
+                                                                            key={day}
+                                                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800"
+                                                                        >
+                                                                            {dayNames[day]}
+                                                                        </span>
+                                                                    );
+                                                                })}
                                                             </div>
+                                                        ) : (
+                                                            'N/A'
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                                        {group.students.length} students
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div className="flex items-center">
+                                                            <div className="flex-1 mr-2 w-24">
+                                                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                                                    <div
+                                                                        className={`h-2 rounded-full transition-all duration-300 ${
+                                                                            isInactive ? 'bg-gray-400' : 'bg-orange-600'
+                                                                        }`}
+                                                                        style={{
+                                                                            width: `${Math.min(100, ((group.progress?.completedSessions || 0) / group.totalSessions) * 100)}%`
+                                                                        }}
+                                                                    ></div>
+                                                                </div>
+                                                            </div>
+                                                            <span className={`text-xs font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-700'}`}>
+                                                                {group.progress?.completedSessions || 0}/{group.totalSessions}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-sm text-gray-600">
-                                                            {group.progress?.completedSessions || 0}/{group.totalSessions}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>

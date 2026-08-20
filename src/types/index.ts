@@ -182,6 +182,9 @@ export interface Group {
     isFrozen?: boolean;
     freezeDate?: Date;
     unfreezeDate?: Date;
+    // Active / Inactive status
+    isActive?: boolean;
+    groupStatus?: 'active' | 'inactive';
 }
 
 export interface Payment {

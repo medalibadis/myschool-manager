@@ -386,6 +386,8 @@ export const groupService = {
       const total = group.total_sessions || 16;
       const completed = Math.min(completedSessionsCount, total);
       const progressPercentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+      const isCompleted = total > 0 && completed >= total;
+      const isActive = group.is_active !== false && !isCompleted;
 
       return {
         id: group.id,
@@ -406,6 +408,8 @@ export const groupService = {
         isFrozen: group.is_frozen || false,
         freezeDate: group.freeze_date ? new Date(group.freeze_date) : undefined,
         unfreezeDate: group.unfreeze_date ? new Date(group.unfreeze_date) : undefined,
+        isActive,
+        groupStatus: isActive ? 'active' : 'inactive',
         students,
         sessions,
         createdAt: new Date(group.created_at),

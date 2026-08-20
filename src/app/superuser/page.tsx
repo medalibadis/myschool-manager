@@ -31,6 +31,7 @@ function ReportsSection() {
     const [reportsData, setReportsData] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [showReports, setShowReports] = useState(false);
+    const [reportsFilter, setReportsFilter] = useState<'active' | 'all' | 'inactive'>('active');
 
     const fetchReportsData = async () => {
         console.log(`🚀 FORCE REFRESH: Starting fetchReportsData - ${new Date().toISOString()}`);
@@ -53,6 +54,7 @@ function ReportsSection() {
                     price,
                     teacher_id,
                     total_sessions,
+                    is_active,
                     teachers!inner(name)
                 `);
 
@@ -112,10 +114,8 @@ function ReportsSection() {
 
             if (paymentsError) throw paymentsError;
 
-            // Debug logging after all variables are declared
-            console.log(`🔧 VARIABLE SCOPE FIXED: Groups found: ${groups?.length || 0}, Sessions: ${sessions?.length || 0}, StudentGroups: ${studentGroups?.length || 0}, Payments: ${payments?.length || 0} - ${new Date().toISOString()}`);
-
             // Process the data
+            const now = new Date();
             const processedData = groups.map(group => {
                 const groupStudentGroups = studentGroups?.filter(sg => sg.group_id === group.id) || [];
                 const groupSessions = sessions?.filter(s => s.group_id === group.id) || [];
@@ -133,22 +133,13 @@ function ReportsSection() {
                 // Count sessions taught (sessions with actual attendance records)
                 const sessionsTaught = groupSessions.filter(session => {
                     const sessionAttendance = groupAttendance.filter(att => att.session_id === session.id);
-                    console.log(`🔍 Group ${group.id} Session ${session.id}: ${sessionAttendance.length} attendance records`);
-                    if (sessionAttendance.length > 0) {
-                        console.log(`📊 Sample attendance record:`, sessionAttendance[0]);
-                    }
-                    // A session is considered taught if at least one student has non-default attendance
-                    const hasNonDefaultAttendance = sessionAttendance.some(att => att.status !== 'default');
-                    console.log(`✅ Session ${session.id} has non-default attendance: ${hasNonDefaultAttendance}`);
-                    return hasNonDefaultAttendance;
+                    return sessionAttendance.some(att => att.status !== 'default');
                 }).length;
 
-                console.log(`📈 Group ${group.id} (${group.name}): ${sessionsTaught} sessions taught out of ${groupSessions.length} total sessions`);
-
-                // Debug: Show all unique status values in attendance data
-                const allStatuses = groupAttendance.map(att => att.status);
-                const uniqueStatuses = [...new Set(allStatuses)];
-                console.log(`🔍 Group ${group.id} unique attendance statuses:`, uniqueStatuses);
+                const completedSessionsCount = groupSessions.filter(s => new Date(s.date) <= now).length;
+                const totalSessions = group.total_sessions || groupSessions.length || 16;
+                const isCompleted = totalSessions > 0 && completedSessionsCount >= totalSessions;
+                const isActive = (group as any).is_active !== false && !isCompleted;
 
                 // Count paid students using the same logic as group details page
                 const groupPayments = payments?.filter(p => p.group_id === group.id) || [];
@@ -186,7 +177,10 @@ function ReportsSection() {
                     activeStudents,
                     stoppedStudents,
                     sessionsTaught,
-                    totalSessions: group.total_sessions || groupSessions.length,
+                    totalSessions,
+                    completedSessionsCount,
+                    isActive,
+                    isCompleted,
                     paidStudents,
                     unpaidStudents,
                     freeStudents,
@@ -194,14 +188,6 @@ function ReportsSection() {
                     price: group.price || 0
                 };
             });
-
-            console.log(`🔍 DEBUG: Processed data:`, processedData);
-            console.log(`🔍 DEBUG: Processed data length: ${processedData.length}`);
-
-            // Debug: Log the first group's data to see what we're working with
-            if (processedData.length > 0) {
-                console.log(`🔍 DEBUG: First group data:`, processedData[0]);
-            }
 
             setReportsData(processedData);
             setShowReports(true);
@@ -214,41 +200,48 @@ function ReportsSection() {
     };
 
     const printReport = () => {
-        console.log('🖨️ PRINT: Starting print process...');
-        console.log('🖨️ PRINT: reportsData.length =', reportsData.length);
-        console.log('🖨️ PRINT: showReports =', showReports);
-
-        // Force a small delay to ensure DOM is ready
         setTimeout(() => {
             window.print();
         }, 100);
     };
 
+    const displayReportsData = reportsData.filter(g => {
+        if (reportsFilter === 'active') return g.isActive;
+        if (reportsFilter === 'inactive') return g.isCompleted;
+        return true;
+    });
+
+    const activeCount = reportsData.filter(g => g.isActive).length;
+    const inactiveCount = reportsData.filter(g => g.isCompleted).length;
+
     const calculateTotals = () => {
-        if (reportsData.length === 0) return null;
+        if (displayReportsData.length === 0) return null;
 
         return {
-            totalGroups: reportsData.length,
-            totalStudents: reportsData.reduce((sum, g) => sum + g.totalStudents, 0),
-            totalActiveStudents: reportsData.reduce((sum, g) => sum + g.activeStudents, 0),
-            totalStoppedStudents: reportsData.reduce((sum, g) => sum + g.stoppedStudents, 0),
-            totalSessionsTaught: reportsData.reduce((sum, g) => sum + g.sessionsTaught, 0),
-            totalPaidStudents: reportsData.reduce((sum, g) => sum + g.paidStudents, 0),
-            totalUnpaidStudents: reportsData.reduce((sum, g) => sum + g.unpaidStudents, 0),
-            totalFreeStudents: reportsData.reduce((sum, g) => sum + g.freeStudents, 0),
-            totalRevenue: reportsData.reduce((sum, g) => sum + g.totalRevenue, 0)
+            totalGroups: displayReportsData.length,
+            totalStudents: displayReportsData.reduce((sum, g) => sum + g.totalStudents, 0),
+            totalActiveStudents: displayReportsData.reduce((sum, g) => sum + g.activeStudents, 0),
+            totalStoppedStudents: displayReportsData.reduce((sum, g) => sum + g.stoppedStudents, 0),
+            totalSessionsTaught: displayReportsData.reduce((sum, g) => sum + g.sessionsTaught, 0),
+            totalPaidStudents: displayReportsData.reduce((sum, g) => sum + g.paidStudents, 0),
+            totalUnpaidStudents: displayReportsData.reduce((sum, g) => sum + g.unpaidStudents, 0),
+            totalFreeStudents: displayReportsData.reduce((sum, g) => sum + g.freeStudents, 0),
+            totalRevenue: displayReportsData.reduce((sum, g) => sum + g.totalRevenue, 0)
         };
     };
 
     const totals = calculateTotals();
 
     return (
-        <Card className="p-6">
+        <Card className="p-6 border border-gray-100 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                    <DocumentTextIcon className="h-6 w-6 text-orange-600" />
-                    Group Reports
-                </h2>
+                <div>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <DocumentTextIcon className="h-6 w-6 text-orange-600" />
+                        Group Reports
+                    </h2>
+                    <p className="text-xs text-gray-500 mt-0.5">Financial and enrollment statistics for groups</p>
+                </div>
                 <div className="flex gap-2">
                     <Button
                         onClick={fetchReportsData}
@@ -270,103 +263,139 @@ function ReportsSection() {
                 </div>
             </div>
 
-            {/* Debug info */}
-            <div className="mb-4 p-2 bg-yellow-100 text-xs">
-                <p>Debug: showReports = {showReports.toString()}, reportsData.length = {reportsData.length}</p>
-            </div>
-
             {showReports && reportsData.length > 0 && (
-                <div className="overflow-x-auto reports-section">
-                    {/* Print Header */}
-                    <div className="print-header print:hidden">
-                        <h3 className="text-lg font-bold text-gray-900">Group Reports Summary</h3>
-                        <p className="text-sm text-gray-600">Generated on {new Date().toLocaleDateString()}</p>
+                <div className="space-y-4">
+                    {/* Filter Tabs for Reports */}
+                    <div className="flex flex-wrap items-center gap-2 print:hidden">
+                        <button
+                            onClick={() => setReportsFilter('active')}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                reportsFilter === 'active'
+                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                    : 'bg-white text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${reportsFilter === 'active' ? 'bg-white animate-pulse' : 'bg-emerald-500'}`}></span>
+                            Active Groups ({activeCount})
+                        </button>
+                        <button
+                            onClick={() => setReportsFilter('all')}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                reportsFilter === 'all'
+                                    ? 'bg-orange-600 text-white shadow-sm'
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                            }`}
+                        >
+                            All Groups ({reportsData.length})
+                        </button>
+                        <button
+                            onClick={() => setReportsFilter('inactive')}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                reportsFilter === 'inactive'
+                                    ? 'bg-gray-700 text-white shadow-sm'
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${reportsFilter === 'inactive' ? 'bg-white' : 'bg-gray-400'}`}></span>
+                            Inactive / Finished ({inactiveCount})
+                        </button>
                     </div>
 
-                    {/* Print-only title */}
-                    <div className="hidden print:block print-title">
-                        <h1>Group Reports Summary</h1>
-                        <p>Generated on {new Date().toLocaleDateString()}</p>
-                    </div>
+                    <div className="overflow-x-auto reports-section">
+                        {/* Print Header */}
+                        <div className="print-header print:hidden mb-2">
+                            <h3 className="text-sm font-bold text-gray-700">
+                                Showing {reportsFilter === 'active' ? 'Active' : reportsFilter === 'inactive' ? 'Inactive / Finished' : 'All'} Groups ({displayReportsData.length})
+                            </h3>
+                        </div>
 
-                    <table className="min-w-full divide-y divide-gray-200 reports-table print:border-collapse print:border print:border-black" style={{ display: 'table' }}>
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">GID</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Name</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Language</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teacher</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Total Students</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Active Students</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stopped Students</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sessions Taught</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sessions</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Paid Students</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Unpaid Students</th>
-                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Free Students (100% Discount)</th>
-                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {reportsData.map((group) => (
-                                <tr key={group.gid} className="hover:bg-gray-50">
-                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        #{group.gid.toString().padStart(6, '0')}
-                                    </td>
-                                    <td className="px-3 py-2 text-sm text-gray-900">{group.name}</td>
-                                    <td className="px-3 py-2 text-sm text-gray-900">{group.language}</td>
-                                    <td className="px-3 py-2 text-sm text-gray-900">{group.level}</td>
-                                    <td className="px-3 py-2 text-sm text-gray-900">{group.category}</td>
-                                    <td className="px-3 py-2 text-sm text-gray-900">{group.teacher}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{group.totalStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{group.activeStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{group.stoppedStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{group.sessionsTaught}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{group.totalSessions}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-green-600 font-medium">{group.paidStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-red-600 font-medium">{group.unpaidStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-blue-600 font-medium">{group.freeStudents}</td>
-                                    <td className="px-3 py-2 text-right text-sm font-medium text-gray-900">
-                                        {group.totalRevenue.toFixed(2)} DZD
-                                    </td>
+                        {/* Print-only title */}
+                        <div className="hidden print:block print-title">
+                            <h1>Group Reports Summary ({reportsFilter.toUpperCase()})</h1>
+                            <p>Generated on {new Date().toLocaleDateString()}</p>
+                        </div>
+
+                        <table className="min-w-full divide-y divide-gray-200 reports-table print:border-collapse print:border print:border-black" style={{ display: 'table' }}>
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">GID</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Group Name</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Language</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Teacher</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Students</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Active Students</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Stopped Students</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Sessions</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Unpaid</th>
+                                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Free (100%)</th>
+                                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Revenue</th>
                                 </tr>
-                            ))}
-                            {/* Totals Row */}
-                            {totals && (
-                                <tr className="bg-gray-100 font-bold">
-                                    <td className="px-3 py-2 text-sm text-gray-900" colSpan={6}>
-                                        TOTALS
-                                    </td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalActiveStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalStoppedStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalSessionsTaught}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-gray-900">-</td>
-                                    <td className="px-3 py-2 text-center text-sm text-green-600">{totals.totalPaidStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-red-600">{totals.totalUnpaidStudents}</td>
-                                    <td className="px-3 py-2 text-center text-sm text-blue-600">{totals.totalFreeStudents}</td>
-                                    <td className="px-3 py-2 text-right text-sm text-gray-900">
-                                        {totals.totalRevenue.toFixed(2)} DZD
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {displayReportsData.map((group) => (
+                                    <tr key={group.gid} className="hover:bg-gray-50">
+                                        <td className="px-3 py-2 whitespace-nowrap text-sm font-mono text-gray-600">
+                                            #{group.gid.toString().padStart(6, '0')}
+                                        </td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            {group.isCompleted ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-600">
+                                                    Finished
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                    Active
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-sm font-medium text-gray-900">{group.name}</td>
+                                        <td className="px-3 py-2 text-sm text-gray-600">{group.language}</td>
+                                        <td className="px-3 py-2 text-sm text-gray-600">{group.level}</td>
+                                        <td className="px-3 py-2 text-sm text-gray-800 font-medium">{group.teacher}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-900">{group.totalStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-emerald-600 font-semibold">{group.activeStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-500">{group.stoppedStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-800">{group.completedSessionsCount}/{group.totalSessions}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-green-600 font-semibold">{group.paidStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-red-600 font-semibold">{group.unpaidStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-blue-600 font-medium">{group.freeStudents}</td>
+                                        <td className="px-3 py-2 text-right text-sm font-semibold text-gray-900">
+                                            {group.totalRevenue.toFixed(2)} DZD
+                                        </td>
+                                    </tr>
+                                ))}
+                                {/* Totals Row */}
+                                {totals && (
+                                    <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
+                                        <td className="px-3 py-2 text-sm text-gray-900" colSpan={6}>
+                                            TOTALS ({totals.totalGroups} Groups)
+                                        </td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-900">{totals.totalStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-emerald-700">{totals.totalActiveStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-700">{totals.totalStoppedStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-gray-900">-</td>
+                                        <td className="px-3 py-2 text-center text-sm text-green-700">{totals.totalPaidStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-red-700">{totals.totalUnpaidStudents}</td>
+                                        <td className="px-3 py-2 text-center text-sm text-blue-700">{totals.totalFreeStudents}</td>
+                                        <td className="px-3 py-2 text-right text-sm text-gray-900 font-extrabold">
+                                            {totals.totalRevenue.toFixed(2)} DZD
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
-            {showReports && reportsData.length === 0 && (
+            {showReports && displayReportsData.length === 0 && (
                 <div className="text-center py-8">
                     <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Data Found</h3>
-                    <p className="text-gray-500">No groups or data found. Check console for debugging information.</p>
-                    <div className="mt-4 p-4 bg-gray-100 rounded">
-                        <p className="text-sm text-gray-600">Debug Info:</p>
-                        <p className="text-xs text-gray-500">showReports: {showReports.toString()}</p>
-                        <p className="text-xs text-gray-500">reportsData.length: {reportsData.length}</p>
-                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Groups in this Category</h3>
+                    <p className="text-gray-500">No {reportsFilter === 'active' ? 'active' : reportsFilter === 'inactive' ? 'inactive/finished' : ''} groups found.</p>
                 </div>
             )}
 
@@ -374,7 +403,7 @@ function ReportsSection() {
                 <div className="text-center py-8">
                     <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">Generate Group Reports</h3>
-                    <p className="text-gray-500">Click "Generate Reports" to view comprehensive statistics for all active groups.</p>
+                    <p className="text-gray-500">Click "Generate Reports" to view comprehensive statistics for active and completed groups.</p>
                 </div>
             )}
         </Card>

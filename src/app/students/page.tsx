@@ -74,72 +74,52 @@ export default function StudentsPage() {
 
     // Get all students from all groups with their actual status
     const allStudents = useMemo(() => {
-        const studentsMap = new Map<string, Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string }> }>();
-
-        console.log('Processing groups for students:', groups.length);
+        const studentsMap = new Map<string, Student & { groups: Array<{ id: string | number; name: string; status: string; language: string; category: string; level: string; teacherId: string; startTime?: string; endTime?: string; isGroupFinished?: boolean; studentStatus?: string }> }>();
 
         groups.forEach(group => {
-            console.log(`Group ${group.id} (${group.name}) has ${group.students?.length || 0} students`);
-
             if (group.students) {
-                group.students.forEach(student => {
-                    console.log(`Processing student: ${student.name} (ID: ${student.id}) in group ${group.id}`);
+                const isGroupFinished = group.isActive === false || ((group.progress?.completedSessions || 0) >= group.totalSessions && group.totalSessions > 0);
 
+                group.students.forEach(student => {
                     // Use a combination of name and phone for deduplication since IDs might be different
                     const studentKey = `${student.name}-${student.phone}`;
 
                     // Get the actual status from student_groups table if available
-                    const actualStatus = (student as any).groupStatus || 'active';
+                    const studentGroupStatus = (student as any).groupStatus || 'active';
+                    const groupDisplayStatus = studentGroupStatus === 'stopped' ? 'stopped' : (isGroupFinished ? 'finished' : 'active');
+
+                    const groupEntry = {
+                        id: group.id,
+                        name: group.name,
+                        language: group.language || 'Unknown',
+                        level: group.level || 'Unknown',
+                        category: group.category || 'Unknown',
+                        teacherId: group.teacherId || '',
+                        startTime: group.startTime,
+                        endTime: group.endTime,
+                        status: groupDisplayStatus,
+                        isGroupFinished,
+                        studentStatus: studentGroupStatus,
+                    };
 
                     if (studentsMap.has(studentKey)) {
-                        // Student already exists, add this group to their groups array
                         const existingStudent = studentsMap.get(studentKey);
-
-                        // Check if this group is already added to avoid duplicates
                         const groupExists = existingStudent?.groups?.some((g: { id: string | number }) => g.id === group.id);
 
                         if (!groupExists && existingStudent) {
-                            console.log(`Student ${student.name} already exists, adding group ${group.name} with status: ${actualStatus}`);
-                            existingStudent.groups.push({
-                                id: group.id,
-                                name: group.name,
-                                language: group.language || 'Unknown',
-                                level: group.level || 'Unknown',
-                                category: group.category || 'Unknown',
-                                teacherId: group.teacherId || '',
-                                startTime: group.startTime,
-                                endTime: group.endTime,
-                                status: actualStatus,
-                            });
-                        } else {
-                            console.log(`Student ${student.name} already has group ${group.name}, skipping`);
+                            existingStudent.groups.push(groupEntry);
                         }
                     } else {
-                        // New student, create entry
-                        console.log(`Creating new student entry for ${student.name} with status: ${actualStatus}`);
                         studentsMap.set(studentKey, {
                             ...student,
-                            groups: [{
-                                id: group.id,
-                                name: group.name,
-                                language: group.language || 'Unknown',
-                                level: group.level || 'Unknown',
-                                category: group.category || 'Unknown',
-                                teacherId: group.teacherId || '',
-                                startTime: group.startTime,
-                                endTime: group.endTime,
-                                status: actualStatus,
-                            }]
+                            groups: [groupEntry]
                         });
                     }
                 });
             }
         });
 
-        const result = Array.from(studentsMap.values());
-        return result;
-
-        return result;
+        return Array.from(studentsMap.values());
     }, [groups]);
 
     // Helper to normalize Arabic and Latin text for flexible search
@@ -706,12 +686,19 @@ export default function StudentsPage() {
                                                 </div>
                                                 <div className="flex items-center space-x-2">
                                                     {/* Status indicator */}
-                                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${group.status === 'stopped'
-                                                        ? 'bg-red-100 text-red-800'
-                                                        : 'bg-green-100 text-green-800'
-                                                        }`}>
-                                                        {group.status === 'stopped' ? 'Stopped' : 'Active'}
-                                                    </span>
+                                                    {group.status === 'stopped' ? (
+                                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-200">
+                                                            Stopped
+                                                        </span>
+                                                    ) : group.status === 'finished' || (group as any).isGroupFinished ? (
+                                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                                                            Finished
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                            Active
+                                                        </span>
+                                                    )}
                                                     <div className="text-xs text-gray-500 text-right">
                                                         {group.startTime && group.endTime && (
                                                             <div>{formatTimeSimple(group.startTime)} - {formatTimeSimple(group.endTime)}</div>
@@ -885,12 +872,19 @@ export default function StudentsPage() {
                                             </div>
                                             <div className="flex items-center space-x-2">
                                                 {/* Status indicator */}
-                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${group.status === 'stopped'
-                                                    ? 'bg-red-100 text-red-800'
-                                                    : 'bg-green-100 text-green-800'
-                                                    }`}>
-                                                    {group.status === 'stopped' ? 'Stopped' : 'Active'}
-                                                </span>
+                                                {group.status === 'stopped' ? (
+                                                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-200">
+                                                        Stopped
+                                                    </span>
+                                                ) : group.status === 'finished' || (group as any).isGroupFinished ? (
+                                                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                                                        Finished
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        Active
+                                                    </span>
+                                                )}
                                                 <div className="text-xs text-gray-500 text-right">
                                                     {group.startTime && group.endTime && (
                                                         <div>{formatTimeSimple(group.startTime)} - {formatTimeSimple(group.endTime)}</div>

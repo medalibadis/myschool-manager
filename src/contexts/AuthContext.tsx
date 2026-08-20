@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isInitializing = useRef(false);
 
     // Fast unified loader for Profile and Permissions
-    const loadUserData = useCallback(async (userId: string, currentUser?: User | null) => {
+    const loadUserData = useCallback(async (userId: string, currentUser?: User | null): Promise<boolean> => {
         try {
             // Run profile and permissions in parallel
             const [profileRes, permsRes] = await Promise.all([
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const profile = profileRes.data;
             const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
 
-            if (profile) {
+            if (profile && profile.is_active) {
                 const fullProfile: AdminProfile = {
                     id: profile.id,
                     name: profile.name,
@@ -68,9 +68,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
                 setUser(fullProfile);
                 setPermissions(userPerms);
+                return true;
+            } else {
+                setUser(null);
+                setPermissions([]);
+                return false;
             }
         } catch (err) {
             console.error('Error loading user auth data:', err);
+            setUser(null);
+            setPermissions([]);
+            return false;
         }
     }, []);
 
@@ -97,7 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSession(newSession);
 
             if (newSession?.user) {
-                await loadUserData(newSession.user.id, newSession.user);
+                const isValid = await loadUserData(newSession.user.id, newSession.user);
+                if (!isValid && event === 'SIGNED_IN') {
+                    // Sign out immediately if profile is invalid to prevent loop
+                    await supabase.auth.signOut();
+                    setSession(null);
+                }
             } else {
                 setUser(null);
                 setPermissions([]);
@@ -129,9 +142,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             setSession(data.session);
-            await loadUserData(data.user.id, data.user);
-            setLoading(false);
+            const isValid = await loadUserData(data.user.id, data.user);
+            
+            if (!isValid) {
+                await supabase.auth.signOut();
+                setSession(null);
+                setLoading(false);
+                return { success: false, error: 'Your account is inactive or not found.' };
+            }
 
+            setLoading(false);
             return { success: true };
         } catch (err) {
             setLoading(false);

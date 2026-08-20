@@ -142,16 +142,55 @@ export default function StudentsPage() {
         return result;
     }, [groups]);
 
+    // Helper to normalize Arabic and Latin text for flexible search
+    const normalizeSearchText = (text: string) => {
+        if (!text) return '';
+        return text
+            .toLowerCase()
+            .trim()
+            .replace(/[أإآ]/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي')
+            .replace(/[\u064B-\u065F]/g, '');
+    };
+
     // Filter students based on search term
     const filteredStudents = useMemo(() => {
-        return allStudents.filter(student => {
-            const matchesSearch = searchTerm === '' ||
-                student.name.toLowerCase().startsWith(searchTerm.toLowerCase()) ||
-                student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                student.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                student.address?.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!searchTerm.trim()) return allStudents;
 
-            return matchesSearch;
+        const normalizedSearch = normalizeSearchText(searchTerm);
+        const searchTokens = normalizedSearch.split(/\s+/).filter(Boolean);
+        const rawSearchLower = searchTerm.toLowerCase().trim();
+
+        return allStudents.filter(student => {
+            const nameNorm = normalizeSearchText(student.name || '');
+            const parentNameNorm = normalizeSearchText(student.parentName || '');
+            const emailNorm = (student.email || '').toLowerCase();
+            const phoneNorm = (student.phone || '').toLowerCase();
+            const secondPhoneNorm = (student.secondPhone || '').toLowerCase();
+            const addressNorm = (student.address || '').toLowerCase();
+            const customIdNorm = ((student as any).custom_id || '').toLowerCase();
+
+            // Direct contains check on normalized name or any field
+            if (
+                nameNorm.includes(normalizedSearch) ||
+                parentNameNorm.includes(normalizedSearch) ||
+                emailNorm.includes(rawSearchLower) ||
+                phoneNorm.includes(rawSearchLower) ||
+                secondPhoneNorm.includes(rawSearchLower) ||
+                addressNorm.includes(rawSearchLower) ||
+                customIdNorm.includes(rawSearchLower)
+            ) {
+                return true;
+            }
+
+            // If user typed multiple words in any order, verify all tokens match
+            if (searchTokens.length > 1) {
+                const combined = `${nameNorm} ${parentNameNorm} ${emailNorm} ${phoneNorm} ${customIdNorm}`;
+                return searchTokens.every(token => combined.includes(token));
+            }
+
+            return false;
         });
     }, [allStudents, searchTerm]);
 

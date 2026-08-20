@@ -549,12 +549,37 @@ export default function WaitingListPage() {
         }
     };
 
+    // Helper to normalize Arabic and Latin text for flexible search
+    const normalizeSearchText = (text: string) => {
+        if (!text) return '';
+        return text
+            .toLowerCase()
+            .trim()
+            .replace(/[أإآ]/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي')
+            .replace(/[\u064B-\u065F]/g, '');
+    };
+
     // Filter waiting list students
     const filteredWaitingList = waitingList.filter(student => {
+        const normalizedSearch = normalizeSearchText(searchTerm);
+        const rawSearchLower = searchTerm.toLowerCase().trim();
+        const searchTokens = normalizedSearch.split(/\s+/).filter(Boolean);
+
+        const nameNorm = normalizeSearchText(student.name || '');
+        const parentNameNorm = normalizeSearchText(student.parentName || '');
+        const customIdNorm = (student.custom_id || '').toLowerCase();
+        const emailNorm = (student.email || '').toLowerCase();
+        const phoneNorm = (student.phone || '').toLowerCase();
+
         const matchesSearch = searchTerm === '' ||
-            student.name.toLowerCase().startsWith(searchTerm.toLowerCase()) ||
-            student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            student.phone?.toLowerCase().includes(searchTerm.toLowerCase());
+            nameNorm.includes(normalizedSearch) ||
+            parentNameNorm.includes(normalizedSearch) ||
+            customIdNorm.includes(rawSearchLower) ||
+            emailNorm.includes(rawSearchLower) ||
+            phoneNorm.includes(rawSearchLower) ||
+            (searchTokens.length > 1 && searchTokens.every(token => `${nameNorm} ${parentNameNorm}`.includes(token)));
 
         const matchesLanguage = languageFilter === '' || student.language === languageFilter;
         const matchesLevel = levelFilter === '' || student.level === levelFilter;
@@ -565,11 +590,12 @@ export default function WaitingListPage() {
 
     // Filter suggested groups based on search and filters
     const filteredSuggestedGroups = suggestedGroups.filter(group => {
+        const rawSearchLower = searchTerm.toLowerCase().trim();
         const matchesSearch = searchTerm === '' ||
-            group.groupName.toLowerCase().startsWith(searchTerm.toLowerCase()) ||
-            group.language?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            group.level?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            group.category?.toLowerCase().includes(searchTerm.toLowerCase());
+            group.groupName.toLowerCase().includes(rawSearchLower) ||
+            group.language?.toLowerCase().includes(rawSearchLower) ||
+            group.level?.toLowerCase().includes(rawSearchLower) ||
+            group.category?.toLowerCase().includes(rawSearchLower);
 
         const matchesLanguage = languageFilter === '' || group.language === languageFilter;
         const matchesLevel = levelFilter === '' || group.level === levelFilter;

@@ -123,6 +123,9 @@ export const adminService = {
         role?: string;
         permissions?: string[];
     }): Promise<{ success: boolean; message?: string; userId?: string }> {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
         try {
             const { data: { session } } = await supabase.auth.getSession();
             const res = await fetch('/api/admin/create', {
@@ -132,12 +135,29 @@ export const adminService = {
                     'Authorization': `Bearer ${session?.access_token || ''}`,
                 },
                 body: JSON.stringify(params),
+                signal: controller.signal,
             });
 
-            const data = await res.json();
-            return { success: res.ok, message: data.message || data.error, userId: data.userId };
-        } catch (e) {
-            return { success: false, message: 'Failed to create admin account.' };
+            clearTimeout(timeoutId);
+
+            let data: any = {};
+            try {
+                data = await res.json();
+            } catch {
+                data = { error: `Server returned status ${res.status}` };
+            }
+
+            return { 
+                success: res.ok && data.success !== false, 
+                message: data.message || data.error || (res.ok ? 'Admin created successfully.' : 'Failed to create admin account.'), 
+                userId: data.userId 
+            };
+        } catch (e: any) {
+            clearTimeout(timeoutId);
+            if (e?.name === 'AbortError') {
+                return { success: false, message: 'Request timed out. Please check if SUPABASE_SERVICE_ROLE_KEY is set in Netlify environment variables.' };
+            }
+            return { success: false, message: e?.message || 'Failed to create admin account.' };
         }
     },
 };

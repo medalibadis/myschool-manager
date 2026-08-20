@@ -10,7 +10,7 @@ import { LockClosedIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { login, isAuthenticated, mfaEnrolled, mfaAssuranceLevel, loading } = useAuth();
+    const { login, isAuthenticated, loading } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -18,15 +18,9 @@ export default function LoginPage() {
 
     useEffect(() => {
         if (isAuthenticated && !loading) {
-            if (!mfaEnrolled) {
-                router.push('/mfa-setup');
-            } else if (mfaAssuranceLevel !== 'aal2') {
-                router.push('/mfa-challenge');
-            } else {
-                router.push('/');
-            }
+            router.push('/');
         }
-    }, [isAuthenticated, mfaEnrolled, mfaAssuranceLevel, loading, router]);
+    }, [isAuthenticated, loading, router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,13 +31,7 @@ export default function LoginPage() {
             const result = await login(email, password);
 
             if (result.success) {
-                if (result.needsSetup) {
-                    router.push('/mfa-setup');
-                } else if (result.needsMFA) {
-                    router.push('/mfa-challenge');
-                } else {
-                    router.push('/');
-                }
+                router.push('/');
             } else {
                 setError(result.error || 'Invalid credentials or inactive account.');
             }
@@ -134,13 +122,13 @@ export default function LoginPage() {
                                 className="w-full justify-center py-2.5 text-base"
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting ? 'Verifying...' : 'Sign In with Password'}
+                                {isSubmitting ? 'Verifying...' : 'Sign In'}
                             </Button>
                         </form>
 
                         <div className="mt-6 pt-4 border-t border-gray-100 text-center">
                             <p className="text-xs text-gray-500">
-                                🔒 Secure access protected by Supabase Auth & TOTP Two-Factor Authentication.
+                                🔒 Secure access protected by Supabase Auth.
                             </p>
                         </div>
                     </CardContent>

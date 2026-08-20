@@ -726,7 +726,7 @@ export default function SuperuserDashboard() {
     const router = useRouter();
     const [admins, setAdmins] = useState<AdminProfile[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showMfaResetModal, setShowMfaResetModal] = useState(false);
+
     const [selectedAdmin, setSelectedAdmin] = useState<AdminProfile | null>(null);
 
     // Create Admin state
@@ -803,19 +803,7 @@ export default function SuperuserDashboard() {
         }
     };
 
-    const handleResetMFA = async () => {
-        if (!selectedAdmin) return;
 
-        try {
-            const result = await adminService.resetMFA(selectedAdmin.id);
-            setShowMfaResetModal(false);
-            setSelectedAdmin(null);
-            alert(result.message || 'MFA reset successfully');
-        } catch (error) {
-            console.error('Error resetting MFA:', error);
-            alert('Error resetting MFA');
-        }
-    };
 
     const handleSelectAllPermissions = () => {
         if (newAdminPermissions.length === ALL_PERMISSIONS.length) {
@@ -857,7 +845,7 @@ export default function SuperuserDashboard() {
             });
 
             if (result.success) {
-                alert(`✅ ${result.message}\n\nAdmin must set up MFA on first login.`);
+                alert(`✅ ${result.message}`);
                 setShowCreateAdminModal(false);
                 setNewAdmin({ name: '', email: '', phone: '', password: '' });
                 setNewAdminPermissions([]);
@@ -991,16 +979,7 @@ export default function SuperuserDashboard() {
                                                 <div className="flex items-center justify-end gap-2">
                                                     {admin.id !== user?.id && admin.role !== 'SUPER_ADMIN' && (
                                                         <>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setSelectedAdmin(admin);
-                                                                    setShowMfaResetModal(true);
-                                                                }}
-                                                                className="text-orange-600 hover:text-orange-900"
-                                                                title="Reset MFA Authenticator"
-                                                            >
-                                                                <PencilIcon className="h-4 w-4" />
-                                                            </button>
+
                                                             <button
                                                                 onClick={() => handleToggleAdminStatus(admin)}
                                                                 className={admin.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}
@@ -1032,39 +1011,7 @@ export default function SuperuserDashboard() {
                     </div>
                 </div>
 
-                {/* Reset MFA Modal */}
-                <Modal
-                    isOpen={showMfaResetModal}
-                    onClose={() => setShowMfaResetModal(false)}
-                    title="Reset Admin MFA"
-                >
-                    <div className="space-y-4">
-                        {selectedAdmin && (
-                            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                                <p className="text-sm text-yellow-800 font-medium">
-                                    ⚠️ Resetting MFA for: <strong>{selectedAdmin.name}</strong> ({selectedAdmin.email})
-                                </p>
-                                <p className="text-xs text-yellow-700 mt-1">
-                                    This will remove their current authenticator. On next login, they will be required to re-enroll a new TOTP device.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex justify-end gap-3 mt-6">
-                        <Button
-                            variant="outline"
-                            onClick={() => setShowMfaResetModal(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleResetMFA}
-                            className="bg-orange-600 hover:bg-orange-700"
-                        >
-                            Confirm MFA Reset
-                        </Button>
-                    </div>
-                </Modal>
+
 
                 {/* Create Admin Modal */}
                 <Modal

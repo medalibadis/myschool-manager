@@ -7,8 +7,6 @@ import type { Session, User } from '@supabase/supabase-js';
 
 export interface LoginResult {
     success: boolean;
-    needsMFA?: boolean;
-    needsSetup?: boolean;
     error?: string;
 }
 
@@ -20,12 +18,7 @@ interface AuthContextType {
     isSuperuser: boolean;
     isSuperAdmin: boolean;
     permissions: string[];
-    mfaAssuranceLevel: 'aal1' | 'aal2' | null;
-    mfaEnrolled: boolean;
     login: (email: string, pass: string) => Promise<LoginResult>;
-    verifyMFA: (code: string) => Promise<{ success: boolean; error?: string }>;
-    enrollMFA: () => Promise<{ factorId: string; qrCode: string; secret: string } | null>;
-    confirmMFAEnrollment: (factorId: string, code: string) => Promise<boolean>;
     logout: () => Promise<void>;
     hasPermission: (permission: AdminPermissionKey | string) => boolean;
     hasAnyPermission: (permissions: (AdminPermissionKey | string)[]) => boolean;
@@ -38,17 +31,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [user, setUser] = useState<AdminProfile | null>(null);
     const [permissions, setPermissions] = useState<string[]>([]);
-    const [mfaAssuranceLevel, setMfaAssuranceLevel] = useState<'aal1' | 'aal2' | null>(null);
-    const [mfaEnrolled, setMfaEnrolled] = useState<boolean>(false);
     const [loading, setLoading] = useState(true);
 
     const isInitializing = useRef(false);
 
-    // Fast unified loader for Profile, Permissions, and MFA status
+    // Fast unified loader for Profile and Permissions
     const loadUserData = useCallback(async (userId: string, currentUser?: User | null) => {
         try {
-            // 1. Run profile, permissions, assurance level, and factors in parallel with 3s timeout
-            const [profileRes, permsRes, aalRes, factorsRes] = await Promise.all([
+            // Run profile and permissions in parallel
+            const [profileRes, permsRes] = await Promise.all([
                 supabase
                     .from('admin_profiles')
                     .select('*')
@@ -58,13 +49,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     .from('admin_permissions')
                     .select('permission')
                     .eq('admin_id', userId),
-                supabase.auth.mfa.getAuthenticatorAssuranceLevel().catch(() => ({ data: null })),
-                supabase.auth.mfa.listFactors().catch(() => ({ data: null })),
             ]);
 
             const profile = profileRes.data;
             const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
-            const factors = factorsRes?.data;
 
             if (profile) {
                 const fullProfile: AdminProfile = {
@@ -81,21 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(fullProfile);
                 setPermissions(userPerms);
             }
-
-            // 2. Determine MFA status
-            const aal = aalRes?.data?.currentLevel as 'aal1' | 'aal2' | undefined;
-            const nextAal = aalRes?.data?.nextLevel;
-            const currentLevel = aal || 'aal1';
-            setMfaAssuranceLevel(currentLevel);
-
-            // Factors check (fully resolved, no background callback race conditions)
-            const hasVerifiedFactor =
-                (factors?.totp?.some(f => f.status === 'verified') || factors?.all?.some(f => f.status === 'verified')) ||
-                (currentUser?.factors && currentUser.factors.some(f => f.status === 'verified')) ||
-                nextAal === 'aal2' ||
-                currentLevel === 'aal2';
-
-            setMfaEnrolled(!!hasVerifiedFactor);
         } catch (err) {
             console.error('Error loading user auth data:', err);
         }
@@ -128,8 +101,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setUser(null);
                 setPermissions([]);
-                setMfaAssuranceLevel(null);
-                setMfaEnrolled(false);
             }
 
             if (mounted) {
@@ -159,24 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             setSession(data.session);
             await loadUserData(data.user.id, data.user);
-
-            const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-            const { data: factorsData } = await supabase.auth.mfa.listFactors();
-
-            const enrolled = (factorsData?.totp?.length || 0) > 0;
-            const currentLevel = (aalData?.currentLevel as 'aal1' | 'aal2') || 'aal1';
-
-            setMfaEnrolled(enrolled);
-            setMfaAssuranceLevel(currentLevel);
             setLoading(false);
-
-            if (!enrolled) {
-                return { success: true, needsSetup: true };
-            }
-
-            if (currentLevel !== 'aal2' && aalData?.nextLevel === 'aal2') {
-                return { success: true, needsMFA: true };
-            }
 
             return { success: true };
         } catch (err) {
@@ -185,82 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const verifyMFA = async (code: string): Promise<{ success: boolean; error?: string }> => {
-        try {
-            const { data: factors } = await supabase.auth.mfa.listFactors();
-            const totpFactor = factors?.totp?.find(f => f.status === 'verified');
-
-            if (!totpFactor) {
-                return { success: false, error: 'No verified authenticator factor found.' };
-            }
-
-            const { error } = await supabase.auth.mfa.challengeAndVerify({
-                factorId: totpFactor.id,
-                code: code.trim(),
-            });
-
-            if (error) {
-                return { success: false, error: error.message };
-            }
-
-            setMfaAssuranceLevel('aal2');
-            return { success: true };
-        } catch (err) {
-            return { success: false, error: err instanceof Error ? err.message : 'Verification failed' };
-        }
-    };
-
-    const enrollMFA = async (): Promise<{ factorId: string; qrCode: string; secret: string } | null> => {
-        try {
-            const { data, error } = await supabase.auth.mfa.enroll({
-                factorType: 'totp',
-                friendlyName: 'MySchool Admin Authenticator',
-            });
-
-            if (error || !data) {
-                console.error('Error enrolling MFA:', error);
-                return null;
-            }
-
-            return {
-                factorId: data.id,
-                qrCode: data.totp.qr_code,
-                secret: data.totp.secret,
-            };
-        } catch (e) {
-            console.error('Failed to start MFA enrollment:', e);
-            return null;
-        }
-    };
-
-    const confirmMFAEnrollment = async (factorId: string, code: string): Promise<boolean> => {
-        try {
-            const { error } = await supabase.auth.mfa.challengeAndVerify({
-                factorId,
-                code: code.trim(),
-            });
-
-            if (error) {
-                console.error('Error confirming MFA enrollment:', error);
-                return false;
-            }
-
-            setMfaEnrolled(true);
-            setMfaAssuranceLevel('aal2');
-            return true;
-        } catch (e) {
-            console.error('Failed to confirm MFA enrollment:', e);
-            return false;
-        }
-    };
-
     const logout = async () => {
         await supabase.auth.signOut();
         setSession(null);
         setUser(null);
         setPermissions([]);
-        setMfaAssuranceLevel(null);
-        setMfaEnrolled(false);
     };
 
     const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.role === ('superuser' as any);
@@ -285,12 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSuperuser: isSuperAdmin,
         isSuperAdmin,
         permissions,
-        mfaAssuranceLevel,
-        mfaEnrolled,
         login,
-        verifyMFA,
-        enrollMFA,
-        confirmMFAEnrollment,
         logout,
         hasPermission,
         hasAnyPermission,

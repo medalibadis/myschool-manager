@@ -44,7 +44,6 @@ export interface AdminProfile {
     created_at?: string;
     updated_at?: string;
     permissions?: string[];
-    mfa_enabled?: boolean;
 }
 
 export interface Admin {

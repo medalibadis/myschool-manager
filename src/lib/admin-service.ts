@@ -114,26 +114,6 @@ export const adminService = {
         if (error) throw error;
     },
 
-    // Reset MFA for an admin (Calls protected API)
-    async resetMFA(adminId: string): Promise<{ success: boolean; message?: string }> {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const res = await fetch('/api/admin/reset-mfa', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token || ''}`,
-                },
-                body: JSON.stringify({ adminId }),
-            });
-
-            const data = await res.json();
-            return { success: res.ok, message: data.message || data.error };
-        } catch (e) {
-            return { success: false, message: 'Failed to request MFA reset.' };
-        }
-    },
-
     // Create a new admin (Super Admin only, calls protected API)
     async createAdmin(params: {
         name: string;

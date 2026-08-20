@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-08-18T15-19-43-228Z",
+  "supabaseUrl": "https://kfykineemtweunyretmh.supabase.co",
+  "tables": {
+    "teachers": 32,
+    "groups": 92,
+    "students": 1079,
+    "student_groups": 1321,
+    "sessions": 1100,
+    "attendance": 11885,
+    "payments": 1422,
+    "receipts": 350,
+    "teacher_salaries": 0,
+    "teacher_attendance": 3,
+    "teacher_covering": 1,
+    "waiting_list": 0,
+    "call_logs": 30,
+    "admins": 2
+  }
+}

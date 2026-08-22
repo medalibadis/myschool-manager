@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -15,6 +15,15 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    // Track if the initial auth check has completed
+    // Once the form has been shown, never go back to the spinner
+    const hasShownForm = useRef(false);
+
+    useEffect(() => {
+        if (!loading) {
+            hasShownForm.current = true;
+        }
+    }, [loading]);
 
     useEffect(() => {
         if (isAuthenticated && !loading) {
@@ -30,11 +39,12 @@ export default function LoginPage() {
         try {
             const result = await login(email, password);
 
-            if (!result.success) {
+            if (result.success) {
+                // Direct redirect - don't wait for useEffect
+                router.push('/');
+            } else {
                 setError(result.error || 'Invalid credentials or inactive account.');
             }
-            // If successful, the useEffect at the top of the component will handle 
-            // the redirect safely once the AuthContext state has updated.
         } catch (err) {
             setError('An error occurred during sign-in.');
         } finally {
@@ -42,7 +52,9 @@ export default function LoginPage() {
         }
     };
 
-    if (loading) {
+    // Only show the loading spinner during INITIAL page load auth check
+    // Never show it once the user has seen the login form
+    if (loading && !hasShownForm.current) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center">
                 <div className="text-center">

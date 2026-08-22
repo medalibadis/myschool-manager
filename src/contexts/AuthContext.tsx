@@ -173,14 +173,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const login = async (email: string, pass: string): Promise<LoginResult> => {
         try {
-            setLoading(true);
             const { data, error } = await supabase.auth.signInWithPassword({
                 email: email.trim(),
                 password: pass,
             });
 
             if (error || !data.session) {
-                setLoading(false);
                 return { success: false, error: error?.message || 'Invalid email or password' };
             }
 
@@ -190,14 +188,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!isValid) {
                 await supabase.auth.signOut();
                 setSession(null);
-                setLoading(false);
                 return { success: false, error: 'Your account is inactive or not found.' };
             }
 
-            setLoading(false);
             return { success: true };
         } catch (err) {
-            setLoading(false);
             return { success: false, error: err instanceof Error ? err.message : 'Unknown login error' };
         }
     };

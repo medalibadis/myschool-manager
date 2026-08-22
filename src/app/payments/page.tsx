@@ -1372,7 +1372,7 @@ Thank you!`;
                     <img src="/logo.png" alt="MySchool" class="logo-img" />
                     <div class="header-title">Payment Receipt</div>
                     <div class="header-meta">${dateStr} &bull; ${timeStr}</div>
-                    <div class="payment-id">ID: ${receipt.payment_id || receipt.id || 'N/A'}</div>
+                    <div class="payment-id">N°: MY${String(receipt.receipt_number || '0').padStart(6, '0')}</div>
                 </div>
 
                 <div class="divider"></div>
@@ -2593,7 +2593,7 @@ Thank you!`;
                                     {new Date(selectedReceipt.created_at).toLocaleDateString()} &bull; {new Date(selectedReceipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                 </p>
                                 <p className="text-[10px] text-gray-400 mt-0.5 font-mono">
-                                    ID: {selectedReceipt.payment_id || selectedReceipt.id || 'N/A'}
+                                    N°: MY{String(selectedReceipt.receipt_number || '0').padStart(6, '0')}
                                 </p>
                             </div>
 

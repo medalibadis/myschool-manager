@@ -30,11 +30,11 @@ export default function LoginPage() {
         try {
             const result = await login(email, password);
 
-            if (result.success) {
-                router.push('/');
-            } else {
+            if (!result.success) {
                 setError(result.error || 'Invalid credentials or inactive account.');
             }
+            // If successful, the useEffect at the top of the component will handle 
+            // the redirect safely once the AuthContext state has updated.
         } catch (err) {
             setError('An error occurred during sign-in.');
         } finally {

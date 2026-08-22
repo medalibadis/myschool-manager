@@ -99,9 +99,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }, 3500);
 
+        const initAuth = async () => {
+            try {
+                const { data: { session: initialSession } } = await supabase.auth.getSession();
+                if (!mounted) return;
+                
+                setSession(initialSession);
+                
+                if (initialSession?.user) {
+                    await loadUserData(initialSession.user.id, initialSession.user);
+                } else {
+                    setUser(null);
+                    setPermissions([]);
+                }
+            } catch (err) {
+                console.error('Error during auth initialization:', err);
+            } finally {
+                if (mounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        initAuth();
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
             if (!mounted) return;
 
+            // Only process state changes after initial load is complete
+            // to avoid race conditions with initAuth
             setSession(newSession);
 
             if (newSession?.user) {
@@ -110,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(null);
                 setPermissions([]);
             }
-
+            
             if (mounted) {
                 setLoading(false);
             }

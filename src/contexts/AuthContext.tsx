@@ -81,7 +81,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setPermissions(userPerms);
                 return true;
             } else {
-                // Profile genuinely not found or inactive
+                // If we got no data (profile is null) BUT we already have an active user,
+                // this is likely a transient RLS failure during token refresh.
+                // Do NOT log them out in this case!
+                if (!profile && hasUserRef.current) {
+                    console.warn('loadUserData returned 0 rows but preserving existing active user session to prevent transient logouts.');
+                    return true;
+                }
+
+                // Otherwise, genuinely not found or inactive - clear state
                 setUser(null);
                 setPermissions([]);
                 return false;

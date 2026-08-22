@@ -40,16 +40,19 @@ export default function LoginPage() {
             const result = await login(email, password);
 
             if (result.success) {
-                // Direct redirect - don't wait for useEffect
-                router.push('/');
+                // Do NOT call router.push('/') immediately here.
+                // The AuthContext state (isAuthenticated) needs time to flush to true.
+                // The useEffect at the top of this component will trigger the redirect.
+                // We keep isSubmitting = true so the button stays on "Verifying..." while redirecting.
+                return; // Early return to bypass the finally block
             } else {
                 setError(result.error || 'Invalid credentials or inactive account.');
             }
         } catch (err) {
             setError('An error occurred during sign-in.');
-        } finally {
-            setIsSubmitting(false);
-        }
+        } 
+        
+        setIsSubmitting(false);
     };
 
     // Only show the loading spinner during INITIAL page load auth check

@@ -1285,11 +1285,18 @@ Thank you!`;
                         margin-bottom: 6px;
                     }
                     .logo-img {
-                        height: 56px;
+                        height: 90px;
                         max-width: 100%;
                         object-fit: contain;
                         margin: 0 auto 4px auto;
                         display: block;
+                    }
+                    .payment-id {
+                        font-size: 9px;
+                        color: #555;
+                        text-align: center;
+                        margin-top: 2px;
+                        font-family: monospace;
                     }
                     .header-title {
                         font-size: 12px;
@@ -1365,6 +1372,7 @@ Thank you!`;
                     <img src="/logo.png" alt="MySchool" class="logo-img" />
                     <div class="header-title">Payment Receipt</div>
                     <div class="header-meta">${dateStr} &bull; ${timeStr}</div>
+                    <div class="payment-id">ID: ${receipt.payment_id || receipt.id || 'N/A'}</div>
                 </div>
 
                 <div class="divider"></div>
@@ -2578,11 +2586,14 @@ Thank you!`;
                                 <img
                                     src="/logo.png"
                                     alt="MySchool"
-                                    className="h-14 mx-auto mb-2 object-contain"
+                                    className="h-24 mx-auto mb-2 object-contain"
                                 />
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">Payment Receipt</h3>
                                 <p className="text-[11px] text-gray-500 mt-1">
                                     {new Date(selectedReceipt.created_at).toLocaleDateString()} &bull; {new Date(selectedReceipt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                </p>
+                                <p className="text-[10px] text-gray-400 mt-0.5 font-mono">
+                                    ID: {selectedReceipt.payment_id || selectedReceipt.id || 'N/A'}
                                 </p>
                             </div>
 

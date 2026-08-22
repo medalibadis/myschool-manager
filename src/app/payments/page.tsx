@@ -598,8 +598,8 @@ export default function PaymentsPage() {
                     return;
                 }
 
-                // Step 1: Create a map to store unique students by ID
-                const studentMap = new Map<string, StudentWithGroups>();
+                // Step 1: Create a map to store unique students by name+phone (same merge logic as students page)
+                const studentMap = new Map<string, StudentWithGroups & { _allIds: string[] }>();
 
                 // Step 2: First pass - collect all students that match the search criteria
                 for (const group of groups) {
@@ -628,9 +628,11 @@ export default function PaymentsPage() {
                                 phoneLower.includes(searchLower);
 
                             if (matchesSearch) {
-                                // If student not in map, add them
-                                if (!studentMap.has(student.id)) {
-                                    studentMap.set(student.id, {
+                                // Use name+phone as the merge key (same as students page)
+                                const mergeKey = `${student.name}-${student.phone}`;
+
+                                if (!studentMap.has(mergeKey)) {
+                                    studentMap.set(mergeKey, {
                                         id: student.id,
                                         custom_id: student.custom_id,
                                         name: student.name,
@@ -639,22 +641,43 @@ export default function PaymentsPage() {
                                         groups: [],
                                         totalBalance: 0,
                                         totalPaid: 0,
-                                        remainingBalance: 0, // Will be calculated below
+                                        remainingBalance: 0,
                                         defaultDiscount: student.defaultDiscount || 0,
+                                        _allIds: [student.id],
                                     });
+                                } else {
+                                    // Merge: track additional IDs for balance aggregation
+                                    const existing = studentMap.get(mergeKey)!;
+                                    if (!existing._allIds.includes(student.id)) {
+                                        existing._allIds.push(student.id);
+                                    }
+                                    // Use custom_id if existing one is missing
+                                    if (!existing.custom_id && student.custom_id) {
+                                        existing.custom_id = student.custom_id;
+                                    }
+                                    // Use email if existing one is missing
+                                    if (!existing.email && student.email) {
+                                        existing.email = student.email;
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // Step 3: Second pass - add all groups for each matched student
+                // Step 3: Second pass - add all groups for each matched student (check all merged IDs)
                 console.log('Processing groups for search results:', groups.length);
                 for (const group of groups) {
                     if (group.students && Array.isArray(group.students)) {
-                        console.log(`Group ${group.name} has ${group.students.length} students`);
                         for (const student of group.students) {
-                            const existingStudent = studentMap.get(student.id);
+                            // Find the merged entry that contains this student's ID
+                            let existingStudent: (StudentWithGroups & { _allIds: string[] }) | undefined;
+                            for (const entry of studentMap.values()) {
+                                if (entry._allIds.includes(student.id)) {
+                                    existingStudent = entry;
+                                    break;
+                                }
+                            }
                             if (existingStudent) {
                                 // Check if this group is already added to this student
                                 const groupExists = existingStudent.groups.some(g => g.id === group.id);
@@ -674,7 +697,7 @@ export default function PaymentsPage() {
                 }
 
                 // Step 4: Convert to array and show results immediately
-                const studentsArray = Array.from(studentMap.values());
+                const studentsArray = Array.from(studentMap.values()) as (StudentWithGroups & { _allIds: string[] })[];
 
                 // Sort students by name for better UX
                 studentsArray.sort((a, b) => a.name.localeCompare(b.name));
@@ -682,30 +705,45 @@ export default function PaymentsPage() {
                 setSearchResults(studentsArray);
 
                 // Step 5: Calculate balances in the background (non-blocking)
+                // For merged students, aggregate balances across all internal IDs
                 setTimeout(async () => {
                     const updatedStudents = [...studentsArray];
                     for (const student of updatedStudents) {
                         try {
-                            // Add null check for student.id
                             if (!student || !student.id) {
                                 console.error('Invalid student data in search results:', student);
                                 continue;
                             }
 
-                            // Calculate student balance using store method (includes retrospective logic)
-                            const balance = await getStudentBalance(student.id);
-                            student.totalBalance = balance.totalBalance;
-                            student.totalPaid = balance.totalPaid;
-                            student.remainingBalance = balance.remainingBalance;
+                            // Aggregate balances across all merged IDs
+                            let totalBalance = 0;
+                            let totalPaid = 0;
+                            let remainingBalance = 0;
+                            const allGroupBalances: Array<{ groupId: number; amountPaid: number; remainingAmount: number }> = [];
+
+                            for (const sid of student._allIds) {
+                                try {
+                                    const balance = await getStudentBalance(sid);
+                                    totalBalance += balance.totalBalance;
+                                    totalPaid += balance.totalPaid;
+                                    remainingBalance += balance.remainingBalance;
+                                    allGroupBalances.push(...balance.groupBalances);
+                                } catch (e) {
+                                    console.error(`Error getting balance for merged ID ${sid}:`, e);
+                                }
+                            }
+
+                            student.totalBalance = totalBalance;
+                            student.totalPaid = totalPaid;
+                            student.remainingBalance = remainingBalance;
 
                             // Update group balances with unpaid amounts
                             student.groups = student.groups.map(group => {
-                                const groupBalance = balance.groupBalances.find(gb => gb.groupId === group.id);
+                                const groupBalance = allGroupBalances.find(gb => gb.groupId === group.id);
                                 if (groupBalance) {
                                     group.amountPaid = groupBalance.amountPaid;
                                     group.remainingAmount = groupBalance.remainingAmount;
                                 } else {
-                                    // If no balance record exists, assume the full group price is unpaid
                                     group.amountPaid = 0;
                                     group.remainingAmount = group.price || 0;
                                 }

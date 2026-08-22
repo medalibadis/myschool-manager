@@ -51,6 +51,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     .eq('admin_id', userId),
             ]);
 
+            // If there was a network/RLS error (not "no data"), preserve existing state
+            if (profileRes.error) {
+                console.error('Error fetching profile:', profileRes.error);
+                // Don't clear existing user - might be a transient error
+                return !!user; // Return true if we already have a user loaded
+            }
+
             const profile = profileRes.data;
             const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
 
@@ -70,17 +77,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setPermissions(userPerms);
                 return true;
             } else {
+                // Profile genuinely not found or inactive - clear state
                 setUser(null);
                 setPermissions([]);
                 return false;
             }
         } catch (err) {
             console.error('Error loading user auth data:', err);
-            setUser(null);
-            setPermissions([]);
-            return false;
+            // Network error - preserve existing state
+            return !!user;
         }
-    }, []);
+    }, [user]);
 
     const refreshProfile = useCallback(async () => {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -126,16 +133,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
             if (!mounted) return;
 
-            // Only process state changes after initial load is complete
-            // to avoid race conditions with initAuth
+            // Handle explicit sign out - always clear state
+            if (event === 'SIGNED_OUT') {
+                setSession(null);
+                setUser(null);
+                setPermissions([]);
+                if (mounted) setLoading(false);
+                return;
+            }
+
             setSession(newSession);
 
             if (newSession?.user) {
-                await loadUserData(newSession.user.id, newSession.user);
-            } else {
-                setUser(null);
-                setPermissions([]);
+                // Try to load user data, but DON'T clear existing state on failure
+                // This prevents false logouts during token refresh or transient network issues
+                try {
+                    const isValid = await loadUserData(newSession.user.id, newSession.user);
+                    // Only if loadUserData explicitly returned false AND we don't have existing user data
+                    // should we consider clearing state. But we never force logout from here.
+                    if (!isValid) {
+                        console.warn('loadUserData returned false during auth state change, but preserving existing session');
+                    }
+                } catch (err) {
+                    console.error('Error loading user data during auth state change, preserving existing state:', err);
+                }
             }
+            // Note: We intentionally do NOT clear user/permissions when newSession is null
+            // but the event is not SIGNED_OUT. This handles edge cases where the session
+            // briefly becomes null during token refresh.
             
             if (mounted) {
                 setLoading(false);

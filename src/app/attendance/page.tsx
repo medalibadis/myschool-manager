@@ -110,6 +110,7 @@ export default function AttendancePage() {
     } = useMySchoolStore();
 
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [searchQuery, setSearchQuery] = useState('');
     const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
     const [showAttendanceModal, setShowAttendanceModal] = useState(false);
     const [loadingAttendance, setLoadingAttendance] = useState(false);
@@ -155,15 +156,22 @@ export default function AttendancePage() {
 
 
 
-    // Filter groups that have sessions on the selected date
+    // Filter groups that have sessions on the selected date and match search
     const groupsWithSessionsOnDate = React.useMemo(() => {
         return groups.filter(group => {
-            return group.sessions.some(session => {
+            const hasSessionOnDate = group.sessions.some(session => {
                 const sessionDate = typeof session.date === 'string' ? new Date(session.date) : session.date;
                 return isSameDay(sessionDate, selectedDate); // Check if session date is on selectedDate
             });
+
+            if (!hasSessionOnDate) return false;
+
+            if (searchQuery.trim() === '') return true;
+
+            const query = searchQuery.toLowerCase().trim();
+            return group.id.toString().includes(query) || group.name.toLowerCase().includes(query);
         });
-    }, [groups, selectedDate]);
+    }, [groups, selectedDate, searchQuery]);
 
     // Find the selected group
     const selectedGroup = React.useMemo(() => {
@@ -859,20 +867,34 @@ export default function AttendancePage() {
                         {/* Date Selection */}
                         <Card className="mb-6">
                             <CardHeader>
-                                <CardTitle>Select Date</CardTitle>
+                                <CardTitle>Filters</CardTitle>
                                 <CardDescription>
-                                    Choose a date to view and manage attendance
+                                    Choose a date to view and manage attendance or search for a specific group
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <div className="flex items-center space-x-4">
-                                    <CalendarIcon className="h-5 w-5 text-gray-400" />
-                                    <input
-                                        type="date"
-                                        value={format(selectedDate, 'yyyy-MM-dd')}
-                                        onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                                    />
+                                <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
+                                    <div className="flex items-center space-x-2">
+                                        <CalendarIcon className="h-5 w-5 text-gray-400" />
+                                        <input
+                                            type="date"
+                                            value={format(selectedDate, 'yyyy-MM-dd')}
+                                            onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                                            className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                        />
+                                    </div>
+                                    <div className="relative flex-1 max-w-md">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+                                        </div>
+                                        <Input
+                                            type="text"
+                                            placeholder="Search group by ID or Name..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="pl-10"
+                                        />
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

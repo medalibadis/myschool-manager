@@ -105,12 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSession(newSession);
 
             if (newSession?.user) {
-                const isValid = await loadUserData(newSession.user.id, newSession.user);
-                if (!isValid && event === 'SIGNED_IN') {
-                    // Sign out immediately if profile is invalid to prevent loop
-                    await supabase.auth.signOut();
-                    setSession(null);
-                }
+                await loadUserData(newSession.user.id, newSession.user);
             } else {
                 setUser(null);
                 setPermissions([]);

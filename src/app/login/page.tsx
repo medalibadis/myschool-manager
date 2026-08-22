@@ -25,11 +25,8 @@ export default function LoginPage() {
         }
     }, [loading]);
 
-    useEffect(() => {
-        if (isAuthenticated && !loading) {
-            router.push('/');
-        }
-    }, [isAuthenticated, loading, router]);
+    // We removed the useEffect redirect here to prevent race conditions.
+    // Navigation is handled via hard redirect in handleSubmit.
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -40,11 +37,10 @@ export default function LoginPage() {
             const result = await login(email, password);
 
             if (result.success) {
-                // Do NOT call router.push('/') immediately here.
-                // The AuthContext state (isAuthenticated) needs time to flush to true.
-                // The useEffect at the top of this component will trigger the redirect.
-                // We keep isSubmitting = true so the button stays on "Verifying..." while redirecting.
-                return; // Early return to bypass the finally block
+                // Hard redirect to bypass any Next.js router / AuthGuard race conditions
+                // This guarantees the app mounts fresh with the new session.
+                window.location.href = '/';
+                return; // Keep button on Verifying while browser unloads the page
             } else {
                 setError(result.error || 'Invalid credentials or inactive account.');
             }

@@ -19,6 +19,8 @@ export default function AuthGuard({
     const {
         isAuthenticated,
         loading,
+        authResolved,
+        session,
         isSuperAdmin,
         hasPermission,
     } = useAuth();
@@ -31,6 +33,10 @@ export default function AuthGuard({
 
     useEffect(() => {
         if (loading) return;
+
+        // A Supabase session exists but the admin profile has not resolved yet.
+        // Wait rather than bouncing a validly signed-in user back to /login.
+        if (session && !authResolved) return;
 
         // 1. Not Authenticated
         if (!isAuthenticated) {
@@ -58,6 +64,8 @@ export default function AuthGuard({
     }, [
         isAuthenticated,
         loading,
+        authResolved,
+        session,
         isSuperAdmin,
         hasPermission,
         requiredPermission,
@@ -67,7 +75,7 @@ export default function AuthGuard({
         router,
     ]);
 
-    if (loading) {
+    if (loading || (session && !authResolved)) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">

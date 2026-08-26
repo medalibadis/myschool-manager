@@ -15,6 +15,8 @@ interface AuthContextType {
     user: AdminProfile | null;
     session: Session | null;
     loading: boolean;
+    /** True once the admin profile lookup has settled, or definitively given up. */
+    authResolved: boolean;
     isSuperuser: boolean;
     isSuperAdmin: boolean;
     permissions: string[];
@@ -32,14 +34,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<AdminProfile | null>(null);
     const [permissions, setPermissions] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
+    const [authResolved, setAuthResolved] = useState(false);
 
     // Ref to track if we have a valid user (avoids stale closures)
     const hasUserRef = useRef(false);
 
-    // Keep ref in sync with state
+    // Last known-good permissions, so a transient permissions read failure can
+    // fall back to them instead of stripping the user down to none.
+    const permissionsRef = useRef<string[]>([]);
+
+    // Set only while logout() is running, so a deliberate sign-out can be told
+    // apart from a SIGNED_OUT the library emits on its own.
+    const isLoggingOutRef = useRef(false);
+
+    // Most recent refresh token seen, including ones broadcast by other tabs.
+    // _removeSession() wipes storage before emitting SIGNED_OUT, so this is the
+    // only copy left to attempt a silent recovery with.
+    const recoveryTokenRef = useRef<string | null>(null);
+
+    // True once auth has settled, so the safety timer can tell a genuinely
+    // stalled init apart from one that simply finished.
+    const initSettledRef = useRef(false);
+
+    // Keep refs in sync with state
     useEffect(() => {
         hasUserRef.current = !!user;
     }, [user]);
+
+    useEffect(() => {
+        permissionsRef.current = permissions;
+    }, [permissions]);
 
     // Fast unified loader for Profile and Permissions
     const loadUserData = useCallback(async (userId: string): Promise<boolean> => {
@@ -63,7 +87,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             const profile = profileRes.data;
-            const userPerms = permsRes.data ? permsRes.data.map(r => r.permission) : [];
+
+            // Distinguish "no permission rows" from "the permissions read failed".
+            // Treating a failure as an empty set silently strips every permission
+            // and bounces a valid admin to /unauthorized.
+            if (permsRes.error) {
+                console.error('Error fetching permissions:', permsRes.error);
+            }
+            const fetchedPerms = permsRes.error || !permsRes.data
+                ? null
+                : permsRes.data.map(r => r.permission);
+            const userPerms = fetchedPerms ?? permissionsRef.current;
 
             if (profile && profile.is_active) {
                 const fullProfile: AdminProfile = {
@@ -111,21 +145,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         let mounted = true;
 
-        // Safety timeout - loading MUST end within 4 seconds no matter what
-        const safetyTimer = setTimeout(() => {
-            if (mounted && loading) {
-                console.warn('Auth safety timer fired - forcing loading to false');
+        const settle = () => {
+            initSettledRef.current = true;
+            if (mounted) {
                 setLoading(false);
+                setAuthResolved(true);
             }
-        }, 4000);
+        };
+
+        // Safety net for a genuinely stuck init.
+        //
+        // The previous 4s timer tested a `loading` captured on the first render,
+        // which is always true, so it fired unconditionally. Flipping loading to
+        // false while the profile query was still in flight left isAuthenticated
+        // false, and AuthGuard then bounced a validly signed-in user to /login.
+        // The profile and permission reads go through RLS policies that call
+        // has_permission(), so they need a realistic budget.
+        const safetyTimer = setTimeout(() => {
+            if (mounted && !initSettledRef.current) {
+                console.warn('Auth safety timer fired - giving up on the profile load');
+                settle();
+            }
+        }, 15000);
 
         const initAuth = async () => {
             try {
                 const { data: { session: initialSession } } = await supabase.auth.getSession();
                 if (!mounted) return;
-                
+
                 setSession(initialSession);
-                
+                if (initialSession?.refresh_token) {
+                    recoveryTokenRef.current = initialSession.refresh_token;
+                }
+
                 if (initialSession?.user) {
                     await loadUserData(initialSession.user.id);
                 } else {
@@ -135,41 +187,95 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } catch (err) {
                 console.error('Error during auth initialization:', err);
             } finally {
-                if (mounted) {
-                    setLoading(false);
-                }
+                settle();
             }
         };
 
         initAuth();
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+        const clearAuthState = () => {
+            setSession(null);
+            setUser(null);
+            setPermissions([]);
+            settle();
+        };
+
+        // This callback MUST stay synchronous and must never await a supabase.*
+        // call. Supabase invokes it from inside the auth lock (e.g. the auto
+        // refresh tick holds the lock across _notifyAllSubscribers). Any nested
+        // supabase call - including supabase.from(), which resolves its token via
+        // auth.getSession() - re-enters _acquireLock and waits on the very
+        // operation that is waiting on this callback, deadlocking the client and
+        // hanging every later query in the tab. Anything touching supabase is
+        // therefore deferred to a macrotask, after the lock has been released.
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
             if (!mounted) return;
 
-            // Handle explicit sign out - always clear state
             if (event === 'SIGNED_OUT') {
-                setSession(null);
-                setUser(null);
-                setPermissions([]);
-                if (mounted) setLoading(false);
+                // Consume the stashed token up front so a failed recovery cannot
+                // loop: a failing refresh emits SIGNED_OUT again, and by then the
+                // stash is empty and we fall through to a real sign-out.
+                const recoveryToken = recoveryTokenRef.current;
+                recoveryTokenRef.current = null;
+                const deliberate = isLoggingOutRef.current;
+                isLoggingOutRef.current = false;
+
+                if (deliberate || !recoveryToken) {
+                    clearAuthState();
+                    return;
+                }
+
+                // Leave the current state in place for now: tearing it down here
+                // would redirect to /login before recovery has even been tried.
+                setTimeout(async () => {
+                    if (!mounted) return;
+                    try {
+                        const { data, error } = await supabase.auth.refreshSession({
+                            refresh_token: recoveryToken,
+                        });
+
+                        if (!error && data.session?.user) {
+                            console.warn('Recovered from an unsolicited SIGNED_OUT via silent refresh.');
+                            setSession(data.session);
+                            recoveryTokenRef.current = data.session.refresh_token;
+                            await loadUserData(data.session.user.id);
+                            settle();
+                            return;
+                        }
+                    } catch (err) {
+                        console.error('Silent session recovery failed:', err);
+                    }
+
+                    if (mounted) clearAuthState();
+                }, 0);
                 return;
             }
 
-            // For all other events, update session
-            setSession(newSession);
+            // Only ever move the session forward. Assigning a null session here -
+            // which any non-SIGNED_OUT event may carry - makes isAuthenticated
+            // false immediately and sends AuthGuard to /login.
+            if (newSession) {
+                setSession(newSession);
+                if (newSession.refresh_token) {
+                    recoveryTokenRef.current = newSession.refresh_token;
+                }
+            }
 
-            if (newSession?.user) {
-                // Load user data but don't block on failure
-                await loadUserData(newSession.user.id).catch(err => {
-                    console.error('Non-blocking loadUserData error:', err);
-                });
+            const userId = newSession?.user?.id;
+            if (!userId) {
+                // Nothing to load. Only settle if init has already finished, so a
+                // null-session event can't mark auth resolved while initAuth is
+                // still fetching a profile for a session it did find.
+                if (initSettledRef.current) settle();
+                return;
             }
-            // Intentionally NOT clearing user on null session during non-SIGNED_OUT events
-            // This prevents false logouts during token refresh race conditions
-            
-            if (mounted) {
-                setLoading(false);
-            }
+
+            setTimeout(() => {
+                if (!mounted) return;
+                loadUserData(userId)
+                    .catch(err => console.error('Non-blocking loadUserData error:', err))
+                    .finally(() => settle());
+            }, 0);
         });
 
         return () => {
@@ -177,7 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             clearTimeout(safetyTimer);
             subscription.unsubscribe();
         };
-    }, []); // Empty dependency array to mount once
+    }, [loadUserData]);
 
     const login = async (email: string, pass: string): Promise<LoginResult> => {
         try {
@@ -191,9 +297,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             setSession(data.session);
+            recoveryTokenRef.current = data.session.refresh_token;
             const isValid = await loadUserData(data.user.id);
-            
+
             if (!isValid) {
+                // A deliberate sign-out: do not let the SIGNED_OUT handler try to
+                // silently restore the session we are rejecting on purpose.
+                isLoggingOutRef.current = true;
+                recoveryTokenRef.current = null;
                 await supabase.auth.signOut();
                 setSession(null);
                 return { success: false, error: 'Your account is inactive or not found.' };
@@ -206,10 +317,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const logout = async () => {
-        await supabase.auth.signOut();
-        setSession(null);
-        setUser(null);
-        setPermissions([]);
+        // Marks the SIGNED_OUT that follows as deliberate, so the handler tears
+        // the session down instead of trying to recover it.
+        isLoggingOutRef.current = true;
+        recoveryTokenRef.current = null;
+        try {
+            await supabase.auth.signOut();
+        } finally {
+            setSession(null);
+            setUser(null);
+            setPermissions([]);
+            isLoggingOutRef.current = false;
+        }
     };
 
     const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.role === ('superuser' as any);
@@ -231,6 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         session,
         loading,
+        authResolved,
         isSuperuser: isSuperAdmin,
         isSuperAdmin,
         permissions,

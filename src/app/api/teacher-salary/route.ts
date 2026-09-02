@@ -12,6 +12,16 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
     }
 });
 
+// Salary rules, kept in one place so the formula below reads as the policy:
+//   present   -> full session fee
+//   late      -> full session fee, minus a penalty (the teacher did teach it)
+//   covering  -> full session fee, no penalty
+//   absent    -> no fee, minus a penalty
+//   justified -> no penalty, and JUSTIFIED_RATE of the fee (0 = neutral)
+const LATE_PENALTY = 200;
+const ABSENT_PENALTY = 500;
+const JUSTIFIED_RATE = 0;
+
 export async function POST(request: NextRequest) {
     try {
         // 1. Verify Authorization Token
@@ -280,11 +290,15 @@ async function calculateUnpaidGroups(teacherId: string) {
                 console.log(`  - Price per session: ${pricePerSession}`);
                 console.log(`  - Covering sessions total: ${coveringSessionsCount * pricePerSession} DA`);
 
-                // Include covering sessions in salary calculation
-                const calculatedSalary = (presentSessions * pricePerSession) +
-                    (coveringSessionsCount * pricePerSession) - // Add covering sessions
-                    (lateSessions * 200) -
-                    (absentSessions * 500);
+                // A late teacher still taught the session, so they earn the fee and
+                // take the penalty on top. Previously `late` forfeited the whole
+                // fee as well, costing them the session twice over.
+                const paidSessions = presentSessions + lateSessions + coveringSessionsCount;
+                const calculatedSalary =
+                    (paidSessions * pricePerSession) +
+                    (justifiedSessions * pricePerSession * JUSTIFIED_RATE) -
+                    (lateSessions * LATE_PENALTY) -
+                    (absentSessions * ABSENT_PENALTY);
 
                 // Check if this group has been paid using admin client
                 let existingPayment = null;

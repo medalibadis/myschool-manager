@@ -60,6 +60,7 @@ export default function TeachersPage() {
         deleteTeacher,
         groups,
         fetchTeachers,
+        fetchGroups,
         loading,
         error
     } = useMySchoolStore();
@@ -84,15 +85,19 @@ export default function TeachersPage() {
     const [coveringSessions, setCoveringSessions] = useState<any[]>([]);
 
     // Covering popup states
-    const [showCoveringPopup, setShowCoveringPopup] = useState(false);
-    const [coveringData, setCoveringData] = useState<{
+    type CoveringRequest = {
         originalTeacherId: string;
         sessionId: string;
         groupId: number;
         date: string;
         status: 'absent' | 'justified';
         groupName: string;
-    } | null>(null);
+    };
+    const [showCoveringPopup, setShowCoveringPopup] = useState(false);
+    const [coveringData, setCoveringData] = useState<CoveringRequest | null>(null);
+    // Remaining prompts after the one on screen. A single save can mark several
+    // teachers absent, and each one needs its own covering teacher.
+    const [coveringQueue, setCoveringQueue] = useState<CoveringRequest[]>([]);
 
     // Salary management state
     const [showSalaryModal, setShowSalaryModal] = useState(false);
@@ -117,10 +122,15 @@ export default function TeachersPage() {
     const [pendingFormData, setPendingFormData] = useState<any>(null);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-    // Fetch teachers on component mount
+    // Fetch teachers and groups on component mount. This page reads `groups`
+    // from the store (the evaluation history and covering modals render from
+    // it) but never loaded them, so the group list stayed empty until the
+    // groups page happened to populate the store. fetchGroups is a no-op when
+    // they are already loaded.
     React.useEffect(() => {
         fetchTeachers();
-    }, [fetchTeachers]);
+        fetchGroups();
+    }, [fetchTeachers, fetchGroups]);
 
     // Help functions used in filters
     const getTeacherStats = (teacherId: string) => {
@@ -579,19 +589,18 @@ export default function TeachersPage() {
                 );
 
                 if (absentOrJustifiedRecords.length > 0) {
-                    // Get the first absent/justified record to show covering popup
-                    const firstRecord = absentOrJustifiedRecords[0];
-                    const group = groups.find(g => g.id === firstRecord.groupId);
-
-                    setCoveringData({
-                        originalTeacherId: firstRecord.teacherId,
-                        sessionId: firstRecord.sessionId,
-                        groupId: firstRecord.groupId,
-                        date: firstRecord.date,
-                        status: firstRecord.status as 'absent' | 'justified',
-                        groupName: group?.name || 'Unknown Group'
-                    });
-                    setShowCoveringPopup(true);
+                    // Queue one prompt per absence. Only absentOrJustifiedRecords[0]
+                    // used to be handled, so when several teachers were marked absent
+                    // in one save the rest never got a covering record - and their
+                    // covering teachers were never paid.
+                    startCoveringQueue(absentOrJustifiedRecords.map(record => ({
+                        originalTeacherId: record.teacherId,
+                        sessionId: record.sessionId,
+                        groupId: record.groupId,
+                        date: record.date,
+                        status: record.status as 'absent' | 'justified',
+                        groupName: groups.find(g => g.id === record.groupId)?.name || 'Unknown Group'
+                    })));
                 }
 
                 return true;
@@ -656,10 +665,18 @@ export default function TeachersPage() {
         try {
             const newHistory: { [teacherId: string]: Array<{ date: string, status: 'present' | 'late' | 'absent' | 'justified', groupName: string, sessionId: string }> } = {};
 
-            for (const teacher of teachers) {
-                const attendance = await fetchTeacherAttendance(teacher.id);
+            // Fetch every teacher in parallel. Sequential awaits here meant one
+            // refresh cost N round trips, serialised.
+            const results = await Promise.all(
+                teachers.map(async (teacher) => ({
+                    teacherId: teacher.id,
+                    attendance: await fetchTeacherAttendance(teacher.id),
+                }))
+            );
+
+            for (const { teacherId, attendance } of results) {
                 if (attendance.length > 0) {
-                    newHistory[teacher.id] = attendance.map(record => ({
+                    newHistory[teacherId] = attendance.map(record => ({
                         date: record.date,
                         status: record.status,
                         groupName: record.groups.name,
@@ -672,6 +689,71 @@ export default function TeachersPage() {
         } catch (error) {
             console.error('Error loading teacher history:', error);
         }
+    };
+
+    // Open the covering prompt for a batch of absences, one after another.
+    const startCoveringQueue = (requests: CoveringRequest[]) => {
+        if (requests.length === 0) return;
+        const [first, ...rest] = requests;
+        setCoveringData(first);
+        setCoveringQueue(rest);
+        setShowCoveringPopup(true);
+    };
+
+    // Move to the next pending prompt, or close once the queue is drained.
+    const advanceCoveringQueue = () => {
+        const [next, ...rest] = coveringQueue;
+        if (next) {
+            setCoveringData(next);
+            setCoveringQueue(rest);
+            return;
+        }
+        setCoveringData(null);
+        setCoveringQueue([]);
+        setShowCoveringPopup(false);
+    };
+
+    const dismissCoveringQueue = () => {
+        setCoveringData(null);
+        setCoveringQueue([]);
+        setShowCoveringPopup(false);
+    };
+
+    // Ask for a covering teacher after a status is set to absent/justified
+    // outside the bulk evaluation flow (e.g. from the history overlay).
+    const maybeRequestCovering = async (params: {
+        teacherId: string;
+        sessionId: string;
+        groupId: number;
+        date: string;
+        status: 'present' | 'late' | 'absent' | 'justified';
+        groupName: string;
+    }) => {
+        if (params.status !== 'absent' && params.status !== 'justified') return;
+
+        try {
+            // teacher_covering is UNIQUE per session, so don't prompt for a
+            // session that already has a covering teacher assigned.
+            const { data: existing } = await supabase
+                .from('teacher_covering')
+                .select('id')
+                .eq('session_id', params.sessionId)
+                .maybeSingle();
+
+            if (existing) return;
+        } catch (error) {
+            console.error('Error checking existing covering record:', error);
+            return;
+        }
+
+        startCoveringQueue([{
+            originalTeacherId: params.teacherId,
+            sessionId: params.sessionId,
+            groupId: params.groupId,
+            date: params.date,
+            status: params.status,
+            groupName: params.groupName,
+        }]);
     };
 
     const loadCoveringSessions = async (teacherId: string) => {
@@ -1912,26 +1994,51 @@ export default function TeachersPage() {
                                                                             value={evaluation.status}
                                                                             onChange={async (e) => {
                                                                                 const newStatus = e.target.value as 'present' | 'late' | 'absent' | 'justified';
+                                                                                const teacherId = selectedHistoryTeacher.id;
+                                                                                const previousStatus = evaluation.status;
+
+                                                                                // Reflect the change immediately. This select renders from
+                                                                                // teacherHistory, so waiting on the write plus a full
+                                                                                // reload of every teacher is what made it feel slow.
+                                                                                setTeacherHistory(prev => ({
+                                                                                    ...prev,
+                                                                                    [teacherId]: (prev[teacherId] || []).map(r =>
+                                                                                        r.sessionId === session.id ? { ...r, status: newStatus } : r
+                                                                                    ),
+                                                                                }));
+
                                                                                 try {
-                                                                                    // Update the evaluation in the database using teacher_id and session_id
                                                                                     const { error } = await supabase
                                                                                         .from('teacher_attendance')
                                                                                         .update({ status: newStatus })
-                                                                                        .eq('teacher_id', selectedHistoryTeacher.id)
+                                                                                        .eq('teacher_id', teacherId)
                                                                                         .eq('session_id', session.id);
 
-                                                                                    if (error) {
-                                                                                        console.error('Error updating status:', error);
-                                                                                        alert('Failed to update status. Please try again.');
-                                                                                        return;
-                                                                                    }
+                                                                                    if (error) throw error;
 
-                                                                                    // Refresh the teacher history
-                                                                                    await loadTeacherHistory();
-
-                                                                                    alert('Status updated successfully!');
+                                                                                    // Absences booked from this overlay used to skip
+                                                                                    // the covering flow entirely, so whether a covering
+                                                                                    // teacher got paid depended on which screen was used.
+                                                                                    await maybeRequestCovering({
+                                                                                        teacherId,
+                                                                                        sessionId: session.id,
+                                                                                        groupId: selectedHistoryGroup as number,
+                                                                                        date: typeof session.date === 'string'
+                                                                                            ? session.date
+                                                                                            : new Date(session.date).toISOString(),
+                                                                                        status: newStatus,
+                                                                                        groupName,
+                                                                                    });
                                                                                 } catch (error) {
                                                                                     console.error('Error updating status:', error);
+                                                                                    // Put the old value back so the row never lies about
+                                                                                    // what is actually stored.
+                                                                                    setTeacherHistory(prev => ({
+                                                                                        ...prev,
+                                                                                        [teacherId]: (prev[teacherId] || []).map(r =>
+                                                                                            r.sessionId === session.id ? { ...r, status: previousStatus } : r
+                                                                                        ),
+                                                                                    }));
                                                                                     alert('Failed to update status. Please try again.');
                                                                                 }
                                                                             }}
@@ -1953,12 +2060,27 @@ export default function TeachersPage() {
                                                                                 const newStatus = e.target.value;
                                                                                 if (newStatus === '-') return;
 
+                                                                                const teacherId = selectedHistoryTeacher.id;
+                                                                                const status = newStatus as 'present' | 'late' | 'absent' | 'justified';
+                                                                                const sessionDate = typeof session.date === 'string'
+                                                                                    ? session.date
+                                                                                    : new Date(session.date).toISOString();
+
+                                                                                // Show the new evaluation straight away; drop it again if
+                                                                                // the insert fails.
+                                                                                setTeacherHistory(prev => ({
+                                                                                    ...prev,
+                                                                                    [teacherId]: [
+                                                                                        ...(prev[teacherId] || []),
+                                                                                        { date: sessionDate, status, groupName, sessionId: session.id },
+                                                                                    ],
+                                                                                }));
+
                                                                                 try {
-                                                                                    // Create a new evaluation record in the database
                                                                                     const { error } = await supabase
                                                                                         .from('teacher_attendance')
                                                                                         .insert({
-                                                                                            teacher_id: selectedHistoryTeacher.id,
+                                                                                            teacher_id: teacherId,
                                                                                             session_id: session.id,
                                                                                             group_id: selectedHistoryGroup,
                                                                                             date: session.date,
@@ -1967,18 +2089,22 @@ export default function TeachersPage() {
                                                                                             evaluated_by: null
                                                                                         });
 
-                                                                                    if (error) {
-                                                                                        console.error('Error creating evaluation:', error);
-                                                                                        alert('Failed to create evaluation. Please try again.');
-                                                                                        return;
-                                                                                    }
+                                                                                    if (error) throw error;
 
-                                                                                    // Refresh the teacher history
-                                                                                    await loadTeacherHistory();
-
-                                                                                    alert('Evaluation created successfully!');
+                                                                                    await maybeRequestCovering({
+                                                                                        teacherId,
+                                                                                        sessionId: session.id,
+                                                                                        groupId: selectedHistoryGroup as number,
+                                                                                        date: sessionDate,
+                                                                                        status,
+                                                                                        groupName,
+                                                                                    });
                                                                                 } catch (error) {
                                                                                     console.error('Error creating evaluation:', error);
+                                                                                    setTeacherHistory(prev => ({
+                                                                                        ...prev,
+                                                                                        [teacherId]: (prev[teacherId] || []).filter(r => r.sessionId !== session.id),
+                                                                                    }));
                                                                                     alert('Failed to create evaluation. Please try again.');
                                                                                 }
                                                                             }}
@@ -2325,9 +2451,14 @@ export default function TeachersPage() {
                                             </div>
                                         )}
                                         <div className="flex justify-between">
-                                            <span className="text-blue-700">Late Sessions ({selectedGroupSalary.late_sessions}):</span>
+                                            <span className="text-blue-700">
+                                                Late Sessions ({selectedGroupSalary.late_sessions}):
+                                                <span className="block text-xs text-blue-500">
+                                                    session fee minus 200 DA penalty each
+                                                </span>
+                                            </span>
                                             <span className="font-medium text-blue-900">
-                                                -{selectedGroupSalary.late_sessions * 200} DA
+                                                +{selectedGroupSalary.late_sessions * ((selectedSalaryTeacher?.price_per_session || 0) - 200)} DA
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
@@ -2590,10 +2721,7 @@ export default function TeachersPage() {
                     {/* Covering Popup Modal */}
                     <Modal
                         isOpen={showCoveringPopup}
-                        onClose={() => {
-                            setShowCoveringPopup(false);
-                            setCoveringData(null);
-                        }}
+                        onClose={dismissCoveringQueue}
                         title="Assign Covering Teacher"
                         maxWidth="lg"
                     >
@@ -2634,11 +2762,8 @@ export default function TeachersPage() {
                                                                     notes: `Covering for ${coveringData.status} teacher`
                                                                 });
 
-                                                                // Close popup
-                                                                setShowCoveringPopup(false);
-                                                                setCoveringData(null);
-
-                                                                alert(`Successfully assigned ${teacher.name} as covering teacher!`);
+                                                                // Move to the next pending absence, if any.
+                                                                advanceCoveringQueue();
                                                             } catch (error) {
                                                                 console.error('Error creating covering record:', error);
                                                                 alert('Failed to assign covering teacher. Please try again.');
@@ -2670,16 +2795,22 @@ export default function TeachersPage() {
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 mt-6">
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    setShowCoveringPopup(false);
-                                    setCoveringData(null);
-                                }}
-                            >
-                                Skip
-                            </Button>
+                        <div className="flex justify-between items-center pt-4 border-t border-gray-200 mt-6">
+                            <span className="text-sm text-gray-500">
+                                {coveringQueue.length > 0
+                                    ? `${coveringQueue.length} more absence${coveringQueue.length === 1 ? '' : 's'} to assign`
+                                    : ''}
+                            </span>
+                            <div className="flex space-x-3">
+                                {coveringQueue.length > 0 && (
+                                    <Button variant="outline" onClick={dismissCoveringQueue}>
+                                        Skip all
+                                    </Button>
+                                )}
+                                <Button variant="outline" onClick={advanceCoveringQueue}>
+                                    Skip
+                                </Button>
+                            </div>
                         </div>
                     </Modal>
 

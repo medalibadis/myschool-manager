@@ -490,11 +490,41 @@ export default function PaymentsPage() {
             console.log('🚨 DIAGNOSTIC: Aggregated unpaid groups list:', list);
             setUnpaidGroups(list);
 
-            // Fetch attendance data for each group this student belongs to (across all merged IDs)
+            // Fetch real attendance data for each group this student belongs to (across all merged IDs)
             const attendanceMap: Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>> = {};
-            for (const group of groups) {
-                const studentInGroup = group.students?.some(s => studentIds.includes(s.id));
-                if (studentInGroup && group.sessions && group.sessions.length > 0) {
+            const studentGroupsList = groups.filter(group => group.students?.some(s => studentIds.includes(s.id)));
+
+            const allSessionIds: string[] = [];
+            studentGroupsList.forEach(g => {
+                (g.sessions || []).forEach(s => {
+                    if (s.id) allSessionIds.push(s.id);
+                });
+            });
+
+            // Fetch actual attendance records directly from Supabase for this student's IDs
+            const attMapBySession = new Map<string, string>();
+            if (allSessionIds.length > 0) {
+                try {
+                    const { data: attData, error: attErr } = await supabase
+                        .from('attendance')
+                        .select('session_id, student_id, status')
+                        .in('student_id', studentIds)
+                        .in('session_id', allSessionIds);
+
+                    if (!attErr && attData) {
+                        for (const att of attData) {
+                            if (att.session_id && att.status) {
+                                attMapBySession.set(att.session_id, att.status);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error fetching attendance records:', err);
+                }
+            }
+
+            for (const group of studentGroupsList) {
+                if (group.sessions && group.sessions.length > 0) {
                     const matchedStudentId = group.students?.find(s => studentIds.includes(s.id))?.id;
                     const sessionRecords = group.sessions
                         .sort((a, b) => {
@@ -503,11 +533,20 @@ export default function PaymentsPage() {
                             }
                             return new Date(a.date).getTime() - new Date(b.date).getTime();
                         })
-                        .map(session => ({
-                            date: new Date(session.date),
-                            status: (matchedStudentId && session.attendance?.[matchedStudentId]) || 'default',
-                            sessionNumber: session.sessionNumber
-                        }));
+                        .map(session => {
+                            const dbStatus = attMapBySession.get(session.id);
+                            const storeStatus = matchedStudentId ? session.attendance?.[matchedStudentId] : undefined;
+                            let status = (dbStatus || storeStatus || 'default').toLowerCase().trim();
+                            if (status === 'stopped') status = 'stop';
+                            if (status === 'late') status = 'too_late';
+
+                            return {
+                                date: new Date(session.date),
+                                status,
+                                sessionNumber: session.sessionNumber
+                            };
+                        });
+
                     if (sessionRecords.length > 0) {
                         attendanceMap[group.id] = sessionRecords;
                     }
@@ -2176,13 +2215,48 @@ Thank you!`;
                                                     <div className="mt-3 pt-3 border-t border-gray-200">
                                                         <div className="flex items-center justify-between mb-2">
                                                             <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Attendance</span>
-                                                            <span className="text-[10px] text-gray-400">
-                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'present').length}P
-                                                                {' / '}
-                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'absent').length}A
-                                                                {' / '}
-                                                                {groupAttendanceMap[g.id].filter(a => ['default', 'justified', 'too_late', 'change', 'stop', 'new'].includes(a.status)).length}O
-                                                            </span>
+                                                            <div className="flex items-center gap-1.5 text-[10px] font-semibold flex-wrap justify-end">
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'present').length > 0 && (
+                                                                    <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200" title="Present">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'present').length}P
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'absent').length > 0 && (
+                                                                    <span className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-200" title="Absent">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'absent').length}A
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'justified').length > 0 && (
+                                                                    <span className="text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded border border-yellow-200" title="Justified">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'justified').length}J
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'too_late' || a.status === 'late').length > 0 && (
+                                                                    <span className="text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200" title="Late">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'too_late' || a.status === 'late').length}L
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'stop' || a.status === 'stopped').length > 0 && (
+                                                                    <span className="text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200" title="Stopped">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'stop' || a.status === 'stopped').length}S
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'new').length > 0 && (
+                                                                    <span className="text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200" title="New">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'new').length}N
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'change').length > 0 && (
+                                                                    <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200" title="Change">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'change').length}C
+                                                                    </span>
+                                                                )}
+                                                                {groupAttendanceMap[g.id].filter(a => a.status === 'default').length > 0 && (
+                                                                    <span className="text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" title="Default">
+                                                                        {groupAttendanceMap[g.id].filter(a => a.status === 'default').length}D
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                         <div className="flex flex-wrap gap-2 pt-1">
                                                             {groupAttendanceMap[g.id].map((att, attIdx) => {
@@ -2192,17 +2266,32 @@ Thank you!`;
                                                                     default: { bg: 'bg-gray-100 border-gray-300', text: 'text-gray-500', label: 'D' },
                                                                     justified: { bg: 'bg-yellow-100 border-yellow-400', text: 'text-yellow-700', label: 'J' },
                                                                     too_late: { bg: 'bg-orange-100 border-orange-400', text: 'text-orange-700', label: 'L' },
+                                                                    late: { bg: 'bg-orange-100 border-orange-400', text: 'text-orange-700', label: 'L' },
                                                                     change: { bg: 'bg-blue-100 border-blue-400', text: 'text-blue-700', label: 'C' },
                                                                     stop: { bg: 'bg-purple-100 border-purple-400', text: 'text-purple-700', label: 'S' },
+                                                                    stopped: { bg: 'bg-purple-100 border-purple-400', text: 'text-purple-700', label: 'S' },
                                                                     new: { bg: 'bg-orange-100 border-orange-200', text: 'text-orange-800', label: 'N' },
+                                                                };
+                                                                const statusLabels: Record<string, string> = {
+                                                                    present: 'Present',
+                                                                    absent: 'Absent',
+                                                                    default: 'Default',
+                                                                    justified: 'Justified',
+                                                                    too_late: 'Late',
+                                                                    late: 'Late',
+                                                                    change: 'Change',
+                                                                    stop: 'Stopped',
+                                                                    stopped: 'Stopped',
+                                                                    new: 'New',
                                                                 };
                                                                 const config = statusConfig[att.status] || statusConfig['default'];
                                                                 const dateStr = format(att.date, 'dd/MM');
+                                                                const statusName = statusLabels[att.status] || (att.status ? att.status.charAt(0).toUpperCase() + att.status.slice(1) : 'Default');
                                                                 return (
                                                                     <div key={attIdx} className="flex flex-col items-center gap-0.5">
                                                                         <span className="text-[8px] text-gray-400 font-semibold tracking-tighter">{dateStr}</span>
                                                                         <div
-                                                                            title={`${dateStr} — ${att.status.charAt(0).toUpperCase() + att.status.slice(1)}`}
+                                                                            title={`${dateStr} — ${statusName}`}
                                                                             className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-bold cursor-default shadow-sm ${config.bg} ${config.text}`}
                                                                         >
                                                                             {config.label}

@@ -423,16 +423,7 @@ export default function PaymentsPage() {
             let totalBalance = 0;
             let totalPaid = 0;
             let remainingBalance = 0;
-            const allGroupBalances: Array<{
-                groupId: number;
-                groupName: string;
-                groupFees: number;
-                amountPaid: number;
-                remainingAmount: number;
-                discount?: number;
-                isRegistrationFee?: boolean;
-                startDate?: string;
-            }> = [];
+            const allGroupBalances: Awaited<ReturnType<typeof getStudentBalance>>['groupBalances'] = [];
 
             for (const sid of studentIds) {
                 try {

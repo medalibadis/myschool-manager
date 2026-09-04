@@ -529,13 +529,8 @@ export default function PaymentsPage() {
             for (const group of studentGroupsList) {
                 if (group.sessions && group.sessions.length > 0) {
                     const matchedStudentId = group.students?.find(s => studentIds.includes(s.id))?.id;
-                    const sessionRecords = group.sessions
-                        .sort((a, b) => {
-                            if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
-                                return a.sessionNumber - b.sessionNumber;
-                            }
-                            return new Date(a.date).getTime() - new Date(b.date).getTime();
-                        })
+                    const sessionRecords = [...group.sessions]
+                        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                         .map(session => {
                             const dbStatus = attMapBySession.get(session.id);
                             const storeStatus = matchedStudentId ? session.attendance?.[matchedStudentId] : undefined;

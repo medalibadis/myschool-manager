@@ -475,6 +475,9 @@ export default function PaymentsPage() {
                 .sort((a, b) => {
                     if (a.groupId === 0) return -1;
                     if (b.groupId === 0) return 1;
+                    const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+                    const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+                    if (da !== db) return da - db; // Oldest start date first
                     return a.groupId - b.groupId;
                 })
                 .map(gb => ({

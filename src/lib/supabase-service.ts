@@ -601,39 +601,6 @@ export const groupService = {
       console.error('Error rescheduling session:', updateError);
       throw new Error('Failed to reschedule session');
     }
-
-    // If the new date is in the future (meaning the session was stopped), 
-    // mark all students in this group as stopped
-    if (newDate > new Date()) {
-      try {
-        const { error: statusError } = await supabase
-          .from('student_groups')
-          .update({ status: 'stopped' })
-          .eq('group_id', session.group_id);
-
-        if (statusError) {
-          console.log('Junction table update failed, trying fallback approach:', statusError.message);
-
-          // Fallback: try to update students table directly
-          const { error: fallbackError } = await supabase
-            .from('students')
-            .update({
-              // Add a status field or use existing mechanism
-              // For now, we'll just log that we can't update status
-            })
-            .eq('group_id', session.group_id);
-
-          if (fallbackError) {
-            console.log('Fallback approach also failed:', fallbackError.message);
-          } else {
-            console.log('Successfully updated student status using fallback approach');
-          }
-        }
-      } catch (error) {
-        console.error('Unexpected error updating student status:', error);
-        // Don't throw error here as the session was successfully rescheduled
-      }
-    }
   },
 };
 

@@ -2534,65 +2534,72 @@ export const paymentService = {
       const discountedGroupFee = appliedDiscount > 0 ? groupFee * (1 - appliedDiscount / 100) : groupFee;
 
       // 🆕 ATTENDANCE-BASED FEE CALCULATION
-      // Calculate the actual amount owed based on attendance status ONLY if the student has stopped
       let actualGroupFee = discountedGroupFee;
 
-      if (studentGroup.status === 'stopped') {
-        try {
-          // Get all sessions for this group
-          const { data: groupSessions, error: sessionsError } = await supabase
-            .from('sessions')
-            .select('id, date')
-            .eq('group_id', groupIdVal)
-            .order('date', { ascending: true });
+      try {
+        // Get all sessions for this group
+        const { data: groupSessions, error: sessionsError } = await supabase
+          .from('sessions')
+          .select('id, date')
+          .eq('group_id', groupIdVal)
+          .order('date', { ascending: true });
 
-          if (!sessionsError && groupSessions && groupSessions.length > 0) {
-            // Get attendance records for this student in this group
-            const sessionIds = groupSessions.map(s => s.id);
-            const { data: attendanceRecords, error: attendanceError } = await supabase
-              .from('attendance')
-              .select('session_id, status')
-              .eq('student_id', studentId)
-              .in('session_id', sessionIds);
+        if (!sessionsError && groupSessions && groupSessions.length > 0) {
+          // Get attendance records for this student in this group
+          const sessionIds = groupSessions.map(s => s.id);
+          const { data: attendanceRecords, error: attendanceError } = await supabase
+            .from('attendance')
+            .select('session_id, status')
+            .eq('student_id', studentId)
+            .in('session_id', sessionIds);
 
-            if (!attendanceError && attendanceRecords) {
-              // Count sessions by payment obligation
-              let obligatorySessions = 0; // present, absent, too_late = MUST PAY
-              let freeSessions = 0; // justified, change, new, stop = NOT COUNTED
+          if (!attendanceError && attendanceRecords) {
+            const totalSessions = Number(group.total_sessions || groupSessions.length || 1);
+            const pricePerSession = discountedGroupFee / totalSessions;
 
+            if (studentGroup.status === 'stopped') {
+              // Stopped student: only pay for sessions they attended or were obligated to before stopping
+              let obligatorySessions = 0;
               for (const session of groupSessions) {
                 const attendance = attendanceRecords.find(a => a.session_id === session.id);
                 const status = attendance?.status || 'default';
 
-                if (['present', 'absent', 'too_late', 'default'].includes(status)) {
-                  obligatorySessions++; // MUST PAY
-                } else {
-                  freeSessions++; // NOT COUNTED (justified, new, change, stop)
+                if (['present', 'absent', 'too_late', 'late', 'justified'].includes(status)) {
+                  obligatorySessions++;
                 }
               }
-
-              // Calculate actual fee based on obligatory sessions only
-              const totalSessions = groupSessions.length;
-              const pricePerSession = discountedGroupFee / totalSessions;
-              actualGroupFee = obligatorySessions * pricePerSession;
-
+              actualGroupFee = Math.round(obligatorySessions * pricePerSession * 100) / 100;
               console.log(`  📊 ATTENDANCE-BASED CALCULATION (Stopped student):`);
               console.log(`    Total sessions: ${totalSessions}`);
-              console.log(`    Obligatory sessions: ${obligatorySessions} (must pay)`);
-              console.log(`    Free sessions: ${freeSessions} (justified/new/change/stop)`);
+              console.log(`    Obligatory sessions: ${obligatorySessions}`);
               console.log(`    Price per session: ${pricePerSession}`);
-              console.log(`    Original group fee: ${discountedGroupFee}`);
               console.log(`    Actual fee owed: ${actualGroupFee}`);
+            } else {
+              // Active / finished student: full course fee minus sessions they missed due to joining late ('new'), session stop ('stop'), or transferring ('change')
+              // NOTE: 'justified', 'absent', 'present', 'late', and 'default' (future/enrolled) are obligatory sessions
+              let freeSessions = 0;
+              for (const session of groupSessions) {
+                const attendance = attendanceRecords.find(a => a.session_id === session.id);
+                const status = attendance?.status || 'default';
 
-              if (freeSessions > 0) {
-                console.log(`  🎉 Stopped student owes only ${actualGroupFee} DA for attended sessions`);
+                if (['new', 'stop', 'stopped', 'change'].includes(status)) {
+                  freeSessions++;
+                }
               }
+              const discountForFreeSessions = Math.round(freeSessions * pricePerSession * 100) / 100;
+              actualGroupFee = Math.max(0, discountedGroupFee - discountForFreeSessions);
+              console.log(`  📊 ATTENDANCE-BASED CALCULATION (Active/Finished student):`);
+              console.log(`    Total sessions: ${totalSessions}`);
+              console.log(`    Free sessions (new/stop/change): ${freeSessions}`);
+              console.log(`    Price per session: ${pricePerSession}`);
+              console.log(`    Deduction for free sessions: ${discountForFreeSessions}`);
+              console.log(`    Actual fee owed: ${actualGroupFee}`);
             }
           }
-        } catch (error) {
-          console.log(`  ⚠️ Could not calculate attendance-based fee for stopped student, using full fee:`, error);
-          // Keep using the original discountedGroupFee if attendance calculation fails
         }
+      } catch (error) {
+        console.log(`  ⚠️ Could not calculate attendance-based fee, using full fee:`, error);
+        // Keep using the original discountedGroupFee if attendance calculation fails
       }
 
       console.log(`  🎯 Discount calculation for group ${group.name}:`);

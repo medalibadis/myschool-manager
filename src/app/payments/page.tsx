@@ -43,6 +43,7 @@ interface StudentWithGroups {
     totalPaid: number;
     remainingBalance: number;
     defaultDiscount: number;
+    _allIds?: string[];
 }
 
 export default function PaymentsPage() {
@@ -400,45 +401,85 @@ export default function PaymentsPage() {
         console.log('Refreshing data for student:', selectedStudent.id, selectedStudent.name);
 
         try {
-            // Refresh student balance using store method (includes retrospective logic for stopped students)
-            const balance = await getStudentBalance(selectedStudent.id);
+            // Check if student has merged IDs across different records
+            const studentIds = (selectedStudent._allIds && selectedStudent._allIds.length > 0)
+                ? [...selectedStudent._allIds]
+                : (() => {
+                    const ids = new Set<string>([selectedStudent.id]);
+                    const sPhone = selectedStudent.phone?.trim();
+                    const sName = selectedStudent.name?.trim().toLowerCase();
+                    if (sName) {
+                        for (const g of groups) {
+                            for (const s of g.students || []) {
+                                if (s.name?.trim().toLowerCase() === sName && (!sPhone || s.phone?.trim() === sPhone)) {
+                                    ids.add(s.id);
+                                }
+                            }
+                        }
+                    }
+                    return Array.from(ids);
+                })();
 
-            console.log('Balance calculation result:', {
-                totalBalance: balance.totalBalance,
-                totalPaid: balance.totalPaid,
-                remainingBalance: balance.remainingBalance,
-                groupBalancesCount: balance.groupBalances.length
+            let totalBalance = 0;
+            let totalPaid = 0;
+            let remainingBalance = 0;
+            const allGroupBalances: Array<{
+                groupId: number;
+                groupName: string;
+                groupFees: number;
+                amountPaid: number;
+                remainingAmount: number;
+                discount?: number;
+                isRegistrationFee?: boolean;
+                startDate?: string;
+            }> = [];
+
+            for (const sid of studentIds) {
+                try {
+                    const balance = await getStudentBalance(sid);
+                    totalBalance += balance.totalBalance;
+                    totalPaid += balance.totalPaid;
+                    remainingBalance += balance.remainingBalance;
+                    allGroupBalances.push(...balance.groupBalances);
+                } catch (e) {
+                    console.error(`Error getting balance for merged ID ${sid}:`, e);
+                }
+            }
+
+            console.log('Balance calculation result (aggregated):', {
+                studentIds,
+                totalBalance,
+                totalPaid,
+                remainingBalance,
+                groupBalancesCount: allGroupBalances.length
             });
 
-            // Update selectedStudent with new balance
+            // Update selectedStudent with new aggregated balance
             setSelectedStudent(prev => prev ? {
                 ...prev,
-                remainingBalance: balance.remainingBalance,
-                totalBalance: balance.totalBalance,
-                totalPaid: balance.totalPaid
+                _allIds: studentIds,
+                remainingBalance,
+                totalBalance,
+                totalPaid
             } : null);
 
-            // Update unpaid groups with proper priority ordering
-            console.log('Processing groupBalances:', balance.groupBalances);
+            // Deduplicate group balances by groupId if needed
+            const uniqueGroupBalances = new Map<number, typeof allGroupBalances[0]>();
+            for (const gb of allGroupBalances) {
+                if (!uniqueGroupBalances.has(gb.groupId)) {
+                    uniqueGroupBalances.set(gb.groupId, { ...gb });
+                } else {
+                    const existing = uniqueGroupBalances.get(gb.groupId)!;
+                    existing.amountPaid += gb.amountPaid;
+                    existing.remainingAmount = Math.max(0, existing.remainingAmount + gb.remainingAmount);
+                }
+            }
 
-            // 🚨 DEBUG: Show all group balances before filtering
-            console.log('🚨 DEBUG: All group balances before filtering:');
-            balance.groupBalances.forEach((gb, index) => {
-                console.log(`  ${index + 1}. ${gb.groupName} (ID: ${gb.groupId}): Fee=${gb.groupFees}, Paid=${gb.amountPaid}, Remaining=${gb.remainingAmount}, isRegistrationFee=${gb.isRegistrationFee}`);
-            });
-
-            console.log('🚨 DIAGNOSTIC: Group Balances Array Length:', balance.groupBalances.length);
-            balance.groupBalances.forEach(gb => {
-                console.log(`🚨 DIAGNOSTIC: gb.groupName=${gb.groupName}, gb.remainingAmount=${gb.remainingAmount}, type=${typeof gb.remainingAmount}`);
-            });
-
-            const list = balance.groupBalances
+            const list = Array.from(uniqueGroupBalances.values())
                 .filter(gb => {
                     const tolerance = 0.01;
                     const rem = Number(gb.remainingAmount);
-                    const shouldInclude = rem > tolerance;
-                    console.log(`🚨 DIAGNOSTIC: Filtering ${gb.groupName}: value=${rem}, shouldInclude=${shouldInclude}`);
-                    return shouldInclude;
+                    return rem > tolerance;
                 })
                 .sort((a, b) => {
                     if (a.groupId === 0) return -1;
@@ -452,20 +493,18 @@ export default function PaymentsPage() {
                     originalPrice: gb.groupFees,
                     discount: gb.discount || 0,
                     isRegistrationFee: gb.isRegistrationFee || false,
-                    startDate: undefined
+                    startDate: gb.startDate
                 }));
 
-            console.log('🚨 DIAGNOSTIC: Unpaid groups list:', list);
-            console.log('GroupBalances from service:', balance.groupBalances);
-
+            console.log('🚨 DIAGNOSTIC: Aggregated unpaid groups list:', list);
             setUnpaidGroups(list);
 
-            // Fetch attendance data for each group this student belongs to
+            // Fetch attendance data for each group this student belongs to (across all merged IDs)
             const attendanceMap: Record<number, Array<{ date: Date; status: string; sessionNumber?: number }>> = {};
             for (const group of groups) {
-                // Check if the student is in this group
-                const studentInGroup = group.students?.some(s => s.id === selectedStudent.id);
+                const studentInGroup = group.students?.some(s => studentIds.includes(s.id));
                 if (studentInGroup && group.sessions && group.sessions.length > 0) {
+                    const matchedStudentId = group.students?.find(s => studentIds.includes(s.id))?.id;
                     const sessionRecords = group.sessions
                         .sort((a, b) => {
                             if (a.sessionNumber !== undefined && b.sessionNumber !== undefined) {
@@ -475,7 +514,7 @@ export default function PaymentsPage() {
                         })
                         .map(session => ({
                             date: new Date(session.date),
-                            status: session.attendance?.[selectedStudent.id] || 'default',
+                            status: (matchedStudentId && session.attendance?.[matchedStudentId]) || 'default',
                             sessionNumber: session.sessionNumber
                         }));
                     if (sessionRecords.length > 0) {
@@ -486,9 +525,9 @@ export default function PaymentsPage() {
             setGroupAttendanceMap(attendanceMap);
 
             console.log('Selected student data refreshed:', {
-                balance: balance.remainingBalance,
+                balance: remainingBalance,
                 unpaidGroupsCount: list.length,
-                rawGroupBalancesCount: balance.groupBalances.length,
+                rawGroupBalancesCount: allGroupBalances.length,
                 attendanceGroupsCount: Object.keys(attendanceMap).length
             });
         } catch (error) {
@@ -842,13 +881,31 @@ export default function PaymentsPage() {
             console.log(`   Discount: ${discountPercentage}%`);
             console.log(`   New price: ${newPrice}`);
 
+            // Find which studentId in studentIds is enrolled in selectedGroupForPayment
+            let targetStudentId = selectedStudent.id;
+            const studentIds = (selectedStudent._allIds && selectedStudent._allIds.length > 0)
+                ? selectedStudent._allIds
+                : [selectedStudent.id];
+
+            if (studentIds.length > 1) {
+                for (const group of groups) {
+                    if (group.id === selectedGroupForPayment.id && group.students) {
+                        const found = group.students.find(s => studentIds.includes(s.id));
+                        if (found) {
+                            targetStudentId = found.id;
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Update the group discount in student_groups table
             const { error } = await supabase
                 .from('student_groups')
                 .update({
                     group_discount: discountPercentage > 0 ? discountPercentage : null
                 })
-                .eq('student_id', selectedStudent.id)
+                .eq('student_id', targetStudentId)
                 .eq('group_id', selectedGroupForPayment.id);
 
             if (error) {
@@ -892,13 +949,6 @@ export default function PaymentsPage() {
             setIsProcessingPayment(true);
             const depositAmount = Math.abs(parseFloat(paymentData.amount || '0'));
 
-            console.log('Processing payment:', {
-                studentId: selectedStudent.id,
-                depositAmount,
-                date: paymentData.date,
-                notes: paymentData.notes,
-            });
-
             // Use the central depositAndAllocate function for ALL payments,
             // but pass the targetGroupId so it prioritizes paying that group first.
             const targetGroupId = selectedGroupForPayment && selectedGroupForPayment.id !== 0 
@@ -909,8 +959,36 @@ export default function PaymentsPage() {
                 console.log(`💰 Prioritizing payment to group: ${selectedGroupForPayment!.name} (ID: ${targetGroupId})`);
             }
 
+            // Determine which student ID in studentIds is enrolled in targetGroupId (or first unpaid group)
+            let payingStudentId = selectedStudent.id;
+            const studentIds = (selectedStudent._allIds && selectedStudent._allIds.length > 0)
+                ? selectedStudent._allIds
+                : [selectedStudent.id];
+
+            if (studentIds.length > 1) {
+                const targetId = targetGroupId || (unpaidGroups.length > 0 && unpaidGroups[0].id !== 0 ? unpaidGroups[0].id : undefined);
+                if (targetId) {
+                    for (const group of groups) {
+                        if (group.id === targetId && group.students) {
+                            const found = group.students.find(s => studentIds.includes(s.id));
+                            if (found) {
+                                payingStudentId = found.id;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            console.log('Processing payment:', {
+                studentId: payingStudentId,
+                depositAmount,
+                date: paymentData.date,
+                notes: paymentData.notes,
+            });
+
             const result = await depositAndAllocate(
-                selectedStudent.id,
+                payingStudentId,
                 depositAmount,
                 new Date(paymentData.date),
                 paymentData.notes || '',
@@ -933,22 +1011,8 @@ export default function PaymentsPage() {
 
             console.log('Payment allocation result from backend:', result);
 
-            // Use the result from the backend service
-            console.log('Using result from backend service:', result);
-
             // Refresh student data to show updated balance and unpaid groups
             console.log('💾 Refreshing student data after payment...');
-            // Use the centralized service method instead of local calculation
-            const updatedBalance = await getStudentBalance(selectedStudent.id);
-            console.log('Updated balance after payment:', updatedBalance);
-
-            // Update selected student with new balance
-            setSelectedStudent(prev => prev ? {
-                ...prev,
-                remainingBalance: updatedBalance.remainingBalance
-            } : null);
-
-            // Update unpaid groups to remove paid groups
             await refreshSelectedStudentData();
 
             // Reset form but keep the student selected to see the changes
